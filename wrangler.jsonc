@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "omaryusuf-se",
+  "name": "omar-portfolio",
   "main": "src/worker.mjs",
   "compatibility_date": "2026-09-11",
   "workers_dev": false,
