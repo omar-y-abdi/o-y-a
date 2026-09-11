@@ -1,0 +1,35 @@
+{
+  "method": "Node zlib.gzipSync of final built assets. File-transfer estimates, not measured network performance or Core Web Vitals.",
+  "javascript": [
+    {
+      "file": "cards.55ab8f9fdceb.mjs",
+      "bytes": 2512,
+      "gzipBytes": 1086
+    },
+    {
+      "file": "joy.952bf21e3a77.mjs",
+      "bytes": 10181,
+      "gzipBytes": 3661
+    },
+    {
+      "file": "main.5a1c6453f8c0.mjs",
+      "bytes": 8078,
+      "gzipBytes": 2814
+    },
+    {
+      "file": "privacy.d1e242f909f2.mjs",
+      "bytes": 538,
+      "gzipBytes": 335
+    }
+  ],
+  "javascriptTotalGzip": 7896,
+  "css": {
+    "file": "site.4992b7949068.css",
+    "bytes": 52585,
+    "gzipBytes": 12118
+  },
+  "homeHtml": {
+    "bytes": 26968,
+    "gzipBytes": 5415
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-11",
+  "os": "Linux-6.18.35-x86_64-with-glibc2.41",
+  "architecture": "x86_64",
+  "node": "v22.16.0",
+  "npm": "10.9.2",
+  "python": "3.13.5",
+  "git": "git version 2.47.3",
+  "chromium": "Chromium 144.0.7559.96 built on Debian GNU/Linux 13 (trixie)",
+  "playwright": "1.57.0",
+  "productionNpmDependencies": 0,
+  "lockfileSHA256": "08b24c3498c45f8a8a52df03aab56a0ae920b9c6303384861a8f5a9e31c61129",
+  "directOutboundNetwork": "DNS unavailable in tested native attempts",
+  "managedBrowser": "URL navigation blocked by URLBlocklist=*; no policy modified",
+  "renderMode": "about:blank document rendering with explicit cookie/origin/network adapters",
+  "cloudflareRuntime": "Not installed or executed; Node adapter is not workerd",
+  "remoteWrites": "None. GitHub connector read-only, no Cloudflare connector exposed."
+}

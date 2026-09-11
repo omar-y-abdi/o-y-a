@@ -1,0 +1,24 @@
+{
+  "name": "omaryusuf-se",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Omar Yusuf. En seri\u00f6st lekfull plats p\u00e5 internet.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && node scripts/serve.mjs",
+    "preview": "node scripts/serve.mjs",
+    "lint": "node scripts/lint.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "python tests/browser.py",
+    "check": "npm run build && npm run lint && npm test",
+    "deploy": "npm run check && npx --yes wrangler@4.131.1 deploy",
+    "test:http": "python tests/http.py",
+    "test:render": "python tests/browser.py --render-only --screenshots",
+    "quality": "bash scripts/quality.sh",
+    "edge:check": "npm run build && npx --yes wrangler@4.131.1 deploy --dry-run --outdir artifacts/worker-build"
+  }
+}

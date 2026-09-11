@@ -1,0 +1,19 @@
+# Omar Yusuf
+
+> Personlig webbplats för Omar Yusuf, maskiningenjör med intresse för kod, automation och mekatronik.
+
+## Sidor
+- [Hem](https://omaryusuf.se/): Omar Yusufs lilla del av internet. Upptäck projekt, lek i glädjeverkstaden och möt en maskiningenjör med nyfikenhet för kod och detaljer.
+- [Glädjeverkstaden](https://omaryusuf.se/verkstad/): Tryck fram en liten vinst, välj ett skämt och poppa några bubblor. En lekfull, interaktiv paus i Omar Yusufs digitala verkstad.
+- [Människan](https://omaryusuf.se/om/): Möt Omar Yusuf. Maskinteknik, kod, automation och en stor dos nyfikenhet. Här finns människan bakom projekten och glädjeverkstaden.
+- [Furl](https://omaryusuf.se/projekt/furl/): Furl komprimerar stora verktygssvar för AI-agenter och gör originalinnehållet tillgängligt för senare hämtning. Läs om Omar Yusufs öppna projekt.
+- [Säg hej](https://omaryusuf.se/kontakt/): En idé, ett projekt eller en fråga om Furl? Hitta Omar Yusufs offentliga GitHub-profil och projekt. Börja ett samtal utan kontaktformulär.
+- [Integritet](https://omaryusuf.se/integritet/): Så hanteras integritet på omaryusuf.se. Läs om samtycke, begränsad besöksstatistik, tekniska uppgifter och dina möjligheter att göra egna val.
+- [Kakor](https://omaryusuf.se/kakor/): Vilka kakor som används på omaryusuf.se, vad de gör och hur länge de sparas. Ändra eller återkalla ditt val om statistik när som helst.
+- [Villkor](https://omaryusuf.se/villkor/): Villkor för att använda omaryusuf.se. Information om innehåll, öppna projekt, externa länkar och den lekfulla glädjeverkstaden.
+- [Tillgänglighet](https://omaryusuf.se/tillganglighet/): Läs om tangentbordsstöd, rörelseinställningar, tydliga kontraster och tillgänglighet på omaryusuf.se. Här kan du också rapportera problem.
+
+## Offentliga projekt
+- [Furl](https://github.com/omar-y-abdi/furl-ctx): Projektets egen dokumentation är källan för aktuella funktioner och begränsningar.
+
+Glädjeverkstaden innehåller förskrivna skämt och uppmuntrande texter, inte personlig eller professionell rådgivning. Webbplatsen representerar en person, inte en verifierad lokal verksamhet.
