@@ -2,71 +2,69 @@
 
 **Teknik med hjärna. Lite bus i systemet.**
 
-En personlig, svensk webbplats med en taktil glädjemaskin, delbara kort och en liten bubbelpaus. Varmt gult, koboltblått, egenritad CSS-grafik och faktisk interaktion. Inte en bild av en webbplats.
+Den smörgula, koboltblå webbplatsen i Omars godkända `o-y-a.zip`, vidareutvecklad utan att ersätta dess formspråk. Källkod, byggda sidor, tester och konfiguration följer med.
 
-## Status
+## Den här leveransen
 
-Källkod, statiskt bygge, lokala tester och visuell granskning finns. **Webbplatsen har inte publicerats av den här leveransen. Inget GitHub-repo eller någon Cloudflare-koppling har skapats. DNS och TLS för omaryusuf.se är inte verifierade.**
+Revisionen uppdaterar den befintliga webbplatsen. Den skapar inget nytt repo, ändrar ingen DNS och publicerar inte automatiskt. Befintligt Worker-namn **`omar-portfolio`** och de två befintliga domänrutterna behålls. Den gamla leveransens påståenden om saknade repo eller kontobehörigheter beskriver inte den här revisionen.
 
-GitHub-anslutningen i arbetsmiljön kunde läsa men inte skriva. Cloudflare-verktyg exponerades inte. Fullständig webbläsar-E2E och den riktiga Cloudflare-körmiljön återstår också. Se [verifieringsrapporten](docs/QA.md) och [publiceringsguiden](docs/DEPLOYMENT.md).
+OY-monogrammet har ersatts av en liten illustrerad arbetsbänk i samma lutande papperskort. `Upp igen` går till dokumentets verkliga början. Kontaktkuvertet har egen text, inga privata mottagaruppgifter i klienten och en diskret länk till integritetspolicyn. Ingen lappmängd annonseras i gränssnittet.
 
-## Öppna webbplatsen lokalt
+Verkstaden innehåller fyra stationer: glädjemaskinen, bubbelpausen, memory och femsekundersfikat. Maskinen har torr humor, kärleksfulla gliringar, pepp och påminnelser, en blandad kortlek per kategori, reaktiv figur och utskrift ovanpå maskinen. De gamla kortlänkarna fungerar fortfarande. Bilder skapas på besökarens enhet. Ljud börjar avstängt och minskad rörelse respekteras.
 
-Kräver Node.js 22 eller senare. Inga npm-paket behövs för att bygga eller visa sidan.
+Persontexten har uppdaterats enligt Omars uppgifter. Blade & Blend och Backhaul har egna projektkort och sidor. Inga privata repo publiceras, inga hackathonvinster eller produktionseffekter uppfinns.
+
+## Visa lokalt
+
+Node.js 22 eller senare behövs. Inga npm-paket behövs för vanligt bygge och förhandsvisning.
 
 ```sh
 npm run dev
 ```
 
-Öppna `http://127.0.0.1:4173/` i webbläsaren. Avsluta servern med Ctrl+C. Om porten är upptagen:
+Öppna `http://127.0.0.1:4173/`. Avsluta med Ctrl+C. För annan port:
 
 ```sh
 npm run build
 node scripts/serve.mjs --port 4180
 ```
 
-Bygg separat med `npm run build`, visa senaste bygget med `npm run preview`. Dubbelklicka inte på HTML-filen: moduler, interna länkar och API-svar ska serveras över HTTP.
+Använd HTTP-servern, inte dubbelklick på HTML-filer. Länkar, moduler, JSON-kortleken och API-svar behöver rätt origin. Den lokala servern använder samma Worker-handler med en dokumenterad Node-adapter, inte Cloudflares workerd.
 
-## Vad som finns
+## Kontaktmejl
 
-Glädjemaskinen skriver ut ett av 18 förskrivna kort i tre kategorier. Det går att dela en stabil kortlänk eller skapa en riktig PNG-bild på den egna enheten. Verkstaden har också tangentbordsstyrda bubblor, ljud som är avstängt från början och en knapp för att pausa rörelser. Systemets inställning för minskad rörelse har företräde.
+Formuläret använder Cloudflare Turnstile och en serverbaserad Resend-integration. Namn och mejladress krävs. Meddelandet är valfritt. Två separata mejl skickas: en intern avisering med besökarens Reply-To och ett formgivet mottagningskvitto med den egna gula GIF-figuren. Mottagaradressen till Omar finns bara i en serverhemlighet.
 
-Sidor: hem, verkstad, om Omar, Furl, kontakt, integritet, kakor, villkor, tillgänglighet och en egen 404. Furl är ett verifierat offentligt projekt. Inga påhittade kundcase, porträtt, recensioner, resultat eller företagsadresser används.
+**Konfigurera [kontaktfunktionen](docs/CONTACT-SETUP.md) före publicering.** Utan hemligheter och rate-limit-binding stänger API:t kontaktsändningen i stället för att låtsas ha skickat mejl. Den vanliga lokala förhandsvisningen skickar inga riktiga mejl. Tester använder uttryckliga provideradaptrar.
 
-SEO finns i genererad HTML: individuella titlar och beskrivningar, absoluta canonical-adresser, Open Graph/Twitter-bild, en h1 per sida, interna länkar, brödsmulor och strukturerade data. sitemap.xml, robots.txt och llms.txt byggs från samma sidregister. 404 är noindex och inte med i webbplatskartan. Person-schema används; en lokal verksamhet har inte verifierats.
-
-## Integritet
-
-**Statistik är avstängd i levererad driftskonfiguration.** En Analytics Engine-binding räcker inte för att starta den. Även `ANALYTICS_ENABLED` måste vara strängen `"true"`, och besökaren måste uttryckligen samtycka. GPC och Do Not Track stoppar frivillig statistik även efter ett tidigare ja.
-
-När funktionen aktiveras tar API:t endast emot en känd sidväg och ett av fyra fasta händelsenamn. Varje typ räknas högst en gång per sidladdning i klienten. Det lagras inget besökar-ID, ingen IP-adress eller fritext i dessa datapunkter. Cloudflare behandlar fortfarande nätverksuppgifter för att leverera anrop; detta är inte ett löfte om anonym eller EU-exklusiv hosting.
-
-Inga externa typsnitt, annonsbibliotek, inbäddade sociala flöden eller låtsaskontaktformulär. Kontaktlänkarna går bara till verifierade offentliga GitHub-sidor. En lämplig privat kontaktväg och hostingkontots faktiska integritetsinställningar måste godkännas före lansering med statistik.
+GIF-filen är en bild i mejlet. En avsändaravatar i inkorgens meddelandelista är en annan funktion och styrs av mottagarens mejltjänst. Den har inte konfigurerats av denna leverans.
 
 ## Kodens delar
 
 | Plats | Ansvar |
 | --- | --- |
-| `src/content/site.mjs` | Namn, offentliga länkar, sidregister och metadata |
-| `src/templates/` | Semantisk HTML, delade delar, sidor och policytexter |
-| `src/styles/` | Färger, responsiv layout, maskin, illustrationer och rörelse |
-| `src/client/` | Kort, animationer, menyer, delning, samtycke och bubblor |
-| `src/worker.mjs` | Säkerhetshuvuden, domänomdirigering och statistik-API |
-| `scripts/build.mjs` | Statiskt bygge, hashade resurser och CSP-hashar |
-| `scripts/serve.mjs` | Lokal HTTP-server med samma Worker-handler och en Node-adapter |
-| `tests/` | Enhets-, HTTP-, renderings- och webbläsartester |
-| `.github/workflows/quality.yml` | Kvalitetsgrind och separat, avstängd publiceringsgrind |
-| `public/` | Egen favicon, appikon och social delningsbild |
+| `src/content/site.mjs` | Sidregister, offentliga länkar och metadata |
+| `src/templates/` | Semantisk HTML, innehåll och policytexter |
+| `src/styles/` | Originalets formspråk och separata tillägg för berörda sidor |
+| `src/client/` | Navigation, leksaker, kort, samtycke och kontaktformulär |
+| `src/server/contact.mjs` | Validering, Turnstile, hastighetsbegränsning och Resend |
+| `src/server/emails.mjs` | Tabellbaserade HTML-mejl och textalternativ |
+| `src/worker.mjs` | Routing, säkerhetshuvuden, kontakt- och statistik-API |
+| `public/data/cards.json` | Kortlek, hämtad först när maskinen används |
+| `public/mail/` | Den animerade figuren och dess stillbild |
+| `scripts/build.mjs` | Statiskt bygge, sidberoende CSS och hashade resurser |
+| `scripts/serve.mjs` | Lokal server med Node-adapter |
+| `tests/` | Enhets-, HTTP-, layout- och interaktionskontroller |
 
-Det genererade `dist/` ingår i ZIP-leveransen men inte i Git. `.generated/` återskapas av byggkommandot. Ändra källan, inte genererade filer. Bygget behöver inga externa paket, bundlers eller typsnittsfiler. Flera sidor laddar bara grundmodulen; leksakskoden laddas på sidor som använder den.
+`dist/` ingår som färdigt bygge. `.generated/` återskapas av byggkommandot och innehåller inga hemligheter. Ändra källan och bygg om, inte enstaka filer i `dist/`. Inga typsnittsfiler, produktions-source maps eller tredjepartsramverk levereras. JavaScript för kontakt och spel laddas bara på sidorna som använder funktionerna.
 
-## Tester
+## Kontrollera revisionen
 
 ```sh
 npm run check
 ```
 
-Kör bygge, syntaxkontroll, innehålls-/resurskontroller och Node-tester. För webbläsartester behövs Python, Playwright enligt `requirements-test.txt` och Chromium:
+Det kör byggning, syntaxkontroll och Node-tester. Webbläsartester använder Python, Playwright och Chromium. För att installera separata testverktyg:
 
 ```sh
 python3 -m venv .test-venv
@@ -77,12 +75,26 @@ export CHROMIUM_PATH="$(python -c 'from playwright.sync_api import sync_playwrig
 npm run quality
 ```
 
-`npm run quality` startar egna testservrar på 4173 och 4174, kör HTTP- och verkliga URL-baserade webbläsartester och stänger sedan servrarna. Låt de portarna vara lediga. På Linux kan Chromium också kräva systembibliotek; CI använder Playwrights `--with-deps`.
+`quality` startar testservrar på 4173 och 4174, kör HTTP-kontroller och URL-baserade webbläsartester och stänger servrarna. Portarna måste vara lediga. Linux kan även behöva Playwrights systembibliotek, installerade med `python -m playwright install --with-deps chromium`.
 
-`python tests/browser.py --render-only --screenshots` är ett uttryckligt reservläge för dokumentrendering när webbläsarnavigering är blockerad. Det är **inte** en ersättning för full E2E. Rapporten namnger adaptrarna. `python tests/contrast.py` och `python tests/card_export.py` kontrollerar kontraster respektive samtliga kortbilder i samma renderingsläge. `scripts/artwork.py` är ett separat verktyg för att återskapa ikoner/delningsbild, inte ett krav för vanligt bygge; det använder även Pillow och CairoSVG.
+I en miljö där webbläsarens navigeringspolicy blockerar adresser kan de **separata dokumentrenderingstesterna** köras:
 
-## Publicering
+```sh
+python tests/browser.py --render-only --screenshots --section pages
+python tests/browser.py --render-only --screenshots --section interactions
+python tests/browser.py --render-only --screenshots --section privacy
+python tests/revision_browser.py
+python tests/card_export.py
+python tests/contrast.py
+python tests/email_render.py
+```
 
-Läs [DEPLOYMENT.md](docs/DEPLOYMENT.md) före publicering. Cloudflare-konfigurationen riktar sig till exakt `omaryusuf.se` och `www.omaryusuf.se`. Den får inte användas för att blint ersätta befintlig DNS eller en annan applikation.
+De här lägena kör verklig DOM, CSS, canvas och interaktionskod, men anpassar origin, nätverk, lagring och vissa webbläsarbehörigheter. De är **inte fullständiga nätverks-E2E-tester**. Gränser och aktuella resultat finns i [QA.md](docs/QA.md).
 
-Den förberedda kedjan är GitHub Actions → tester → Cloudflare. `DEPLOY_ENABLED` är en separat repo-variabel som måste vara `true` innan deploy-jobbet över huvud taget kan köras. Privata kontouppgifter hör hemma i godkända anslutningar eller GitHub Secrets, inte i koden eller i en chatt.
+Pillow behövs endast för valfria grafikverktyg som `scripts/mail-art.py`; det ingår inte i webbplatsens drift. Färdig GIF och övriga grafikfiler finns redan i `public/`. Det äldre verktyget `scripts/artwork.py` använder även CairoSVG.
+
+## Uppdatera den befintliga webbplatsen
+
+Följ [DEPLOYMENT.md](docs/DEPLOYMENT.md). Ingen GitHub-workflow följer med den godkända bas-ZIP:en, och revisionen installerar inte någon. Behåll din befintliga publiceringsväg. Ladda inte upp hemligheter till GitHub eller som statiska resurser.
+
+Frivillig statistik förblir avstängd genom `ANALYTICS_ENABLED: "false"`. Kontaktmejl kräver inte samtycke till statistik. Aktivera inte statistik som en bieffekt av formulärinstallationen.

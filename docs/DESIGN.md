@@ -1,3 +1,7 @@
+# Historik från basversionen
+
+Detta dokument beskriver det ursprungliga bygget, inte den nuvarande leveransstatusen. Aktuell ändring: [revision/CHANGES.md](revision/CHANGES.md). Aktuella resultat: [QA.md](QA.md).
+
 # Omar Yusuf: en seriöst lekfull verkstad
 
 ## Scope and authority

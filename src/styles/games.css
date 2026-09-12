@@ -1,0 +1,45 @@
+.game-section{padding:78px 0;border-bottom:1px solid var(--line)}
+.game-inner{display:grid;grid-template-columns:1fr 1fr;gap:75px;align-items:center}
+.game-copy .eyebrow{margin:20px 0}
+.game-copy h2{font-size:52px;line-height:1.02;margin:20px 0 24px}
+.game-copy>p:not(.eyebrow){font-size:14px;max-width:370px;line-height:1.65}
+.game-status{font-weight:700;min-height:64px;margin:25px 0 18px}
+.memory-section{background:var(--green)}
+.memory-board{padding:26px;background:#ffccb8;border:1px solid #8f7664;border-radius:24px;transform:rotate(-2deg);box-shadow:7px 8px 0 #b7c59e}
+.memory-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.memory-card{aspect-ratio:1;position:relative;border-radius:12px;border:1px solid #253626;box-shadow:0 4px 0 #bd8670;background:var(--paper);min-width:0;min-height:44px;transition:transform .18s,background .18s}
+.memory-card:hover:not(.is-matched){transform:translateY(-3px)}
+.memory-back{font-size:36px;font-weight:800;color:var(--blue)}
+.memory-front{display:none;place-items:center;position:absolute;inset:0;border-radius:11px}
+.memory-front svg{width:60%;height:60%}
+.is-open .memory-back{visibility:hidden}
+.is-open .memory-front{display:grid}
+.memory-color-0{background:var(--yellow)}
+.memory-color-1{background:#e4eaff}
+.memory-color-2{background:#ffccba}
+.memory-color-3{background:var(--green)}
+.memory-color-4{background:#f8c8dc}
+.memory-color-5{background:#cde4eb}
+.memory-card.is-matched{box-shadow:none;border-style:dashed;transform:scale(.95);cursor:default}
+.game-board-caption{font:8px monospace;letter-spacing:.08em;display:block;text-align:center;margin-top:26px;line-height:1.5}
+.fika-section{background:#ffddc8}
+.fika-board{position:relative;text-align:center;border-radius:24px;padding:30px;background:var(--paper);border:1px solid #b1947f;box-shadow:8px 9px 0 #e5b39b;transform:rotate(2deg);overflow:hidden}
+.coffee-scene{height:225px;position:relative;width:270px;max-width:100%;margin:12px auto 0}
+.coffee-cup{position:absolute;width:152px;height:144px;left:calc(50% - 76px);top:58px;background:var(--blue);border:2px solid #1835a3;border-radius:8px 8px 60px 60px;box-shadow:inset 8px 0 0 #4168ed,inset -8px 0 0 #173bb7;color:var(--paper);z-index:2}
+.coffee-cup>span{display:block;font-size:15px;line-height:1.2;margin:26px auto 0;letter-spacing:-.035em}
+.coffee-cup>i{position:absolute;bottom:31px;width:7px;height:10px;background:var(--yellow);border-radius:50%;left:58px}
+.coffee-cup>i+i{left:87px}
+.coffee-cup>b{position:absolute;bottom:16px;left:61px;width:32px;height:14px;border-bottom:3px solid var(--yellow);border-radius:0 0 50% 50%}
+.coffee-handle{position:absolute;left:calc(50% + 55px);top:78px;width:68px;height:77px;border:13px solid var(--blue);border-radius:45%;z-index:1}
+.coffee-saucer{position:absolute;bottom:8px;left:calc(50% - 107px);width:214px;height:29px;border-radius:50%;background:#cdd8f9;border:1px solid #7b91c8;z-index:0}
+.coffee-steam{position:absolute;left:calc(50% - 50px);top:10px;display:flex;gap:20px}
+.coffee-steam i{width:14px;height:33px;border-left:2px solid #bcb4a5;border-radius:50%;transform:rotate(18deg)}
+.is-timing .coffee-steam i{animation:steam-drift 2.8s ease-in-out infinite}
+.is-timing .coffee-steam i:nth-child(2){animation-delay:-1s}
+.fika-readout{display:block;font-size:38px;font-weight:800;color:var(--blue);font-variant-numeric:tabular-nums;min-height:50px}
+.fika-board .game-board-caption{margin-top:16px}
+@keyframes steam-drift{50%{transform:translateY(-7px) rotate(-10deg);opacity:.45}}
+@media(max-width:1100px){.game-inner{gap:40px}.game-copy h2{font-size:43px}.memory-grid{gap:10px}.memory-board{padding:22px}.game-copy .eyebrow{font-size:8px}}
+@media(max-width:760px){.game-section{padding:53px 0 60px}.game-inner{grid-template-columns:1fr;gap:33px}.game-copy h2{font-size:44px}.game-copy .eyebrow{font-size:9px}.game-copy>p:not(.eyebrow){max-width:none}.game-status{min-height:53px}.memory-board,.fika-board{width:100%;max-width:470px;justify-self:center}.memory-grid{gap:12px}.memory-card{border-radius:10px}.memory-back{font-size:30px}.memory-front{border-radius:9px}.fika-board{padding:27px 20px}}
+@media(max-width:370px){.memory-grid{gap:8px}.memory-board{padding:18px 16px}.game-copy h2{font-size:40px}.game-board-caption{font-size:7px}.coffee-cup{width:142px;left:calc(50% - 71px)}}
+@media(prefers-reduced-motion:reduce){.joy-ball,.coffee-steam i{animation:none!important}.memory-card,.envelope-cta .icon{transition:none!important}}

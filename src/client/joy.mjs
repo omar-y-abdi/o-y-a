@@ -1,4 +1,5 @@
-import { getCard, nextCard } from './cards.mjs';
+import { bubbleComment } from './playlogic.mjs';
+import { getCard, createDeck, loadCards } from './cards.mjs';
 
 export function initJoy({ toast, track }) {
   const reduced = () => document.documentElement.dataset.motion === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -38,6 +39,7 @@ export function initJoy({ toast, track }) {
     const status = stage.querySelector('[data-machine-status]');
     const buttonLabel = button.querySelector('span');
     let busy = false;
+    let drawCard=null;
     button.disabled = false;
     function showCard(card) {
       current = card;
@@ -48,25 +50,62 @@ export function initJoy({ toast, track }) {
       const radio = document.querySelector(`input[name="flavor"][value="${card.flavor}"]`);
       if (radio) radio.checked = true;
     }
-    button.addEventListener('click', () => {
-      if (busy) return;
-      busy = true;
-      button.disabled = true;
-      stage.classList.add('is-working');
-      receipt.hidden = true;
-      buttonLabel.textContent = 'En liten vinst på väg…';
-      const flavor = document.querySelector('input[name="flavor"]:checked')?.value ?? 'kind';
-      const card = nextCard(flavor, current?.id);
-      setTimeout(() => {
-        showCard(card);
-        celebrate(button);
-        buttonLabel.textContent = 'En liten vinst till';
-        stage.classList.remove('is-working');
-        button.disabled = false;
-        busy = false;
-        track('joy');
-      }, reduced() ? 0 : 550);
+    const face=stage.querySelector('[data-face]');
+    let faceTimer=null, printAnimation=null, finishPrint=null, reactions=0;
+    function emote(mood, duration=1400) {
+      clearTimeout(faceTimer);stage.dataset.mood=mood;
+      if(duration)faceTimer=setTimeout(()=>{delete stage.dataset.mood;},duration);
+    }
+    face.addEventListener('click',()=>{
+      if(busy)return;
+      const moods=['wink','surprised','squint','love'];
+      emote(moods[reactions++ % moods.length]);
+      status.textContent=['Jo, jag såg dig. Nu blinkar jag tillbaka.','Oj! En människa på andra sidan glaset.','Kittlig? Jag? Ingen kommentar.','Det där var ett trevligt litet knapptryck.'][((reactions-1)%4)];
     });
+    button.addEventListener('click', async () => {
+      if (busy) return;
+      busy=true;button.disabled=true;face.disabled=true;
+      stage.classList.add('is-working');stage.setAttribute('aria-busy','true');
+      buttonLabel.textContent='En liten vinst på väg…';
+      const flavor=document.querySelector('input[name="flavor"]:checked')?.value ?? 'kind';
+      let card;
+      try {drawCard ??= createDeck(await loadCards());card=drawCard(flavor,current?.id);}
+      catch {busy=false;button.disabled=false;face.disabled=false;stage.classList.remove('is-working');stage.removeAttribute('aria-busy');buttonLabel.textContent='Försök skriva ut igen';status.textContent='Maskinen tappade bort pappret. Försök igen om en stund.';return;}
+      current=card;message.textContent=card.text;receipt.hidden=false;receipt.inert=true;
+      emote('thinking',0);
+      let finished=false;
+      finishPrint=()=>{
+        if(finished)return;finished=true;
+        printAnimation?.cancel();printAnimation=null;
+        receipt.style.removeProperty('z-index');receipt.inert=false;delete stage.dataset.printPhase;
+        stage.classList.remove('is-working');stage.removeAttribute('aria-busy');
+        button.disabled=false;face.disabled=false;busy=false;buttonLabel.textContent='En liten vinst till';
+        showCard(card);emote(flavor==='joke'?'squint':flavor==='roast'?'wink':'love');track('joy');
+      };
+      if(reduced()||document.hidden||!receipt.animate){finishPrint();return;}
+      const paper=receipt.getBoundingClientRect(), box=stage.getBoundingClientRect();
+      const slot=stage.querySelector('.printer-top').getBoundingClientRect();
+      const dy=slot.top-box.top-receipt.offsetTop-receipt.offsetHeight;
+      const dx=slot.left+slot.width/2-(box.left+receipt.offsetLeft+receipt.offsetWidth/2);
+      const emerge=`translate(${dx}px,${dy}px) scale(.58) rotate(-5deg)`;
+      receipt.style.zIndex='1';stage.dataset.printPhase='eject';
+      printAnimation=receipt.animate([
+        {transform:`translate(${dx}px,${dy+paper.height*.65}px) scale(.58) rotate(-5deg)`,clipPath:'inset(0 0 100% 0)',opacity:1},
+        {transform:emerge,clipPath:'inset(0 0 0% 0)',opacity:1}
+      ],{duration:1000,easing:'cubic-bezier(.2,.65,.3,1)',fill:'forwards'});
+      try {await printAnimation.finished;} catch {return;}
+      if(finished)return;
+      printAnimation.cancel();receipt.style.zIndex='6';stage.dataset.printPhase='float';emote('surprised',0);
+      printAnimation=receipt.animate([
+        {transform:emerge,clipPath:'inset(0 0 0% 0)'},
+        {transform:`translate(${dx+18}px,${dy*.45}px) scale(.82) rotate(9deg)`,offset:.6},
+        {transform:'translate(0,0) scale(1) rotate(3deg)'}
+      ],{duration:650,easing:'cubic-bezier(.25,.8,.25,1)',fill:'forwards'});
+      try {await printAnimation.finished;} catch {return;}
+      finishPrint();celebrate(button);
+    });
+    window.addEventListener('oy:motionchange',()=>{if(reduced())finishPrint?.();});
+    document.addEventListener('visibilitychange',()=>{if(document.hidden){finishPrint?.();clearTimeout(faceTimer);delete stage.dataset.mood;}});
     stage.querySelector('[data-receipt-close]').addEventListener('click', () => { receipt.hidden = true; button.focus(); });
     if ('IntersectionObserver' in window) {
       const observer = new IntersectionObserver(entries => { for (const entry of entries) stage.dataset.inview = String(entry.isIntersecting); }, { threshold:.08 });
@@ -88,11 +127,11 @@ export function initJoy({ toast, track }) {
       stage.querySelectorAll('.eye i').forEach(eye => { eye.style.transform = ''; });
     });
     const id = new URLSearchParams(location.search).get('kort');
-    const shared = getCard(id);
-    if (shared && location.pathname === '/verkstad/') {
-      showCard(shared);
-      requestAnimationFrame(() => stage.scrollIntoView({ block:'center', behavior:'instant' }));
-    } else if (id) toast('Det kortet finns inte. Tryck fram ett nytt i stället.');
+    if(id && location.pathname === '/verkstad/') loadCards().then(cards=>{
+      const shared=getCard(id,cards);
+      if(shared){showCard(shared);requestAnimationFrame(()=>stage.scrollIntoView({block:'center',behavior:'instant'}));}
+      else toast('Det kortet finns inte. Tryck fram ett nytt i stället.');
+    }).catch(()=>toast('Kortet kunde inte laddas. Försök igen.'));
   }
 
   document.querySelector('[data-share]')?.addEventListener('click', async () => {
@@ -141,6 +180,8 @@ export function initJoy({ toast, track }) {
 
   const bubbles = [...document.querySelectorAll('[data-bubble]')];
   if (!bubbles.length) return;
+  let popTimes=[];
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)popTimes=[];});
   let popped = new Set(); let sound = false; let audio = null;
   const bubbleStatus = document.querySelector('[data-bubble-status]');
   const soundButton = document.querySelector('[data-sound-toggle]');
@@ -177,13 +218,25 @@ export function initJoy({ toast, track }) {
       popped.add(id);button.classList.add('is-popped');button.setAttribute('aria-pressed','true');
       button.setAttribute('aria-label', `Bubbla ${Number(id)+1}, poppad`);
       popTone();
+      popTimes.push(performance.now());popTimes=popTimes.slice(-5);
+      if(!reduced() && button.animate) {
+        for(let i=0;i<8;i++) {
+          const drop=document.createElement('i');drop.className='pop-drop';drop.setAttribute('aria-hidden','true');button.append(drop);
+          const a=i*Math.PI/4, distance=button.offsetWidth*.65;
+          const animation=drop.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:1},{transform:`translate(calc(-50% + ${Math.cos(a)*distance}px),calc(-50% + ${Math.sin(a)*distance}px)) scale(0)`,opacity:0}],{duration:380,easing:'ease-out'});
+          const item={animation,element:drop};animations.add(item);animation.onfinish=()=>{drop.remove();animations.delete(item);};
+        }
+        const ring=document.createElement('i');ring.className='pop-ring';ring.setAttribute('aria-hidden','true');button.append(ring);
+        const animation=ring.animate([{transform:'scale(.7)',opacity:.9},{transform:'scale(1.65)',opacity:0}],{duration:330,easing:'ease-out'});
+        const item={animation,element:ring};animations.add(item);animation.onfinish=()=>{ring.remove();animations.delete(item);};
+      }
       const remaining = bubbles.length - popped.size;
-      bubbleStatus.textContent = remaining === 0 ? 'Alla poppade. Inget blev gjort. Det var hela poängen.' : `${remaining} ${remaining === 1 ? 'bubbla kvar' : 'bubblor kvar'}. Ingen brådska.`;
+      bubbleStatus.textContent = (remaining ? `${remaining} ${remaining === 1 ? 'bubbla kvar' : 'bubblor kvar'}. ` : '') + bubbleComment(popTimes,remaining);
       if (remaining === 0) { celebrate(button);track('bubble_complete'); }
     });
   });
   document.querySelector('[data-bubble-reset]').addEventListener('click', () => {
-    popped = new Set();
+    popped = new Set();popTimes=[];clearParticles();
     bubbles.forEach((button,i) => { button.classList.remove('is-popped');button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',`Poppa bubbla ${i+1}`); });
     bubbleStatus.textContent = '12 nya bubblor. En ny, helt rimlig paus.';
   });

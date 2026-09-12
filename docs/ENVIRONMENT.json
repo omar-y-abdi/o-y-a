@@ -1,18 +1,21 @@
 {
-  "date": "2026-09-11",
+  "date": "2026-09-12",
   "os": "Linux-6.18.35-x86_64-with-glibc2.41",
   "architecture": "x86_64",
   "node": "v22.16.0",
   "npm": "10.9.2",
-  "python": "3.13.5",
+  "python": "Python 3.13.5",
   "git": "git version 2.47.3",
   "chromium": "Chromium 144.0.7559.96 built on Debian GNU/Linux 13 (trixie)",
   "playwright": "1.57.0",
+  "pillow": "12.3.0",
   "productionNpmDependencies": 0,
   "lockfileSHA256": "08b24c3498c45f8a8a52df03aab56a0ae920b9c6303384861a8f5a9e31c61129",
-  "directOutboundNetwork": "DNS unavailable in tested native attempts",
-  "managedBrowser": "URL navigation blocked by URLBlocklist=*; no policy modified",
-  "renderMode": "about:blank document rendering with explicit cookie/origin/network adapters",
-  "cloudflareRuntime": "Not installed or executed; Node adapter is not workerd",
-  "remoteWrites": "None. GitHub connector read-only, no Cloudflare connector exposed."
+  "approvedInputSHA256": "5e170332eb9d9591e815781b2ce109c40c9bf265bf15b3ca2a976058020b7cd5",
+  "baseGitCommit": "dc8f43c3f5622995f466d4dc790327a666ac0b90",
+  "managedBrowser": "URL navigation blocked by administrator; no browser policy modified",
+  "renderMode": "Real built HTML/CSS and source modules, with explicit origin/cookie/network/UUID adapters",
+  "cloudflareRuntime": "Node Worker-handler adapter tested; workerd/Wrangler dry-run not executed in this environment",
+  "remoteWrites": "None. User will upload the ZIP through the existing deployment path.",
+  "emailDelivery": "No live messages sent. Provider responses are simulated in tests."
 }

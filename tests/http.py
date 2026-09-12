@@ -20,7 +20,7 @@ def check(name, fn):
     try: fn();results.append({'name':name,'status':'PASS'});print('PASS',name)
     except Exception as e:results.append({'name':name,'status':'FAIL','error':str(e)});print('FAIL',name,str(e))
 
-routes=['/','/verkstad/','/om/','/projekt/furl/','/kontakt/','/integritet/','/kakor/','/villkor/','/tillganglighet/']
+routes=['/','/verkstad/','/om/','/projekt/furl/','/projekt/blade-blend/','/projekt/backhaul/','/kontakt/','/integritet/','/kakor/','/villkor/','/tillganglighet/']
 for path in routes:
     def route(path=path):
         status,h,b=fetch(path)
@@ -40,6 +40,20 @@ for path in routes:
         code,head_headers,head=fetch(path,'HEAD');assert code==200 and head==b''
         assert 'content-length' not in head_headers or int(head_headers['content-length'])==len(b), (path,'HEAD must not advertise a false representation size',head_headers.get('content-length'),len(b))
     check('200, HEAD, security and linked resources '+path,route)
+
+def contact_closed():
+    code,h,b=fetch('/api/contact/config');assert code==200 and json.loads(b)=={'enabled':False,'sitekey':None}
+    assert h['cache-control']=='no-store'
+    code,h,b=fetch('/api/contact/config','HEAD');assert code==200 and b==b''
+    code,h,b=fetch('/api/contact','POST',{'Origin':'http://127.0.0.1:4173','Content-Type':'application/json'},json.dumps({'name':'Test','email':'visitor@example.org','message':'','website':'','token':'test','submission':'6c77eb01-9260-4e9c-8a72-262b520ee1b1'}));assert code==503 and json.loads(b)['ok']==False
+    assert b'@chalmers.se' not in b
+check('Contact configuration is private and unconfigured sending fails closed',contact_closed)
+
+def new_assets():
+    code,h,b=fetch('/data/cards.json');assert code==200 and 'application/json' in h['content-type']
+    assert len(json.loads(b))==240
+    code,h,b=fetch('/mail/omar-smile.gif');assert code==200 and h['content-type']=='image/gif' and b.startswith(b'GIF89a')
+check('Joke bank and real email GIF have correct HTTP content types',new_assets)
 
 def missing():
     for path in ['/does-not-exist','/nested/missing/','/404.html']:

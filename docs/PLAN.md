@@ -1,3 +1,7 @@
+# Historik från basversionen
+
+Detta dokument beskriver det ursprungliga bygget, inte den nuvarande leveransstatusen. Aktuell ändring: [revision/CHANGES.md](revision/CHANGES.md). Aktuella resultat: [QA.md](QA.md).
+
 # Implementation plan
 
 Goal: make an original, joyful, accessible personal website and verify both behavior and its actual appearance.

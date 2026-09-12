@@ -1,3 +1,4 @@
+import { handleContact, contactConfig } from './server/contact.mjs';
 import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
 import { CSP } from '../.generated/csp.mjs';
@@ -64,7 +65,9 @@ export default {
       return secure(new Response(null,{status:308,headers:{Location:CANONICAL+url.pathname+url.search}}));
     }
     let response;
-    if (url.pathname === '/api/event') response = await eventResponse(request,env,url);
+    if (url.pathname === '/api/contact') response = await handleContact(request,env);
+    else if (url.pathname === '/api/contact/config') response = ['GET','HEAD'].includes(request.method) ? contactConfig(env) : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
+    else if (url.pathname === '/api/event') response = await eventResponse(request,env,url);
     else if (url.pathname === '/api/config') {
       response = request.method === 'GET' || request.method === 'HEAD'
         ? json({analytics:Boolean(env.ANALYTICS) && env.ANALYTICS_ENABLED === 'true'})

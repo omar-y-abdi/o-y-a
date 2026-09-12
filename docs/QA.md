@@ -1,87 +1,65 @@
-# Verifieringsrapport
+# Verifiering av den korrigerade o-y-a-revisionen
 
-**Datum: 11 september 2026. Status: lokal implementation verifierad inom nedanstående gränser. Inte publicerad och inte produktionsgodkänd.**
+Datum: **12 september 2026**. Underlag: användarens godkända `o-y-a.zip`, inte den alternativa webbplatsen från tidigare svar. ZIP-filens SHA-256 och lokal basreferens finns i `ENVIRONMENT.json`.
 
-## Resultat som faktiskt finns
+## Leveransstatus
 
-| Kontroll | Resultat | Vad det bevisar |
+Källkod, byggda sidor, korrigeringar, fyra lekstationer, kontaktserver, mejlmallar och animerad figur ingår. Ingen publicering, GitHub-skrivning, DNS-ändring eller riktig mejlsändning har genomförts. Den befintliga Workern heter fortfarande `omar-portfolio`. Kontaktmejl behöver de privata servervärdena enligt `CONTACT-SETUP.md`.
+
+## Körda kontroller
+
+| Kontroll | Utfall | Avgränsning |
 | --- | --- | --- |
-| `npm run check` | 22 tester passerade, 0 fel; bygge och syntaxkontroll passerade | Kodlogik, statiska sidor, metadata, resurser och Worker-handler |
-| `python tests/http.py` | 15 kontroller passerade, 0 fel | Riktiga lokala HTTP-svar genom Worker-handlern med Node-adapter |
-| Renderade sidor | 62 scenarier passerade, 0 fel | 10 sidor vid 6 bredder samt startsidan utan JavaScript i 2 bredder |
-| Renderade interaktioner | 9 scenarier passerade, 0 fel | Maskin, länkutmatning, PNG-generering, bubblor, meny, fokus och rörelse |
-| Renderat samtycke | 6 scenarier passerade, 0 fel | Ja/nej, återkallelse, lagringsfel, GPC och Do Not Track med uttryckliga adaptrar |
-| Kontrastkontroll | 362 textnoder kontrollerade, 0 under gränsen i det undersökta urvalet | Beräknad textkontrast mot enkla bakgrunder, inte en fullständig WCAG-granskning |
-| Kortbilder | Alla 18 kontrollerade | Riktiga canvas-PNG-filer, textramar inom bilden och mobilkvittots bredd |
+| Bygge, syntax och Node-tester | 56 godkända, inga misslyckade eller överhoppade | Renderad HTML, metadata, interna resurser, logik, Worker, mejl och kontaktgränser |
+| Riktiga lokala HTTP-anrop | 19 godkända | Samma Worker-handler, med en Node-baserad ASSETS-adapter, inte workerd |
+| Sid- och breddkombinationer | 74 godkända | 12 sidor vid 6 bredder samt 2 fall utan program-JavaScript |
+| Ursprungliga interaktionsfall | 9 godkända | Maskin, kortlänkar, canvas, bubblor, meny, fokus, rörelse |
+| Samtyckesfall | 6 godkända | Ja/nej, återkallelse, blockerad lagring, GPC och DNT |
+| Nya regressionsfall | 20 godkända | Verklig scrollposition, kort, utskrift, formulär, tempo, memory och fika |
+| Kortbilder | 240 godkända | Varje riktig canvas-PNG och dess mobila kvittobredd kontrollerad |
+| Avgränsad kontrastkontroll | 488 textnoder, inga underskridna gränser | Beräknad kontrast på enkla bakgrunder; inte en full WCAG-granskning |
+| Mejllayout | 4 godkända | Två mallar i 360 och 680 px; Chromium-rendering, inte mejlklienttest |
 
-De tre renderingssviterna innehåller tillsammans **77 scenarier**. De avslutades separat för att hålla varje körning inom verktygets exekveringsgräns. En tidigare kombinerad körning avbröts av exekveringsgränsen; den räknas inte som ett passerat testresultat.
+Browsergrupperna ovan omfattar tillsammans 109 renderade testfall. Rapporterna anger sina adaptrar; dessa fall betecknas inte som full nätverks-E2E. JSON-resultat, sista körningarnas loggar och skärmbilder finns i det separata verifieringsarkivet.
 
-JSON-rapporter och loggar finns i det separata granskningspaketet. Negativa regressionstestloggar är avsiktliga bevis på fel före rättning, inte fel i slutresultatet.
+## De uttryckligen begärda rättningarna
 
-## Avgörande begränsning: rendering är inte full E2E
+**Personkortet:** den lutande pappersformen, färgerna, namnet och klisterlappen finns kvar. Det stora OY-monogrammet finns inte i HTML eller CSS. Arbetsbänken med laptop, verktyg och kaffe har granskats i mobil- och datorvy.
 
-Den installerade Chromium-webbläsaren har en hanterad `URLBlocklist=*`. Ett riktigt navigeringsförsök till lokal HTTP gav `ERR_BLOCKED_BY_ADMINISTRATOR`. Policyn har inte ändrats.
+**Upp igen:** testet börjar långt ned på sidan, klickar den riktiga knappen och väntar på faktisk `scrollY === 0`. Det passerar vid 320, 390, 768 och 1440 px, både med vanlig och minskad rörelse. Ett separat fall med bara den inbyggda ankarlänken och utan applikationens JavaScript når också noll. Det här kontrollerar position, inte bara att en klickhanterare anropats.
 
-Den genomförda visuella granskningen använder därför byggd HTML och riktig CSS som ett renderat dokument i webbläsaren. Interaktionskoden kommer från källans verkliga moduler, men importsättet, sidans origin, kakor och nätverksanrop anpassas uttryckligen av `tests/render_support.py`. Verklig layout, DOM, tangentbord, canvas och animationer körs. Detta bevisar **inte** vanlig URL-navigering, riktiga modulanrop under produktions-CSP eller native cookie-/clipboardbeteende.
+**Kontakt:** kuvertet har en egen rubrik, ”Inga frimärken behövs.” Den tidigare upprepningen av inledningen, den privata adressen och spamförklaringen som löptext är borttagna. Den fullständiga förklaringen finns i integritetspolicyn. En kort policylänk finns vid formuläret. Namn och mejl krävs; tomt meddelande accepteras.
 
-De separata HTTP-testerna använder riktiga HTTP-förfrågningar och samma Worker-handler. Däremot är `ASSETS` en Node-adapter, inte Cloudflares workerd. Fullt webbläsarläge finns i testerna och i CI, men har inte passerat här. Save-dialogen och den verkliga systemurklippsbehörigheten är också separata webbläsargrindar; PNG-bytes och den manuella kopieringsvägen är verifierade.
+**Lappar:** ingen mängdangivelse annonseras i gränssnittet. De gamla stabila kort-ID:na behålls. Varje kategori använder en blandad kortlek och töms innan den blandas om.
+
+**Projekten:** skärmbilder visar de nya Blade & Blend- och Backhaul-korten och respektive projektsida. Texten skiljer användaruppgifter från projektens dokumentation, pågående utbildning från avslutad examen och hackathonprototyp från ett driftsatt kundsystem.
 
 ## Visuell granskning
 
-Hela startsidan, verkstaden, om-sidan, Furl, kontakt, integritet, kakor, villkor, tillgänglighet och 404 har granskats visuellt i **1440 px och 390 px**. Granskningen omfattade sidhuvud, innehåll, radbrytningar, mellanrum, knappar och sidfot. Automatiska breddkontroller kördes dessutom vid 320, 768, 1024 och 1920 px utan horisontellt sidöverflöde.
+Startsida, verkstad, om-sida, Furl, Blade & Blend, Backhaul, kontakt, integritet, kakor, villkor, tillgänglighet och 404 har granskats i mobil- och datorvy. Granskningen omfattar även öppet/stängt kontaktkuvert, lyckat simulerat svar och leveransfel, utskriftens uppmatning/förflyttning/slutläge, bubbeleffekt, färdigt memory, fikaresultat, båda mejlmallarna och GIF-figurens bildrutor.
 
-Även öppet kvitto, samtliga kortkategorier, alla 18 exporterade kort, bubblor efter klick, mobilmeny, datavalsdialog, samtyckesbanner, kopieringsfallback, vikt Furl-illustration och socialbild har granskats. Bilderna kommer från den kodade webbplatsen, inte de tidigare genererade portfolio-mockuperna. Samtyckesbannerns skärmbild visar det uttryckliga testläget där statistik är tillgänglig, inte en aktiverad produktionsinstallation.
+Bilderna kommer från faktisk HTML/CSS och riktig interaktionskod, inte bildgenererade webbplatsförslag. Formulärets framgångs- och felbilder använder uttryckliga Turnstile/Resend-adaptrar och är inte bevis på verkliga utskick.
 
-Ingen allmän garanti om att alla människor tycker om designen eller blir glada ges. Målet har omsatts i egen interaktion och visuell utformning, inte i fabricerade omdömen eller ett påstående om en säkerställd känslomässig effekt.
+Chromiums helsidesskärmbilder kunde visa en fixerad, i verkligheten utanför skärmen placerad skip-länk när dokumentet var scrollat vid fotograferingen. Dess verkliga ruta låg helt ovanför viewporten. Den slutliga fotograferingen börjar därför vid dokumentets nollpunkt och använder en dokumentbaserad beskärning. Ingen produktions-CSS ändrades för att dölja en tillgänglighetsfunktion.
 
-## Fel som hittades och rättades
+## Fel som de adversariella kontrollerna fångade
 
-**Mobilknappar:** en kort hälsningsknapp bröts till en trång två-radig kapsel, och en om-sida-knapp pressades ihop. Korta knappar fick korrekta brytningsregler, mobilheadern använder menyn för kontaktlänken och om-sidans avslutande layout bryts på rätt ställe. Regressionen testar knappgeometrin.
+Ett för lågt storlekstak kunde avvisa ett giltigt långt meddelande med flerbytesbokstäver. Taket är nu begränsat men förenligt med formulärets angivna teckenlängd. Kontroller omfattar fel typ, ogiltig UTF-8, för stor kropp, fel origin, botfält, saknad konfiguration, rate-limit, ogiltig Turnstile och ofullständigt/felaktigt Resend-svar.
 
-**Återkallat samtycke:** om ett gammalt allow-värde inte gick att skriva över kunde en kontroll som enbart läste kakan åter tillåta statistik. En omedelbar spärr i den öppna sidans minne infördes före lagringsförsöket. Pågående anrop avbryts och nya stoppas. Misslyckad sparning förklaras sanningsenligt. Regressionen behåller det gamla allow-värdet och gör skrivningen verkningslös.
+Ett sent kortlekssvar efter flikbyte kunde starta utskriftsanimationen igen. Synligheten kontrolleras nu också efter att laddningen är klar. Paus och minskad rörelse färdigställer kvittot utan att låsa gränssnittet. Memory-reset under väntande felpar och en bakgrundsavbruten fikamätning har egna kontroller.
 
-**Statistik vid oavsiktlig provisionering:** en binding ensam kunde annars göra funktionen tillgänglig. Server och konfiguration kräver nu också `ANALYTICS_ENABLED === 'true'`. Levererad flagga är `false`. Ett negativt test visade först felet och passerar efter rättning.
+Den privata mottagaren läses bara från `CONTACT_TO`. Den återfinns inte i publika byggfiler eller besökarens kvitto. Kontaktuppgifter reflekteras inte in i kvittot till en godtyckligt angiven mejladress. Inmatning i det interna mejlet HTML-escapas. Omsändning av oförändrat försök återanvänder Resends idempotensnyckel. Ett misslyckat API-svar behåller besökarens inmatning och visar inte framgång.
 
-**404-status som doldes av lokal adapter:** den lokala adaptern satte först själv 404 på den explicita filen `/404.html`. Det kunde dölja att Worker-handlern skulle lämna status 200 om en annan assets-tjänst serverade filen så. Ett nytt test matade in en sådan 200-respons och föll med `200 !== 404`. Statusansvaret ligger nu i Worker-koden; befintliga 503-fel omvandlas inte felaktigt till 404. Den lokala specialregeln togs bort.
+## Resursstorlek
 
-**HEAD i lokalservern:** ett svar utan kropp fick felaktigt `Content-Length: 0`, trots att GET-versionen hade innehåll. Ett verkligt HTTP-test reproducerade skillnaden. Lokalservern utelämnar nu den beräknade längden vid HEAD i stället för att ange ett falskt värde. Kontrollen ingår i samtliga vanliga sidors HTTP-test.
+Den ursprungliga testgränsen på 14 000 gzip-byte för varje sidas CSS har behållits, inte höjts. Sidberoende tillägg för spel och kontakt ligger i separata källfiler och byggs bara in där de behövs. All klient-JavaScript summerar till **13 470 gzip-byte**. Den separata kortleken är **7 356 gzip-byte** och hämtas först när maskinen används. GIF-filen är **22 646 byte**.
 
-## Kravgenomgång
+Det här är komprimerade filstorlekar från Node zlib, inte uppmätta laddningstider, Lighthouse-poäng eller Core Web Vitals. Per-sida- och per-resursvärden finns i `ASSET-SIZES.json`.
 
-| Krav | Lokal implementation och kvarvarande gräns |
-| --- | --- |
-| Personlig, lekfull webbplats utan blogg | Egen maskin, kvitton, bubbellek, monogram och konsekvent formgivning. Inga bloggsektioner. |
-| Korrekt sidkälla, titlar, beskrivningar, canonical och en h1 | Finns i genererad HTML och kontrolleras automatiskt. Ingen klientrenderad tom skal-sida. |
-| sitemap.xml, robots.txt och llms.txt | Byggs från samma sidregister. 9 indexerbara URL:er. 404 undantas. llms.txt innebär ingen garanti om AI-indexering. |
-| Interna länkar och brödsmulor | Länkmål och fragment verifieras. Brödsmulor finns på undersidor. |
-| Strukturerade data | Person, WebSite, sidtyp och relevanta BreadcrumbList. Ingen påhittad LocalBusiness. Extern rich-results-validering återstår. |
-| Social delning och ikoner | Egen 1200 × 630 PNG, favicon och appikon. Metataggar finns; riktiga sociala plattformars cache/rendering är inte provad. |
-| Alt-text | Inga vanliga innehållsfoton i sidkroppen. Dekorativ CSS/SVG är dold för hjälpmedel. Socialbild har beskrivande metadata. |
-| Tillgänglighet | Semantik, fokus, tangentbord, radiofält, native dialog, minskad rörelse och no-JS-fallback kontrollerade. Ingen skärmläsar-/WCAG-certifiering. |
-| Konsolfel | Inga fel registrerade i de passerade renderade scenarierna. Produktionens Console/Network måste granskas efter publicering. |
-| Inga produktions-source maps | Bygget producerar inga maps; sökvägar för maps blockeras också i Worker-koden. |
-| Små JavaScript-resurser och egen sidtitel | Fyra små native-moduler, inget React/Vite-runtime, inga standardtitlar eller externa typsnitt. |
-| Villkor och cookie-/integritetspolicy | Sidorna finns och beskriver kodens beteende. Faktiska kontovillkor, tekniska loggar och privat kontaktväg kräver ägarens genomgång före lansering. |
-| Samtycke och dataminimering | Implementerat och adversarialt testat med tydligt avgränsade adaptrar. Statistik avstängd i driftskonfigurationen. |
-| Analytics tracking | Klient, strikt API och Engine-binding finns. Ingen riktig insamling eller dashboardsession har aktiverats eller verifierats. |
-| Formulär och externa embeds | Inga falska kontakt-/nyhetsbrevsformulär eller externa embeds. Befintliga radioval och kopieringsfält har etiketter och tangentbordsstöd. |
-| Inga ogrundade påståenden | Endast användarens egna uppgifter och lästa offentliga projektunderlag. Inga benchmarkprocent, kundresultat, adressuppgifter eller låtsasporträtt. |
-| GitHub, Cloudflare och omaryusuf.se | Konfiguration och workflow skrivna. Repo, kontokoppling, DNS, TLS, CI och publicerad webbplats är inte utförda/verifierade. |
+## Vad dessa kontroller inte bevisar
 
-## Resursstorlekar
+Den hanterade Chromium-installationen blockerar vanlig URL-navigering med `ERR_BLOCKED_BY_ADMINISTRATOR`. Policyn har inte ändrats. Dokumentrenderingen använder därför verkliga byggfiler och kod med tydligt avgränsade adaptrar för origin, modulladdning, nätverk, cookie-lagring och säker kontext. Riktig URL-navigering, CSP tillsammans med modulladdning, inbyggda cookie-/urklippsbehörigheter och den publicerade Cloudflare-körmiljön är inte verifierade genom det läget.
 
-Mätt på de slutligt byggda filerna med Nodes `gzipSync`:
+Ingen faktisk SMTP-leverans, studshantering i drift, Gmail-/Outlook-rendering eller inkorgsavatar har verifierats. GIF-filen används i mejlkroppen; den är inte en konfigurerad avsändaravatar. Resend-domänen lästes som verifierad för sändning och utan öppnings-/klickspårning, men det ersätter inte ett riktigt leveranstest efter uppladdning.
 
-| Resurs | Byte efter gzip |
-| --- | ---: |
-| Alla fyra JavaScript-moduler tillsammans | 7 896 |
-| CSS | 12 118 |
-| Startsida HTML | 5 415 |
-
-Detta är filstorlekar efter lokal komprimering, inte faktiska nätverksmätningar, ett Lighthouse-betyg eller Core Web Vitals. Ingen mätning av verklig mobil LCP/INP/CLS på omaryusuf.se har gjorts. Kontrastkontrollen hoppar uttryckligen över dekorativ text, inaktiva kontroller, komplexa gradienter och element med varierande opacitet.
-
-## Kvar före produktionsgodkännande
-
-Riktig GitHub-skrivåtkomst och Cloudflare-kontoåtkomst behövs. Därefter ska det förberedda CI-flödet och Wrangler dry-run köras, DNS/domänkollisioner läsas, TLS verifieras och samtliga viktiga flöden provas genom verklig URL-navigering på den publicerade domänen. Policytexter och privat kontaktväg ska matcha verklig drift. Statistik förblir avstängd tills den separata aktiveringsgrinden är godkänd.
-
-En lokal Git-commit eller ett visuellt snyggt testdokument ersätter inte dessa produktionsbevis.
+En slutlig kontroll i vanlig webbläsare på den publicerade adressen samt test till egna mejladresser återstår efter Omars uppladdning och privata konfiguration. Anvisningar finns i `DEPLOYMENT.md` och `CONTACT-SETUP.md`. Ingen fullständig juridisk efterlevnad eller tillgänglighetscertifiering påstås.

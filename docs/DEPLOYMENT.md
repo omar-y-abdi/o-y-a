@@ -1,91 +1,46 @@
-# Publicering och DNS
+# Uppdatera o-y-a utan att byta webbplats
 
-## Utgångsläge
+Den här revisionen utgår från Omars bifogade, redan publicerade `o-y-a.zip`. Den gör inga fjärrändringar. Repo, domän och nuvarande publiceringskedja ska behållas.
 
-Det finns en lokalt byggd webbplats och en Git-leverans. Ingen fjärrpublicering, repo-skapning, DNS-ändring eller Cloudflare-anslutning har gjorts. Den här guiden beskriver återstående åtgärder, inte redan genomförda resultat.
+## Före uppladdning
 
-Avsett konto är `omar-y-abdi`. Avsett reponamn är `omaryusuf-se`. Kontrollera om det redan finns innan det skapas. Använd inte force-push och skriv inte över ett annat projekt.
-
-## 1. Skapa GitHub-repot från det verifierade Git-paketet
-
-Följande är kommandon för en behörig dator med Git och inloggad GitHub CLI. Det privata repo-valet undviker oavsiktlig publicering av källkod; själva webbplatsen kan fortfarande vara offentlig.
+Spara en kopia av nuvarande källkod och fungerande Cloudflare-version. Kopiera den nya projektmappens innehåll till rätt repo, utan att ersätta dina hemligheter eller eventuella befintliga CI-filer som inte ingick i bas-ZIP:en. Publicera inte granskningsarkivet som webbplats.
 
 ```sh
-git clone omar-yusuf-git.bundle omaryusuf-se
-cd omaryusuf-se
-git branch -m main
-git remote remove origin
-gh repo create omar-y-abdi/omaryusuf-se --private --source=. --remote=origin --push
+npm run check
 ```
 
-Om repot redan finns: stanna, läs dess historia och integrera med en granskad branch/PR. Skapa inte om det och använd inte `--force`. ZIP-alternativet innehåller samma arbetsfiler men ingen Git-historik.
+Bygget kräver Node.js 22 eller senare och inga produktionspaket. Den skapade `.generated/csp.mjs` behövs när Worker-koden byggs och återskapas med `npm run build`.
 
-Låt den medföljande kvalitetskontrollen köra. GitHub Actions-workflowen är `Website quality and release`, med kvalitetsjobbet `verify`. Ange detta jobb som ett obligatoriskt statuskrav för main om kontots plan och åtkomst medger det. Workflowen installerar testwebbläsaren, kör verklig HTTP-navigering och gör en Wrangler dry-run. Dess framtida resultat är inte känt i denna leverans.
+## Behåll befintlig Cloudflare-konfiguration
 
-## 2. Läs befintligt Cloudflare- och DNS-läge innan någon ändring
+`wrangler.jsonc` behåller namnet **`omar-portfolio`**, `omaryusuf.se` och `www.omaryusuf.se`, `ASSETS` samt den avstängda statistikflaggan. Kontaktfunktionen lägger till `CONTACT_RATE_LIMIT`. Domänrutterna ändras inte.
 
-Spara en export eller skärmbilder av befintliga DNS-poster och domänkopplingar. Bekräfta rätt konto och en aktiv Cloudflare-zon för `omaryusuf.se`. Jämför namnservrarna hos registraren med de namnservrar Cloudflare faktiskt visar. Gissa inte namnservrar eller origin-IP-adresser.
+Konfigurera de fem servervärdena enligt [CONTACT-SETUP.md](CONTACT-SETUP.md). Den privata mottagaren ska vara en Cloudflare-hemlighet, inte en publik variabel eller ett klientfält. Nycklar finns inte i paketet.
 
-Kontrollera apex och www separat, inklusive A, AAAA, CNAME, eventuella befintliga Worker/Pages-kopplingar samt certifikat/CAA-inställningar. Kontrollera vilken tjänst varje post redan betjänar. Ändra inte MX, SPF, DKIM, DMARC eller andra orelaterade namn som en del av denna publicering.
-
-Projektet använder **Workers Custom Domains**, inte ett gissat A-record till en server. Cloudflare dokumenterar att Custom Domains kräver en aktiv zon och skapar tillhörande DNS-poster och certifikat. Ett befintligt CNAME på samma värdnamn måste hanteras; ta inte bort det förrän det är klart vilken gammal tjänst som påverkas. [Cloudflares dokumentation](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/).
-
-Ingen av dessa kontroller har kunnat utföras mot Omars riktiga konto. Att en DNS-post nyligen lagts till bevisar inte att rätt Worker, zon, certifikat eller GitHub-kedja är ansluten. Misslyckad åtkomst från den begränsade arbetsmiljön är inte heller bevis för att användarens DNS är fel.
-
-## 3. Konfigurationen som följer med
-
-`wrangler.jsonc` anger:
-
-- Worker `omaryusuf-se`, statiska resurser i `dist`, binding `ASSETS`.
-- `omaryusuf.se` och `www.omaryusuf.se` som Custom Domains. Inga wildcards eller andra domäner.
-- `workers_dev: false` och `preview_urls: false`. Offentlig förhandsvisning på en alternativ domän är inte avsedd.
-- Worker-first-routing, statiska sidor och riktig 404, inte SPA-fallback till startsidan.
-- `ANALYTICS_ENABLED: "false"`. En Analytics Engine-binding finns för den framtida funktionen men möjliggör inte insamling på egen hand.
-- Worker Observability avstängt. Detta stänger inte automatiskt av alla separata konto-/säkerhetsloggar hos leverantören.
-
-Worker-koden omdirigerar www och HTTP till HTTPS på apex med bibehållen sökväg och query. Okända värdnamn avvisas. HSTS gäller bara värdnamnet, inte alla subdomäner. Ändra inte zonens allmänna SSL-läge eller orelaterade tjänster som en genväg.
-
-Testa paketet med `npm run edge:check` på en dator där Wrangler kan installeras. Verktyget är pinnat till `wrangler@4.131.1`. Detta är en validering utan publicering, inte ett bevis för att DNS eller kontobehörigheter är klara.
-
-## 4. Koppla GitHub till Cloudflare med testgrind
-
-Den medföljande kopplingen använder GitHub Actions för att undvika två konkurrerande automatpubliceringar. Aktivera inte också en separat, ogranskad Workers Builds-kedja som publicerar förbi testerna.
-
-Skapa ett GitHub Environment med namnet `production`, helst med obligatoriskt manuellt godkännande åtminstone vid första publiceringen. Lägg följande hemligheter där:
-
-| Hemlighet | Innehåll |
-| --- | --- |
-| `CLOUDFLARE_ACCOUNT_ID` | Det verifierade kontots ID |
-| `CLOUDFLARE_API_TOKEN` | En begränsad token för det berörda kontot och de Worker-/domänåtgärder publiceringen kräver |
-
-Använd minsta nödvändiga behörighet. Be inte någon lägga en global API-nyckel eller token i källkoden. Kontots faktiska krav måste verifieras vid första auktoriserade anslutningen. Ingen token har skapats eller hämtats i denna leverans.
-
-Sätt repository variable `DEPLOY_ENABLED=true` **först när** DNS-/innehållsgenomgången är klar och `verify` passerar i den riktiga CI-miljön. Deploy-jobbet kräver dessutom main, ett icke-PR-event och det godkända `production`-miljöns åtkomst. Ett godkänt lokalt testresultat öppnar inte denna grind.
-
-Första domänkopplingen kan kräva att en krock med en befintlig tjänst löses. Godkänn inte en ersättning utan att kontrollera den gamla tjänsten. Domän- och certifikatprovisionering måste hinna bli klar före produktionsgodkännande. Workflowen kör en efterkontroll; en tillfällig provisioneringsfördröjning kan göra den röd även om uppladdningen lyckades. Kontrollera båda tillstånden separat.
-
-## 5. Statistik aktiveras separat
-
-Behåll `ANALYTICS_ENABLED` som `"false"` tills Omar har godkänt en fungerande privat kontaktväg för integritetsfrågor och kontots faktiska hostingavtal, säkerhetsloggar, överföringar, lagring och kostnads-/missbruksskydd har granskats. Uppdatera policytexterna till det verkliga driftsläget innan aktivering.
-
-Därefter kan en granskad kodändring sätta flaggan till `"true"`. Testa då att `/api/config` visar tillgänglighet, att bannern visas utan automatiskt samtycke, att ett ja möjliggör händelser och att ett nej stoppar nya anrop. Prova också återkallat samtycke, blockerade kakor, GPC och Do Not Track i en riktig webbläsare.
-
-Tillåtna data är endast `{event, page}`. Händelser: `page_view`, `joy`, `bubble_complete`, `project_open`. Klienten räknar varje typ högst en gång per sidladdning. Det är inte besökarstatistik, försäljning eller en räkning av alla knapptryck. Servern lagrar fasta sidvägar/händelser, värdet 1 och ett gemensamt index `site`; tjänsten tillför tidpunkt. [Analytics Engines dokumenterade lagringstid är tre månader](https://developers.cloudflare.com/analytics/analytics-engine/limits/). [Prisvillkor](https://developers.cloudflare.com/analytics/analytics-engine/pricing/) måste kontrolleras för det aktuella kontot.
-
-Origin- och payloadkontroller stoppar felaktiga webbläsaranrop men är inte bot-autentisering: en icke-webbläsarklient kan imitera headers. Därför ska frivillig statistik inte beskrivas som manipulationssäker. Ingen användaridentifierare eller permanent IP-lagring har lagts till för att försöka lösa det problemet. Statistik är inte aktiverad förrän driftsägaren gjort ett lämpligt val om kostnads- och missbruksskydd.
-
-## 6. Godkänn verklig drift
-
-När publicering och certifikat är klara:
+För en normal Wrangler-publicering på rätt, redan autentiserat konto:
 
 ```sh
-node scripts/smoke-live.mjs
+npm run edge:check
+npm run deploy
 ```
 
-Scriptet kontrollerar de riktiga sidornas HTTP-status, resurser för sökmotorer, anpassad 404 och www-omdirigering. Det får inte rapporteras som passerat innan det har körts. Följ upp med verklig webbläsarnavigering på domänen, Console/Network, samtycke, PNG-sparning/delning, mobil och tangentbord. Kontrollera att CSS/moduler laddas under den verkliga CSP:n och att inga oavsiktliga analysverktyg injiceras från kontot.
+Enbart statisk uppladdning ger ingen kontaktsändning. `src/worker.mjs`, dess två servermoduler och bindings måste följa med på din befintliga Worker-publiceringsväg.
 
-Mät därefter faktisk mobilprestanda och kontrollera strukturdata/social delningsbild med externa validerare. Lokala gzip-storlekar är inte Lighthouse-resultat eller Core Web Vitals.
+Ingen GitHub-workflow fanns i den godkända bas-ZIP:en. Revisionen skapar inte någon ny workflow eller en parallell publiceringskedja. Behåll och kontrollera den du redan använder.
+
+## Kontrollera den nya versionen
+
+Kör `node scripts/smoke-live.mjs` efter din publicering. Scriptet läser offentliga adresser, inklusive de nya projektsidorna, 404 och www-omdirigering; det skickar inget kontaktmejl. Det har inte körts mot en publicerad revision i utvecklingsmiljön.
+
+Kontrollera i en vanlig webbläsare att URL:er, moduler, GIF, kortlek och CSP fungerar tillsammans. Prova navigation, alla fyra stationer, `Upp igen`, tangentbord, mobil, minskad rörelse och privat formulärleverans enligt kontaktguiden. Kontrollera Console och Network. Utvecklingsmiljöns dokumentrendering är inte bevis för en riktig nätverks-E2E-körning.
+
+DNS och certifikat ska inte behöva ändras för denna koduppdatering. Om din befintliga Cloudflare-konfiguration skiljer sig, granska den skillnaden i stället för att blint ersätta zoninställningar. Befintliga MX-poster, andra subdomäner och andra tjänster är utanför ändringen.
+
+## Statistik
+
+`ANALYTICS_ENABLED` förblir `"false"`. Kontaktfunktionen är oberoende av frivillig statistik. Aktivera inte statistik i samband med installationen. En senare aktivering kräver separat genomgång av kontoavtal, loggar, integritetstext, kostnader och missbruksskydd samt verkliga samtyckestester.
 
 ## Återställning
 
-Spara den befintliga konfigurationen före första domänändringen. Vid senare kodproblem: återgå till en tidigare granskad commit och publicera den genom samma grind, eller använd den verifierade Cloudflare-versionens återställningsfunktion. Koden här innehåller ingen automatisk DNS-radering eller destruktiv kontoåterställning.
+Behåll den tidigare fungerande versionen. Vid fel kan den återpubliceras genom din normala väg eller väljas genom Cloudflares versionshantering. Revisionen innehåller ingen DNS-radering eller annan destruktiv återställningsfunktion.

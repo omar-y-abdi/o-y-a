@@ -145,3 +145,18 @@ if (document.querySelector('[data-machine], [data-bubble]')) {
     if (note) note.textContent = 'Maskinen kunde inte starta. Sidans vanliga länkar fungerar fortfarande.';
   });
 }
+
+// Keep the real page top distinct from the skip-to-content target below the header.
+document.querySelector('[data-back-top]')?.addEventListener('click', event => {
+  event.preventDefault();
+  window.scrollTo({ top:0, left:0, behavior:root.dataset.motion === 'off' ? 'instant' : 'smooth' });
+  document.querySelector('.site-header .brand')?.focus({ preventScroll:true });
+});
+if (document.querySelector('[data-contact-form]')) {
+  import('./contact.mjs').then(module => module.initContact()).catch(() => {
+    document.querySelector('[data-contact-status]').textContent = 'Formuläret kunde inte starta. Försök ladda om sidan.';
+  });
+}
+if (document.querySelector('[data-memory-grid]')) import('./games.mjs').then(module => module.initGames()).catch(() => {
+  document.querySelector('[data-memory-status]').textContent = 'Spelet kunde inte starta. Försök ladda om sidan.';
+});
