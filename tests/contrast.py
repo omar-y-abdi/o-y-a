@@ -10,7 +10,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 from render_support import load
 ROOT=Path(__file__).resolve().parents[1]
-PAGES=['/','/verkstad/','/om/','/projekt/furl/','/kontakt/','/integritet/','/kakor/','/villkor/','/tillganglighet/','/404.html']
+PAGES=['/','/verkstad/','/om/','/projekt/furl/','/projekt/blade-blend/','/projekt/backhaul/','/kontakt/','/integritet/','/kakor/','/villkor/','/tillganglighet/','/404.html']
 SCRIPT='''() => {
  const rgba=s=>{const n=s.match(/[\\d.]+/g);return n? n.map(Number):[0,0,0,0]};
  const blend=(fg,bg)=>{const a=fg[3]??1;return [0,1,2].map(i=>fg[i]*a+bg[i]*(1-a)).concat(1)};
@@ -35,7 +35,8 @@ report=[]
 with sync_playwright() as p:
  b=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'),args=['--no-sandbox'])
  for path in PAGES:
-  page=b.new_page(viewport={'width':390,'height':844},reduced_motion='reduce');load(page,path)
+  page=b.new_page(viewport={'width':390,'height':844},reduced_motion='reduce');load(page,path,contact=True)
+  if path=='/kontakt/':page.locator('.envelope').click();page.wait_for_timeout(100)
   data=page.evaluate(SCRIPT);data['path']=path;report.append(data);page.close()
  b.close()
 failed=[{'path':page['path'],**row} for page in report for row in page['rows'] if not row['pass']]

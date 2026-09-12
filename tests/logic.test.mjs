@@ -4,7 +4,9 @@ import { existsSync } from 'node:fs';
 
 async function cards() {
   assert.ok(existsSync('src/client/cards.mjs'), 'Card model must exist');
-  return import('../src/client/cards.mjs');
+  const module = await import('../src/client/cards.mjs');
+  const CARDS = JSON.parse((await import('node:fs')).readFileSync('public/data/cards.json','utf8'));
+  return { CARDS, getCard:id=>module.getCard(id,CARDS), nextCard:(flavor,previous,random)=>module.createDeck(CARDS,random)(flavor,previous) };
 }
 test('cards have stable unique public IDs and no untrusted lookup', async () => {
   const { CARDS, getCard } = await cards();

@@ -33,5 +33,15 @@
   },
   "vars": {
     "ANALYTICS_ENABLED": "false"
-  }
+  },
+  "ratelimits": [
+    {
+      "name": "CONTACT_RATE_LIMIT",
+      "namespace_id": "73142026",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    }
+  ]
 }

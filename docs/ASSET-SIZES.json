@@ -1,20 +1,35 @@
 {
-  "method": "Node zlib.gzipSync of final built assets. File-transfer estimates, not measured network performance or Core Web Vitals.",
+  "method": "Node zlib.gzipSync on the final built files; not network timings, Lighthouse or Core Web Vitals.",
   "javascript": [
     {
-      "file": "cards.55ab8f9fdceb.mjs",
-      "bytes": 2512,
-      "gzipBytes": 1086
+      "file": "cards.579bf4aa84ce.mjs",
+      "bytes": 1302,
+      "gzipBytes": 621
     },
     {
-      "file": "joy.952bf21e3a77.mjs",
-      "bytes": 10181,
-      "gzipBytes": 3661
+      "file": "contact.098e75ee32ed.mjs",
+      "bytes": 4342,
+      "gzipBytes": 1692
     },
     {
-      "file": "main.5a1c6453f8c0.mjs",
-      "bytes": 8078,
-      "gzipBytes": 2814
+      "file": "games.ba33b886d74a.mjs",
+      "bytes": 4294,
+      "gzipBytes": 1838
+    },
+    {
+      "file": "joy.927bc830a3a3.mjs",
+      "bytes": 14741,
+      "gzipBytes": 4980
+    },
+    {
+      "file": "main.aecae05c83bf.mjs",
+      "bytes": 8986,
+      "gzipBytes": 3087
+    },
+    {
+      "file": "playlogic.3bb2d3ce7a2e.mjs",
+      "bytes": 1681,
+      "gzipBytes": 917
     },
     {
       "file": "privacy.d1e242f909f2.mjs",
@@ -22,14 +37,159 @@
       "gzipBytes": 335
     }
   ],
-  "javascriptTotalGzip": 7896,
-  "css": {
-    "file": "site.4992b7949068.css",
-    "bytes": 52585,
-    "gzipBytes": 12118
+  "javascriptTotalGzip": 13470,
+  "perPage": [
+    {
+      "path": "/",
+      "html": {
+        "bytes": 30944,
+        "gzipBytes": 6533
+      },
+      "css": {
+        "file": "/assets/site.cc99b79a43d9.css",
+        "bytes": 57958,
+        "gzipBytes": 13324
+      }
+    },
+    {
+      "path": "/verkstad/",
+      "html": {
+        "bytes": 25390,
+        "gzipBytes": 5731
+      },
+      "css": {
+        "file": "/assets/site.3ee95cf4e11a.css",
+        "bytes": 59205,
+        "gzipBytes": 13634
+      }
+    },
+    {
+      "path": "/om/",
+      "html": {
+        "bytes": 17590,
+        "gzipBytes": 4543
+      },
+      "css": {
+        "file": "/assets/site.fc2998a403b6.css",
+        "bytes": 55518,
+        "gzipBytes": 12703
+      }
+    },
+    {
+      "path": "/projekt/furl/",
+      "html": {
+        "bytes": 15499,
+        "gzipBytes": 4007
+      },
+      "css": {
+        "file": "/assets/site.2d3d2c1be528.css",
+        "bytes": 52286,
+        "gzipBytes": 12048
+      }
+    },
+    {
+      "path": "/projekt/blade-blend/",
+      "html": {
+        "bytes": 14965,
+        "gzipBytes": 3712
+      },
+      "css": {
+        "file": "/assets/site.fc2998a403b6.css",
+        "bytes": 55518,
+        "gzipBytes": 12703
+      }
+    },
+    {
+      "path": "/projekt/backhaul/",
+      "html": {
+        "bytes": 14639,
+        "gzipBytes": 3674
+      },
+      "css": {
+        "file": "/assets/site.fc2998a403b6.css",
+        "bytes": 55518,
+        "gzipBytes": 12703
+      }
+    },
+    {
+      "path": "/kontakt/",
+      "html": {
+        "bytes": 20707,
+        "gzipBytes": 4468
+      },
+      "css": {
+        "file": "/assets/site.7987a2b20633.css",
+        "bytes": 56983,
+        "gzipBytes": 13112
+      }
+    },
+    {
+      "path": "/integritet/",
+      "html": {
+        "bytes": 18808,
+        "gzipBytes": 5580
+      },
+      "css": {
+        "file": "/assets/site.2d3d2c1be528.css",
+        "bytes": 52286,
+        "gzipBytes": 12048
+      }
+    },
+    {
+      "path": "/kakor/",
+      "html": {
+        "bytes": 15798,
+        "gzipBytes": 4502
+      },
+      "css": {
+        "file": "/assets/site.2d3d2c1be528.css",
+        "bytes": 52286,
+        "gzipBytes": 12048
+      }
+    },
+    {
+      "path": "/villkor/",
+      "html": {
+        "bytes": 14503,
+        "gzipBytes": 4020
+      },
+      "css": {
+        "file": "/assets/site.2d3d2c1be528.css",
+        "bytes": 52286,
+        "gzipBytes": 12048
+      }
+    },
+    {
+      "path": "/tillganglighet/",
+      "html": {
+        "bytes": 14954,
+        "gzipBytes": 4163
+      },
+      "css": {
+        "file": "/assets/site.2d3d2c1be528.css",
+        "bytes": 52286,
+        "gzipBytes": 12048
+      }
+    },
+    {
+      "path": "/404.html",
+      "html": {
+        "bytes": 13699,
+        "gzipBytes": 3169
+      },
+      "css": {
+        "file": "/assets/site.2d3d2c1be528.css",
+        "bytes": 52286,
+        "gzipBytes": 12048
+      }
+    }
+  ],
+  "lazyCardBank": {
+    "bytes": 24310,
+    "gzipBytes": 7356
   },
-  "homeHtml": {
-    "bytes": 26968,
-    "gzipBytes": 5415
+  "emailGif": {
+    "bytes": 22646,
+    "gzipBytes": 17077
   }
 }

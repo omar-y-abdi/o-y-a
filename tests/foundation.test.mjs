@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 
-const routes = ['', 'verkstad', 'om', 'projekt/furl', 'kontakt', 'integritet', 'kakor', 'villkor', 'tillganglighet'];
+const routes = ['', 'verkstad', 'om', 'projekt/furl', 'projekt/blade-blend', 'projekt/backhaul', 'kontakt', 'integritet', 'kakor', 'villkor', 'tillganglighet'];
 test('every requested page has a real static HTML source', () => {
   for (const route of routes) assert.ok(existsSync(`dist/${route ? route + '/' : ''}index.html`), `Missing static route /${route}`);
 });

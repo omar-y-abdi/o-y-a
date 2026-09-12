@@ -16,7 +16,7 @@ from playwright.sync_api import sync_playwright, expect
 from render_support import load as render_load
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGES = ['/', '/verkstad/', '/om/', '/projekt/furl/', '/kontakt/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html']
+PAGES = ['/', '/verkstad/', '/om/', '/projekt/furl/', '/projekt/blade-blend/', '/projekt/backhaul/', '/kontakt/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html']
 SIZES = [(320,780), (390,844), (768,1024), (1024,900), (1440,1000), (1920,1080)]
 parser = argparse.ArgumentParser()
 parser.add_argument('--render-only', action='store_true')
@@ -26,7 +26,7 @@ parser.add_argument('--section', choices=['pages','interactions','privacy','all'
 parser.add_argument('--screenshots', action='store_true')
 args = parser.parse_args()
 OUT = ROOT/'artifacts'
-(OUT/'screenshots').mkdir(exist_ok=True)
+(OUT/'screenshots').mkdir(exist_ok=True,parents=True)
 results=[]
 mode = 'rendered-document component integration (origin/cookie/network adapters)' if args.render_only else 'HTTP browser E2E'
 

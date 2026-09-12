@@ -83,12 +83,17 @@ test('social image has the promised PNG dimensions and icons really exist', asyn
 
 test('production transfer budgets stay small without framework bundles', async () => {
   const files = await readdir('dist/assets');
-  let js = 0; let css = 0;
+  let js = 0;
   for (const name of files) {
     const bytes = gzipSync(await readFile(join('dist/assets',name))).byteLength;
-    if (name.endsWith('.mjs')) js += bytes; else css += bytes;
+    if (name.endsWith('.mjs')) js += bytes;
   }
   assert.ok(js < 14000, `All interactive JavaScript gzip ${js} > 14 KB`);
-  assert.ok(css < 14000, `Styles gzip ${css} > 14 KB`);
+  for(const route of routes) {
+    const html=await htmlFor(route);
+    let css=0;
+    for(const [,path] of html.matchAll(/rel="stylesheet" href="([^"]+)"/g)) css+=gzipSync(await readFile('dist'+path)).byteLength;
+    assert.ok(css < 14000, `${route.path}: loaded styles gzip ${css} > 14 KB`);
+  }
   assert.ok(gzipSync(await htmlFor(routes[0])).byteLength < 9000);
 });

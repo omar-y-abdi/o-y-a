@@ -1,0 +1,48 @@
+.postbox{margin:45px 0 48px;border:1px solid #859471;border-radius:13px;background:var(--green);box-shadow:6px 7px 0 #a3af7e55;overflow:hidden}
+.envelope{position:relative;display:block;padding:29px 36px 32px;cursor:pointer;list-style:none;min-height:254px;color:var(--ink);isolation:isolate}
+.envelope::-webkit-details-marker{display:none}
+.envelope:focus-visible{outline:3px solid var(--blue);outline-offset:-6px}
+.envelope-top{display:flex;justify-content:space-between;align-items:flex-start}
+.envelope-top .eyebrow{font-size:10px;margin-top:7px}
+.envelope-line{font-size:43px;letter-spacing:-.06em;font-weight:700;line-height:1.03;display:block;margin-top:25px;position:relative;z-index:2}
+.envelope-cta{display:inline-flex;align-items:center;gap:20px;font-weight:700;font-size:13px;margin-top:25px;position:relative;z-index:2}
+.envelope-cta .icon{width:20px;height:20px;transition:transform .2s}
+.envelope:hover .envelope-cta .icon{transform:translateX(6px)}
+.envelope-close{display:none}
+.envelope-seam{position:absolute;inset:0;z-index:-1;background:linear-gradient(151deg,transparent 61%,#a6b28c 61.2%,transparent 61.5%),linear-gradient(29deg,transparent 61%,#a6b28c 61.2%,transparent 61.5%);opacity:.7}
+.postage{width:84px;height:97px;position:absolute;right:35px;top:29px;background:var(--paper);border:4px dotted var(--green);padding:9px;transform:rotate(10deg);display:grid;place-items:center;box-shadow:2px 2px 0 #20261e19}
+.postage .flower{color:var(--coral);width:54px;height:54px}
+.postage>span{font:6px monospace;letter-spacing:.03em}
+.postbox[open] .envelope{min-height:116px;padding-bottom:24px}
+.postbox[open] .envelope-line{display:none}
+.postbox[open] .envelope-open{display:none}
+.postbox[open] .envelope-close{display:inline}
+.postbox[open] .postage{width:62px;height:72px;top:19px;padding:4px}
+.postbox[open] .postage .flower{width:40px;height:40px}
+.postbox[open] .envelope-seam{opacity:.2}
+.postbox[open] .envelope-cta{margin-top:23px}
+.postbox[open] .envelope-cta .icon{transform:rotate(-90deg)}
+.letter-paper{padding:36px;background:var(--paper);border-top:1px solid #859471}
+.letter-fields{display:grid;grid-template-columns:1fr 1.3fr;gap:28px}
+.letter-fields label{font-size:13px;font-weight:700;display:block;margin-bottom:10px}
+.letter-fields label>span{font-weight:400;font-size:11px;color:var(--muted)}
+.letter-fields input,.letter-fields textarea{display:block;width:100%;min-height:49px;border:1px solid #9ca38a;border-radius:6px;background:#fffdf6;color:var(--ink);font:16px/1.5 Arial,sans-serif;padding:12px 14px;resize:vertical;box-sizing:border-box}
+.letter-fields textarea{min-height:162px}
+.letter-fields input+label{margin-top:21px}
+.letter-fields [aria-invalid="true"]{border:2px solid #a73720}
+.letter-actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-top:22px}
+.letter-actions>a{font-size:12px;text-decoration:underline;text-underline-offset:4px}
+.letter-actions .button{font-size:13px}
+.form-feedback{font-size:13px;font-weight:700;line-height:1.6;max-width:640px;margin-top:14px}
+.form-feedback:empty{display:none}
+.security-widget{margin-top:16px;min-height:0}
+.contact-trap{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.letter-success{padding:22px 10px 28px;text-align:center;position:relative}
+.letter-success>.flower{width:85px;height:85px;color:var(--yellow);margin-bottom:20px}
+.letter-success h2{font-size:42px;margin-bottom:19px}
+.letter-success p{font-size:15px;line-height:1.7}
+.letter-signature{display:block;font:22px "Comic Sans MS",cursive;margin-top:25px;transform:rotate(-7deg)}
+.arrival-stamp{position:absolute;right:0;top:8px;border:2px solid var(--blue);border-radius:5px;color:var(--blue);font:700 12px monospace;letter-spacing:.12em;padding:12px;transform:rotate(12deg)}
+@media(max-width:760px){.postbox{margin:34px 0}.envelope{padding:24px;min-height:272px}.envelope-line{font-size:37px;margin-top:51px}.envelope-top .eyebrow{font-size:8px}.postage{right:24px;top:21px;width:68px;height:81px;padding:5px}.postage .flower{width:44px;height:44px}.envelope-cta{font-size:12px;margin-top:26px}.postbox[open] .envelope{padding:24px;min-height:112px}.letter-paper{padding:27px 22px}.letter-fields{grid-template-columns:1fr;gap:23px}.letter-fields label{font-size:13px}.letter-fields textarea{min-height:151px}.letter-actions{gap:20px}.letter-actions .button{width:100%}.letter-success h2{font-size:33px}.letter-success p{font-size:14px}.arrival-stamp{font-size:9px;padding:8px;right:-9px}}
+@media(max-width:370px){.envelope-line{font-size:32px}.letter-paper{padding:25px 16px}}
+@media(prefers-reduced-motion:reduce){.memory-card,.envelope-cta .icon{transition:none!important}}

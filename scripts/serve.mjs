@@ -11,7 +11,7 @@ const port = Number(portIndex >= 0 ? process.argv[portIndex + 1] : process.env.P
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port');
 const origin = `http://127.0.0.1:${port}`;
 const analyticsTest = process.argv.includes('--analytics-test');
-const types = {'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8','.ico':'image/x-icon'};
+const types = {'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8','.gif':'image/gif','.png':'image/png','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8','.ico':'image/x-icon'};
 const points = [];
 const env = {
   PREVIEW_ORIGIN:origin,
