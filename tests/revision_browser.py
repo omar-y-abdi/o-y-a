@@ -64,34 +64,52 @@ with sync_playwright() as pw:
   def printer(width=width):
    ctx,page=page_for('/verkstad/',width,'no-preference')
    try:
-    page.locator('[data-machine]').scroll_into_view_if_needed()
+    stage=page.locator('[data-machine]');receipt=page.locator('[data-receipt]');button=page.locator('[data-print]')
+    stage.scroll_into_view_if_needed()
+    assert page.locator('[data-face],.printer-top').count()==0
+    assert page.locator('.joy-ball').evaluate('(e)=>e.tagName')=='DIV'
+    assert page.locator('.machine-display').get_attribute('aria-hidden')=='true'
+    bounds=stage.bounding_box()
+    page.mouse.move(bounds['x']+bounds['width']*.8,bounds['y']+bounds['height']*.3)
+    page.wait_for_function('document.querySelector(".eye i").style.transform !== ""')
+    assert page.locator('.eye i').first.evaluate('(e)=>e.style.transform').startswith('translate(')
+    page.mouse.move(0,0)
+    page.wait_for_function('document.querySelector(".eye i").style.transform === ""')
+    face=page.locator('.joy-ball').bounding_box()
+    page.mouse.click(face['x']+face['width']/2,face['y']+face['height']/2)
+    assert stage.get_attribute('data-mood') is None
+    assert page.locator('[data-machine-status]').inner_text()==''
     page.locator('input[value="joke"]').check()
-    page.locator('[data-print]').click()
-    page.wait_for_function('document.querySelector("[data-machine]").dataset.printPhase === "eject"')
-    page.wait_for_timeout(650)
-    snap(page,f'printer-eject-{width}',full=False)
-    phase=page.locator('[data-machine]').get_attribute('data-print-phase')
-    page.wait_for_function('document.querySelector("[data-machine]").dataset.printPhase === "float"')
-    page.wait_for_timeout(150);snap(page,f'printer-float-{width}',full=False)
-    expect(page.locator('[data-print]')).to_be_enabled()
-    page.wait_for_timeout(50);snap(page,f'printer-finished-{width}',full=False)
-    assert not page.locator('[data-receipt]').evaluate('(e)=>e.inert')
-    assert page.locator('[data-card-message]').inner_text().strip()
-    rect=page.locator('[data-receipt]').bounding_box()
+    button.click()
+    expect(button).to_be_disabled()
+    assert receipt.is_hidden()
+    assert stage.get_attribute('data-print-phase') is None
+    expect(receipt).to_be_visible()
+    animation=receipt.evaluate('(e)=>({name:getComputedStyle(e).animationName,duration:getComputedStyle(e).animationDuration,origin:getComputedStyle(e).transformOrigin})')
+    assert animation['name']=='receipt-in',animation
+    assert animation['duration']=='0.55s',animation
+    snap(page,f'printer-original-enter-{width}',full=False)
+    expect(button).to_be_enabled()
+    page.wait_for_timeout(600);snap(page,f'printer-finished-{width}',full=False)
+    assert stage.get_attribute('data-mood') is None
+    assert stage.get_attribute('data-print-phase') is None
+    assert not receipt.evaluate('(e)=>e.inert')
+    first=page.locator('[data-card-message]').inner_text().strip();assert first
+    rect=receipt.bounding_box()
     assert rect['x']>=0 and rect['x']+rect['width']<=width,rect
     assert page.evaluate('__oyRequests.filter(x=>x==="/data/cards.json").length')==1
-    page.locator('[data-receipt-close]').click()
-    for mood in ('wink','surprised','squint','love'):
-     face=page.locator('[data-face]').bounding_box();page.mouse.click(face['x']+face['width']/2,face['y']+face['height']/2)
-     assert page.locator('[data-machine]').get_attribute('data-mood')==mood
-    page.locator('[data-print]').click()
-    page.wait_for_function('document.querySelector("[data-machine]").dataset.printPhase === "eject"')
+    page.locator('[data-receipt-close]').click();expect(button).to_be_focused()
+    button.click();assert receipt.is_hidden()
     page.locator('[data-motion-toggle]').click()
-    expect(page.locator('[data-print]')).to_be_enabled()
-    assert page.locator('[data-machine]').get_attribute('data-print-phase') is None
-    clean(page);return {'ejectionCaptured':phase,'receiptBounds':rect,'pauseCompletesPrint':True}
+    expect(button).to_be_enabled();expect(receipt).to_be_visible()
+    assert page.locator('[data-card-message]').inner_text().strip()!=first
+    assert stage.get_attribute('data-mood') is None
+    assert stage.get_attribute('data-print-phase') is None
+    page.wait_for_timeout(650)
+    assert not stage.evaluate('(e)=>e.classList.contains("is-working")')
+    clean(page);return {'animation':animation,'receiptBounds':rect,'eyeTracking':True,'noClickEmotes':True,'pauseCompletesPrint':True}
    finally:ctx.close()
-  check(f'Printer sequence, face reactions, pause and bounds {width}',printer)
+  check(f'Original receipt, eye-only face, pause and bounds {width}',printer)
   def contact(width=width):
    ctx,page=page_for('/kontakt/',width,contact=True)
    try:

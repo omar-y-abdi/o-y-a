@@ -56,3 +56,18 @@ test('page styles do not ship unrelated games or contact UI', async () => {
     assert.ok(!css.includes(forbidden),`${route} loads unrelated ${forbidden} styles`);
   }
 });
+test('game 01 keeps the original decorative face and front receipt, not emotes or top ejection', async () => {
+  for (const path of ['dist/index.html','dist/verkstad/index.html']) {
+    const html = await read(path);
+    assert.match(html, /<div class="machine-display" aria-hidden="true">/);
+    assert.match(html, /<div class="joy-ball">/);
+    assert.match(html, /class="printer-slot"/);
+    assert.ok(!html.includes('data-face'));
+    assert.ok(!html.includes('printer-top'));
+    const css = await read('dist' + html.match(/rel="stylesheet" href="([^"]+)"/)[1]);
+    assert.match(css, /animation:receipt-in \.55s var\(--ease\) both/);
+    assert.ok(!css.includes('data-mood'));
+    assert.ok(!css.includes('.receipt{animation:none'));
+    assert.ok(!css.includes('data-print-phase'));
+  }
+});

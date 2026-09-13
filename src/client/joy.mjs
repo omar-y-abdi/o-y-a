@@ -50,62 +50,41 @@ export function initJoy({ toast, track }) {
       const radio = document.querySelector(`input[name="flavor"][value="${card.flavor}"]`);
       if (radio) radio.checked = true;
     }
-    const face=stage.querySelector('[data-face]');
-    let faceTimer=null, printAnimation=null, finishPrint=null, reactions=0;
-    function emote(mood, duration=1400) {
-      clearTimeout(faceTimer);stage.dataset.mood=mood;
-      if(duration)faceTimer=setTimeout(()=>{delete stage.dataset.mood;},duration);
-    }
-    face.addEventListener('click',()=>{
-      if(busy)return;
-      const moods=['wink','surprised','squint','love'];
-      emote(moods[reactions++ % moods.length]);
-      status.textContent=['Jo, jag såg dig. Nu blinkar jag tillbaka.','Oj! En människa på andra sidan glaset.','Kittlig? Jag? Ingen kommentar.','Det där var ett trevligt litet knapptryck.'][((reactions-1)%4)];
-    });
+    let printTimer = null, finishPrint = null;
     button.addEventListener('click', async () => {
       if (busy) return;
-      busy=true;button.disabled=true;face.disabled=true;
-      stage.classList.add('is-working');stage.setAttribute('aria-busy','true');
-      buttonLabel.textContent='En liten vinst på väg…';
-      const flavor=document.querySelector('input[name="flavor"]:checked')?.value ?? 'kind';
+      busy = true;
+      button.disabled = true;
+      stage.classList.add('is-working');
+      stage.setAttribute('aria-busy','true');
+      receipt.hidden = true;
+      buttonLabel.textContent = 'En liten vinst på väg…';
+      const flavor = document.querySelector('input[name="flavor"]:checked')?.value ?? 'kind';
       let card;
-      try {drawCard ??= createDeck(await loadCards());card=drawCard(flavor,current?.id);}
-      catch {busy=false;button.disabled=false;face.disabled=false;stage.classList.remove('is-working');stage.removeAttribute('aria-busy');buttonLabel.textContent='Försök skriva ut igen';status.textContent='Maskinen tappade bort pappret. Försök igen om en stund.';return;}
-      current=card;message.textContent=card.text;receipt.hidden=false;receipt.inert=true;
-      emote('thinking',0);
-      let finished=false;
-      finishPrint=()=>{
-        if(finished)return;finished=true;
-        printAnimation?.cancel();printAnimation=null;
-        receipt.style.removeProperty('z-index');receipt.inert=false;delete stage.dataset.printPhase;
-        stage.classList.remove('is-working');stage.removeAttribute('aria-busy');
-        button.disabled=false;face.disabled=false;busy=false;buttonLabel.textContent='En liten vinst till';
-        showCard(card);emote(flavor==='joke'?'squint':flavor==='roast'?'wink':'love');track('joy');
+      try { drawCard ??= createDeck(await loadCards()); card = drawCard(flavor,current?.id); }
+      catch {
+        busy = false; button.disabled = false;
+        stage.classList.remove('is-working'); stage.removeAttribute('aria-busy');
+        buttonLabel.textContent = 'Försök skriva ut igen';
+        status.textContent = 'Maskinen tappade bort pappret. Försök igen om en stund.';
+        return;
+      }
+      finishPrint = () => {
+        clearTimeout(printTimer); printTimer = null; finishPrint = null;
+        showCard(card);
+        celebrate(button);
+        buttonLabel.textContent = 'En liten vinst till';
+        stage.classList.remove('is-working');
+        stage.removeAttribute('aria-busy');
+        button.disabled = false;
+        busy = false;
+        track('joy');
       };
-      if(reduced()||document.hidden||!receipt.animate){finishPrint();return;}
-      const paper=receipt.getBoundingClientRect(), box=stage.getBoundingClientRect();
-      const slot=stage.querySelector('.printer-top').getBoundingClientRect();
-      const dy=slot.top-box.top-receipt.offsetTop-receipt.offsetHeight;
-      const dx=slot.left+slot.width/2-(box.left+receipt.offsetLeft+receipt.offsetWidth/2);
-      const emerge=`translate(${dx}px,${dy}px) scale(.58) rotate(-5deg)`;
-      receipt.style.zIndex='1';stage.dataset.printPhase='eject';
-      printAnimation=receipt.animate([
-        {transform:`translate(${dx}px,${dy+paper.height*.65}px) scale(.58) rotate(-5deg)`,clipPath:'inset(0 0 100% 0)',opacity:1},
-        {transform:emerge,clipPath:'inset(0 0 0% 0)',opacity:1}
-      ],{duration:1000,easing:'cubic-bezier(.2,.65,.3,1)',fill:'forwards'});
-      try {await printAnimation.finished;} catch {return;}
-      if(finished)return;
-      printAnimation.cancel();receipt.style.zIndex='6';stage.dataset.printPhase='float';emote('surprised',0);
-      printAnimation=receipt.animate([
-        {transform:emerge,clipPath:'inset(0 0 0% 0)'},
-        {transform:`translate(${dx+18}px,${dy*.45}px) scale(.82) rotate(9deg)`,offset:.6},
-        {transform:'translate(0,0) scale(1) rotate(3deg)'}
-      ],{duration:650,easing:'cubic-bezier(.25,.8,.25,1)',fill:'forwards'});
-      try {await printAnimation.finished;} catch {return;}
-      finishPrint();celebrate(button);
+      if (reduced() || document.hidden) finishPrint();
+      else printTimer = setTimeout(finishPrint,550);
     });
-    window.addEventListener('oy:motionchange',()=>{if(reduced())finishPrint?.();});
-    document.addEventListener('visibilitychange',()=>{if(document.hidden){finishPrint?.();clearTimeout(faceTimer);delete stage.dataset.mood;}});
+    window.addEventListener('oy:motionchange', () => { if (reduced()) finishPrint?.(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) finishPrint?.(); });
     stage.querySelector('[data-receipt-close]').addEventListener('click', () => { receipt.hidden = true; button.focus(); });
     if ('IntersectionObserver' in window) {
       const observer = new IntersectionObserver(entries => { for (const entry of entries) stage.dataset.inview = String(entry.isIntersecting); }, { threshold:.08 });

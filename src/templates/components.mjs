@@ -25,11 +25,11 @@ export function machine({ workshop = false } = {}) {
     <span class="stage-doodle doodle-plus" aria-hidden="true">✳</span><span class="stage-doodle doodle-ring" aria-hidden="true"></span>
     <div class="machine-note" aria-hidden="true">Psst. Den funkar<br>på riktigt.<svg width="65" height="48" viewBox="0 0 65 48"><path d="M3 3Q55 0 48 36m-9-9 9 10 10-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
     <div class="machine-shadow" aria-hidden="true"></div>
-    <div class="machine-body"><div class="printer-top" aria-hidden="true"></div>
+    <div class="machine-body">
       <div class="machine-top"><span><i class="status-dot"></i> GLÄDJEVERKET</span><span>OY / 01</span></div>
-      <div class="machine-display">
-        <span aria-hidden="true" class="display-cross cross-1">+</span><span aria-hidden="true" class="display-cross cross-2">+</span>
-        <div aria-hidden="true" class="display-orbit"></div><button type="button" class="joy-ball" data-face aria-label="Hälsa på den gula figuren"><span class="ball-highlight"></span><span class="eye eye-left"><i></i></span><span class="eye eye-right"><i></i></span><span class="cheek cheek-left"></span><span class="cheek cheek-right"></span><span class="ball-smile"></span></button>
+      <div class="machine-display" aria-hidden="true">
+        <span class="display-cross cross-1">+</span><span class="display-cross cross-2">+</span>
+        <div class="display-orbit"></div><div class="joy-ball"><span class="ball-highlight"></span><span class="eye eye-left"><i></i></span><span class="eye eye-right"><i></i></span><span class="cheek cheek-left"></span><span class="cheek cheek-right"></span><span class="ball-smile"></span></div>
         <span class="display-caption">LITE MER :) I SYSTEMET</span>
       </div>
       <div class="machine-controls" aria-hidden="true"><div class="meter"><i></i><span>HUMÖR</span></div><div class="machine-label">SMÅ VINSTER<br><strong>STOR KNAPP.</strong></div><div class="knob"><i></i></div></div>
