@@ -42,7 +42,7 @@ export function machine({ workshop = false } = {}) {
       <button class="receipt-close" data-receipt-close aria-label="Stäng kvittot">${icon('close')}</button>
       <p class="receipt-kicker">EN LITEN VINST FRÅN OMAR</p>
       <p class="receipt-message" data-card-message></p>
-      <div class="receipt-total"><span>Att betala</span><strong>Gratis från mig</strong></div>
+      <div class="receipt-total"><span>Att betala</span><strong>0 SEK</strong></div>
       <div class="receipt-barcode" aria-hidden="true"></div><p class="receipt-bottom">Spara känslan. Kvittot är valfritt.</p>
       ${workshop ? '' : '<a href="/verkstad/" class="receipt-link">Fler små vinster →</a>'}
     </div>
