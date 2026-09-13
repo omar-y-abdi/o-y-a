@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+node_modules/
+.generated/
+.wrangler/
+artifacts/
+output/
+.playwright-cli/
+*.log
+__pycache__/
+.test-venv/

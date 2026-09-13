@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "omar-portfolio-cms-staging",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-09-11",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "html_handling": "force-trailing-slash",
+    "run_worker_first": true
+  },
+  "d1_databases": [{
+    "binding": "CMS_DB",
+    "database_name": "omar-portfolio-cms-staging",
+    "database_id": "07048c08-64ee-413d-ae08-2ec947c533ae",
+    "migrations_dir": "migrations"
+  }],
+  "r2_buckets": [{ "binding": "CMS_MEDIA", "bucket_name": "omar-portfolio-cms-staging" }],
+  "vars": {
+    "CMS_STAGE": "true",
+    "CMS_ORIGIN": "https://omar-portfolio-cms-staging.s2305975.workers.dev",
+    "CMS_ACCESS_TEAM": "https://dark-scene-be27.cloudflareaccess.com",
+    "CMS_ACCESS_AUD": "90e4fe0941b104c6243a41081a9c2723001209c3aa6a61435ec07fdf348e61ac",
+    "ANALYTICS_ENABLED": "false"
+  },
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

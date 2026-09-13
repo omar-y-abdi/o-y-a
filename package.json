@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Omar Yusuf. En seri\u00f6st lekfull plats p\u00e5 internet.",
+  "description": "Omar Yusuf. En seriöst lekfull plats på internet.",
   "engines": {
     "node": ">=22"
   },
@@ -14,11 +14,26 @@
     "lint": "node scripts/lint.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "python tests/browser.py",
+    "test:cms": "node scripts/test-cms.mjs",
+    "cms:dev": "npm run build && node scripts/cms-dev.mjs",
     "check": "npm run build && npm run lint && npm test",
     "deploy": "npm run check && npx --yes wrangler@4.131.1 deploy",
-    "test:http": "python tests/http.py",
+    "test:http": "python tests/http_checks.py",
     "test:render": "python tests/browser.py --render-only --screenshots",
     "quality": "bash scripts/quality.sh",
     "edge:check": "npm run build && npx --yes wrangler@4.131.1 deploy --dry-run --outdir artifacts/worker-build"
+  },
+  "dependencies": {
+    "css-tree": "3.2.1",
+    "grapesjs": "0.23.6",
+    "html-to-image": "1.11.13",
+    "image-dimensions": "2.5.1",
+    "jose": "6.2.12",
+    "parse5": "8.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "miniflare": "5.20260911.0-alpha",
+    "wrangler": "4.131.1"
   }
 }

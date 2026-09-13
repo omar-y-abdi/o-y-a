@@ -1,0 +1,26 @@
+const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+
+// A page stays atomic: its HTML, CSS and editor project must travel together.
+// Different pages/cards/theme keys merge; overlapping changes remain explicit.
+export function mergeProjects(base, local, remote) {
+  const conflicts = [];
+  function choose(key, before, mine, theirs) {
+    if (equal(mine, before)) return theirs;
+    if (equal(theirs, before) || equal(mine, theirs)) return mine;
+    conflicts.push(key);
+    return mine;
+  }
+  function collection(name) {
+    const index = project => new Map(project[name].map(item => [item.id, item]));
+    const [before, mine, theirs] = [base, local, remote].map(index);
+    return [...new Set([...theirs.keys(), ...mine.keys(), ...before.keys()])]
+      .map(id => choose(`${name}:${id}`, before.get(id), mine.get(id), theirs.get(id)))
+      .filter(item => item !== undefined);
+  }
+  function properties(name) {
+    return Object.fromEntries([...new Set([...Object.keys(base[name]), ...Object.keys(local[name]), ...Object.keys(remote[name])])]
+      .map(key => [key, choose(`${name}:${key}`, base[name][key], local[name][key], remote[name][key])])
+      .filter(([, value]) => value !== undefined));
+  }
+  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime') }, conflicts };
+}

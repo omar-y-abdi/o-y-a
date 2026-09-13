@@ -35,9 +35,10 @@ test('native module imports resolve to content-hashed files with no source maps'
     assert.match(file, /^[a-z]+\.[a-f0-9]{12}\.(mjs|css)$/);
     const code = await readFile(join('dist/assets', file), 'utf8');
     assert.ok(!code.includes('sourceMappingURL'));
-    for (const match of code.matchAll(/(?:from\s*|import\()'\.\/([^']+)'/g)) {
+    for (const match of code.matchAll(/(?:from\s*|import\()["']\.\/([^"']+)["']/g)) {
       assert.ok(files.includes(match[1]), `Missing imported module ${match[1]}`);
     }
+    for (const match of code.matchAll(/(?:from\s*|import\()["'](\/cms-public\/[^"']+)["']/g)) assert.ok((await stat('dist' + match[1])).isFile(), `Missing lazy module ${match[1]}`);
   }
 });
 
@@ -88,9 +89,17 @@ test('production transfer budgets stay small without framework bundles', async (
     const bytes = gzipSync(await readFile(join('dist/assets',name))).byteLength;
     if (name.endsWith('.mjs')) js += bytes;
   }
-  assert.ok(js < 14000, `All interactive JavaScript gzip ${js} > 14 KB`);
+  assert.ok(js < 14000, `Native public JavaScript gzip ${js} > 14 KB`);
+  const lazyFiles = (await readdir('dist/cms-public')).filter(name => name.endsWith('.mjs'));
+  let lazy = 0;
+  for (const name of lazyFiles) lazy += gzipSync(await readFile('dist/cms-public/' + name)).byteLength;
+  assert.ok(lazy < 8000, `Lazy win rendering/export JavaScript gzip ${lazy} > 8 KB`);
+  let admin = 0;
+  for (const name of await readdir('dist/admin/assets')) if (name.endsWith('.mjs')) admin += gzipSync(await readFile('dist/admin/assets/' + name)).byteLength;
+  assert.ok(admin < 350000, `Isolated editor JavaScript gzip ${admin} > 350 KB`);
   for(const route of routes) {
     const html=await htmlFor(route);
+    assert.doesNotMatch(html, /(?:src|href)="\/admin\//, 'Public pages must not load the editor');
     let css=0;
     for(const [,path] of html.matchAll(/rel="stylesheet" href="([^"]+)"/g)) css+=gzipSync(await readFile('dist'+path)).byteLength;
     assert.ok(css < 14000, `${route.path}: loaded styles gzip ${css} > 14 KB`);

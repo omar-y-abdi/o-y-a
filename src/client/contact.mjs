@@ -1,9 +1,17 @@
+import { t } from './copy.mjs';
+
 export function initContact() {
   const box=document.querySelector('[data-postbox]');
   const form=document.querySelector('[data-contact-form]');
   const status=document.querySelector('[data-contact-status]');
   const button=document.querySelector('[data-contact-send]');
   const success=document.querySelector('[data-contact-success]');
+  if (document.body.dataset.cmsPreview) {
+    button.disabled = true;
+    status.textContent = 'Förhandsvisning. Meddelanden skickas från den publicerade webbplatsen.';
+    form.addEventListener('submit', event => event.preventDefault());
+    return;
+  }
   let widget=null, token='', loading=false, sending=false, sent=false, submission=null, previousPayload='';
   function canSend(){button.disabled=!token||sending||sent;}
   function loadScript() {
@@ -30,9 +38,9 @@ export function initContact() {
         sitekey:config.sitekey,action:'contact',theme:'light',size:'flexible',appearance:'interaction-only',
         callback:value=>{token=value;canSend();},
         'expired-callback':()=>{token='';canSend();},
-        'error-callback':()=>{token='';canSend();status.textContent='Kontrollen kunde inte slutföras. Stäng och öppna kuvertet för att försöka igen.';if(widget!==null){window.turnstile.remove(widget);widget=null;}return true;}
+        'error-callback':()=>{token='';canSend();status.textContent=t('runtime.contact.turnstile.error');if(widget!==null){window.turnstile.remove(widget);widget=null;}return true;}
       });
-    } catch {status.textContent='Postluckan är tillfälligt stängd. Försök öppna den igen om en stund.';}
+    } catch {status.textContent=t('runtime.contact.config.unavailable');}
     finally{loading=false;}
   }
   box.addEventListener('toggle',open);if(box.open)open();
@@ -42,21 +50,21 @@ export function initContact() {
     const fields=[form.elements.name,form.elements.email];
     fields.forEach(field=>{field.value=field.value.trim();});
     const invalid=fields.find(field=>!field.validity.valid||!field.value);
-    if(invalid){invalid.setAttribute('aria-invalid','true');status.textContent=invalid.name==='name'?'Vad heter du? Skriv ditt namn.':'Skriv en giltig mejladress så jag kan återkomma.';invalid.focus();return;}
-    if(!token){status.textContent='Vänta tills säkerhetskontrollen är klar.';return;}
+    if(invalid){invalid.setAttribute('aria-invalid','true');status.textContent=t(invalid.name==='name'?'runtime.contact.validation.nameRequired':'runtime.contact.validation.emailInvalid');invalid.focus();return;}
+    if(!token){status.textContent=t('runtime.contact.turnstile.wait');return;}
     const data={name:form.elements.name.value,email:form.elements.email.value,message:form.elements.message.value.trim(),website:form.elements.website.value};
     const payload=JSON.stringify(data);
     if(payload!==previousPayload||!submission){submission=crypto.randomUUID();previousPayload=payload;}
-    sending=true;canSend();form.setAttribute('aria-busy','true');button.textContent='På väg till Omar…';status.textContent='';
+    sending=true;canSend();form.setAttribute('aria-busy','true');button.textContent=t('runtime.contact.submit.sending');status.textContent='';
     try {
       const response=await fetch('/api/contact',{method:'POST',credentials:'same-origin',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,token,submission}),signal:AbortSignal.timeout(30000)});
       const result=await response.json();
-      if(!response.ok||result.ok!==true){status.textContent=typeof result.message==='string'?result.message:'Utskicket kunde inte bekräftas. Försök igen.';return;}
+      if(!response.ok||result.ok!==true){status.textContent=typeof result.message==='string'?result.message:t('runtime.contact.submit.unconfirmed');return;}
       sent=true;form.hidden=true;success.hidden=false;success.focus({preventScroll:true});form.reset();
       if(widget!==null){window.turnstile.remove(widget);widget=null;}
-    } catch {status.textContent='Posten kom inte hela vägen. Dina rader finns kvar. Försök igen.';}
+    } catch {status.textContent=t('runtime.contact.submit.failed');}
     finally {
-      sending=false;token='';form.removeAttribute('aria-busy');button.textContent='Skicka till Omar';canSend();
+      sending=false;token='';form.removeAttribute('aria-busy');button.textContent=t('runtime.contact.submit.ready');canSend();
       if(!sent&&widget!==null)window.turnstile.reset(widget);
     }
   });

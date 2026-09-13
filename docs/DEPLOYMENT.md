@@ -1,46 +1,68 @@
-# Uppdatera o-y-a utan att byta webbplats
+# Deploy the portfolio and CMS
 
-Den här revisionen utgår från Omars bifogade, redan publicerade `o-y-a.zip`. Den gör inga fjärrändringar. Repo, domän och nuvarande publiceringskedja ska behållas.
+Production deployment is a separate step **after merge**. This branch provisions and verifies only staging. GitHub Actions performs checks and retains browser evidence; it has no deployment job or production secrets.
 
-## Före uppladdning
+## Existing staging
 
-Spara en kopia av nuvarande källkod och fungerande Cloudflare-version. Kopiera den nya projektmappens innehåll till rätt repo, utan att ersätta dina hemligheter eller eventuella befintliga CI-filer som inte ingick i bas-ZIP:en. Publicera inte granskningsarkivet som webbplats.
+- Worker: `omar-portfolio-cms-staging`
+- URL: https://omar-portfolio-cms-staging.s2305975.workers.dev
+- Config: `wrangler.staging.jsonc`
+- Dedicated D1 and R2 resources share the staging name.
+- Cloudflare Access protects `/admin`; the Worker repeats exact owner verification.
+- `CMS_ADMIN_EMAIL` is a Worker secret. It is not recorded in Git.
 
 ```sh
+npm ci
 npm run check
+npx wrangler d1 migrations apply omar-portfolio-cms-staging --remote --config wrangler.staging.jsonc
+npx wrangler deploy --config wrangler.staging.jsonc
 ```
 
-Bygget kräver Node.js 22 eller senare och inga produktionspaket. Den skapade `.generated/csp.mjs` behövs när Worker-koden byggs och återskapas med `npm run build`.
+A migration or deploy command succeeding is not proof of working login or publication. Visit `/login/`, complete Access sign-in and verify Save from the studio through a fresh public request. Use the same hostname for all steps.
 
-## Behåll befintlig Cloudflare-konfiguration
+## Prepare production after merge
 
-`wrangler.jsonc` behåller namnet **`omar-portfolio`**, `omaryusuf.se` och `www.omaryusuf.se`, `ASSETS` samt den avstängda statistikflaggan. Kontaktfunktionen lägger till `CONTACT_RATE_LIMIT`. Domänrutterna ändras inte.
+Retain the existing production Worker `omar-portfolio`, domain routes, ASSETS, contact configuration and `ANALYTICS_ENABLED: "false"`. Do not copy staging database IDs, bucket names or Access audience into production.
 
-Konfigurera de fem servervärdena enligt [CONTACT-SETUP.md](CONTACT-SETUP.md). Den privata mottagaren ska vara en Cloudflare-hemlighet, inte en publik variabel eller ett klientfält. Nycklar finns inte i paketet.
+1. Record the current Worker version and take a D1 export if production CMS data already exists. Inspect existing account resources before creating duplicates.
+2. Create a separate production D1 database and R2 Standard bucket, for example `omar-portfolio-cms`, with Wrangler. Add their actual returned identifiers to `wrangler.jsonc` as `CMS_DB` and `CMS_MEDIA`, using `migrations_dir: "migrations"`. R2 free allowances are not an unlimited billing cap; review account usage/notifications.
+3. Create an Access self-hosted application for `omaryusuf.se/admin` and descendants. Allow only the owner's exact email through the email one-time PIN identity provider, with a one-hour session. Enable HttpOnly, SameSite=Lax and the binding cookie. Use no bypass, everyone or wildcard-email policy. Test any more-specific application policies that could override it.
+4. Add `CMS_ACCESS_TEAM` as the exact HTTPS Access organization origin and `CMS_ACCESS_AUD` as that production application's audience. Leave `CMS_STAGE` and `PREVIEW_ORIGIN` unset. Store the same exact email as secret `CMS_ADMIN_EMAIL` on the production Worker:
 
-För en normal Wrangler-publicering på rätt, redan autentiserat konto:
+   ```sh
+   npx wrangler secret put CMS_ADMIN_EMAIL --config wrangler.jsonc
+   ```
 
-```sh
-npm run edge:check
-npm run deploy
-```
+5. Apply the schema to the production database, build and inspect the deployment before publishing:
 
-Enbart statisk uppladdning ger ingen kontaktsändning. `src/worker.mjs`, dess två servermoduler och bindings måste följa med på din befintliga Worker-publiceringsväg.
+   ```sh
+   npx wrangler d1 migrations apply omar-portfolio-cms --remote --config wrangler.jsonc
+   npm run check
+   npm run edge:check
+   npx wrangler deploy --config wrangler.jsonc
+   ```
 
-Ingen GitHub-workflow fanns i den godkända bas-ZIP:en. Revisionen skapar inte någon ny workflow eller en parallell publiceringskedja. Behåll och kontrollera den du redan använder.
+Bindings must be configured before deploying the CMS. Without auth settings the admin route fails closed; without a CMS database the public site continues to serve the built original. Merging the PR alone does not provision production or publish a CMS revision.
 
-## Kontrollera den nya versionen
+## Release verification
 
-Kör `node scripts/smoke-live.mjs` efter din publicering. Scriptet läser offentliga adresser, inklusive de nya projektsidorna, 404 och www-omdirigering; det skickar inget kontaktmejl. Det har inte körts mot en publicerad revision i utvecklingsmiljön.
+Check unauthenticated `/admin/`, admin bundle and API access; each must be intercepted by Access or rejected by the Worker. Verify the allowed owner, logout and a rejected identity. Keep the Access and server allowlists identical.
 
-Kontrollera i en vanlig webbläsare att URL:er, moduler, GIF, kortlek och CSP fungerar tillsammans. Prova navigation, alla fyra stationer, `Upp igen`, tangentbord, mobil, minskad rörelse och privat formulärleverans enligt kontaktguiden. Kontrollera Console och Network. Utvecklingsmiljöns dokumentrendering är inte bevis för en riktig nätverks-E2E-körning.
+Make a reversible content change, Save, reload the studio and fetch the public page with a fresh unauthenticated request. Confirm `X-CMS-Version` and the changed HTML. Upload a new image, verify it is private before use, place it on a page and Save, then verify the published media URL. Restore the previous version through History and Save again. Inspect desktop/mobile, internal links, metadata, wins and all workshop interactions.
 
-DNS och certifikat ska inte behöva ändras för denna koduppdatering. Om din befintliga Cloudflare-konfiguration skiljer sig, granska den skillnaden i stället för att blint ersätta zoninställningar. Befintliga MX-poster, andra subdomäner och andra tjänster är utanför ändringen.
+Run `node scripts/smoke-live.mjs` for public read-only checks after production deployment. Contact delivery requires the separate real-mail procedure in [CONTACT-SETUP.md](CONTACT-SETUP.md); a local provider fixture is not evidence of inbox delivery. Do not enable analytics as a side effect of installation.
 
-## Statistik
+## Backup and rollback
 
-`ANALYTICS_ENABLED` förblir `"false"`. Kontaktfunktionen är oberoende av frivillig statistik. Aktivera inte statistik i samband med installationen. En senare aktivering kräver separat genomgång av kontoavtal, loggar, integritetstext, kostnader och missbruksskydd samt verkliga samtyckestester.
+For content mistakes, History → Restore → Save appends a new revision. Published R2 objects remain available, so old references survive. Revert affects only unsaved draft content.
 
-## Återställning
+Before application/schema changes, export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
 
-Behåll den tidigare fungerande versionen. Vid fel kan den återpubliceras genom din normala väg eller väljas genom Cloudflares versionshantering. Revisionen innehåller ingen DNS-radering eller annan destruktiv återställningsfunktion.
+Protected component contracts derive from the source templates. If functional source markup changes after the CMS has been used, migrate existing saved content deliberately and test its continued editability before production deployment. See [CMS-SECURITY.md](CMS-SECURITY.md).
+
+## References
+
+- [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
+- [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
+- [R2 pricing](https://developers.cloudflare.com/r2/pricing/)
+- [Wrangler commands](https://developers.cloudflare.com/workers/wrangler/commands/)

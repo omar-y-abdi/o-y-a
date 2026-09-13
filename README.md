@@ -2,99 +2,68 @@
 
 **Teknik med hjärna. Lite bus i systemet.**
 
-Den smörgula, koboltblå webbplatsen i Omars godkända `o-y-a.zip`, vidareutvecklad utan att ersätta dess formspråk. Källkod, byggda sidor, tester och konfiguration följer med.
+Personlig portfolio med tolv ursprungliga sidor, fyra lekstationer och en visuell redigeringsstudio. Publika sidan använder statisk HTML och små native ES-moduler. Cloudflare Worker publicerar CMS-innehåll från D1; GrapesJS laddas endast i den autentiserade studion. Bilder och typsnitt lagras i R2.
 
-## Den här leveransen
+## Kom igång
 
-Revisionen uppdaterar den befintliga webbplatsen. Den skapar inget nytt repo, ändrar ingen DNS och publicerar inte automatiskt. Befintligt Worker-namn **`omar-portfolio`** och de två befintliga domänrutterna behålls. Den gamla leveransens påståenden om saknade repo eller kontobehörigheter beskriver inte den här revisionen.
-
-OY-monogrammet har ersatts av en liten illustrerad arbetsbänk i samma lutande papperskort. `Upp igen` går till dokumentets verkliga början. Kontaktkuvertet har egen text, inga privata mottagaruppgifter i klienten och en diskret länk till integritetspolicyn. Ingen lappmängd annonseras i gränssnittet.
-
-Verkstaden innehåller fyra stationer: glädjemaskinen, bubbelpausen, memory och femsekundersfikat. Maskinen har torr humor, kärleksfulla gliringar, pepp och påminnelser, en blandad kortlek per kategori, reaktiv figur och utskrift ovanpå maskinen. De gamla kortlänkarna fungerar fortfarande. Bilder skapas på besökarens enhet. Ljud börjar avstängt och minskad rörelse respekteras.
-
-Persontexten har uppdaterats enligt Omars uppgifter. Blade & Blend och Backhaul har egna projektkort och sidor. Inga privata repo publiceras, inga hackathonvinster eller produktionseffekter uppfinns.
-
-## Visa lokalt
-
-Node.js 22 eller senare behövs. Inga npm-paket behövs för vanligt bygge och förhandsvisning.
+Node.js 22 eller senare, npm och låsta beroenden behövs. CI använder Node 24.
 
 ```sh
+npm ci
 npm run dev
 ```
 
-Öppna `http://127.0.0.1:4173/`. Avsluta med Ctrl+C. För annan port:
+Publik förhandsvisning: `http://127.0.0.1:4173/`. Annan port: `node scripts/serve.mjs --port 5273`. Använd HTTP, inte direkt öppnade HTML-filer. Servern använder en Node-adapter för den riktiga Worker-handlern.
 
 ```sh
-npm run build
-node scripts/serve.mjs --port 4180
+npm run cms:dev
 ```
 
-Använd HTTP-servern, inte dubbelklick på HTML-filer. Länkar, moduler, JSON-kortleken och API-svar behöver rätt origin. Den lokala servern använder samma Worker-handler med en dokumenterad Node-adapter, inte Cloudflares workerd.
+CMS-utveckling kör en riktig lokal Worker med D1 och R2 via Miniflare på port 8790. Testidentiteten `owner@example.test` signeras med en temporär RSA-nyckel; ingen inloggningsgenväg finns i produktionskoden. Kommandot skriver privat Playwright-lagring till `output/cms-local/browser-auth.json`. Lokal data är tillfällig och identiteten ger ingen åtkomst till Cloudflare.
 
-## Kontaktmejl
+## Redigera webbplatsen
 
-Formuläret använder Cloudflare Turnstile och en serverbaserad Resend-integration. Namn och mejladress krävs. Meddelandet är valfritt. Två separata mejl skickas: en intern avisering med besökarens Reply-To och ett formgivet mottagningskvitto med den egna gula GIF-figuren. Mottagaradressen till Omar finns bara i en serverhemlighet.
+På en konfigurerad installation: öppna `/login/`, verifiera ägarens e-post med Cloudflare Access och öppna studion. Dashboardkontots GitHub-adress behöver inte vara samma som den tillåtna CMS-adressen.
 
-**Konfigurera [kontaktfunktionen](docs/CONTACT-SETUP.md) före publicering.** Utan hemligheter och rate-limit-binding stänger API:t kontaktsändningen i stället för att låtsas ha skickat mejl. Den vanliga lokala förhandsvisningen skickar inga riktiga mejl. Tester använder uttryckliga provideradaptrar.
+Välj sida till vänster. Klicka eller dubbelklicka på innehållet i arbetsytan. Justera text, typsnitt, layout, färger, avstånd och storlekar till höger. **Shift+Enter behåller radbrytningar**, även efter Save och omladdning. Mobil har en egen brytpunkt; Jämför visar båda storlekarna. Resurser innehåller bilder, uppladdade WOFF2-typsnitt och vinstkort.
 
-GIF-filen är en bild i mejlet. En avsändaravatar i inkorgens meddelandelista är en annan funktion och styrs av mottagarens mejltjänst. Den har inte konfigurerats av denna leverans.
+**Save publicerar direkt i aktuell miljö.** Revert hämtar senast sparat innehåll. History visar tidigare versioner; Restore läser in vald version som utkast. Save krävs sedan för att publicera återställningen. Originalversionen finns som version 0. Historik och publicerade filer raderas inte av dessa åtgärder.
+
+Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [säkerhetsgränserna](docs/CMS-SECURITY.md) och [driftsättningen](docs/DEPLOYMENT.md).
 
 ## Kodens delar
 
 | Plats | Ansvar |
 | --- | --- |
-| `src/content/site.mjs` | Sidregister, offentliga länkar och metadata |
-| `src/templates/` | Semantisk HTML, innehåll och policytexter |
-| `src/styles/` | Originalets formspråk och separata tillägg för berörda sidor |
-| `src/client/` | Navigation, leksaker, kort, samtycke och kontaktformulär |
-| `src/server/contact.mjs` | Validering, Turnstile, hastighetsbegränsning och Resend |
-| `src/server/emails.mjs` | Tabellbaserade HTML-mejl och textalternativ |
-| `src/worker.mjs` | Routing, säkerhetshuvuden, kontakt- och statistik-API |
-| `public/data/cards.json` | Kortlek, hämtad först när maskinen används |
-| `public/mail/` | Den animerade figuren och dess stillbild |
-| `scripts/build.mjs` | Statiskt bygge, sidberoende CSS och hashade resurser |
-| `scripts/serve.mjs` | Lokal server med Node-adapter |
-| `tests/` | Enhets-, HTTP-, layout- och interaktionskontroller |
+| `src/content/`, `src/templates/`, `src/styles/` | Ursprungligt innehåll, HTML och formspråk |
+| `src/client/` | Navigation, lekar, vinstdesign/export, kontakt och integritetsval |
+| `src/cms/client/` | Visuell editor, bibliotek, utkast och konfliktlösning |
+| `src/cms/auth.mjs`, `validation.mjs`, `project.mjs` | Ägarkontroll och serverns innehållsgräns |
+| `src/cms/store.mjs`, `assets.mjs`, `render.mjs` | D1-versioner, R2-filer och publicering |
+| `src/server/` | Befintlig kontaktserver och mejlmallar |
+| `src/worker.mjs` | Routing och säkerhetshuvuden |
+| `scripts/build*.mjs` | Publikt bygge, separat editorbundle och CMS-original |
+| `migrations/` | CMS-databasens schema |
+| `tests/` | Node-, Worker-, lagrings- och browserkontroller |
 
-`dist/` ingår som färdigt bygge. `.generated/` återskapas av byggkommandot och innehåller inga hemligheter. Ändra källan och bygg om, inte enstaka filer i `dist/`. Inga typsnittsfiler, produktions-source maps eller tredjepartsramverk levereras. JavaScript för kontakt och spel laddas bara på sidorna som använder funktionerna.
+`dist/` är det spårade bygget. `.generated/` återskapas vid bygge. Redigera källfiler och bygg om. Hemligheter, testidentiteter och arbetsloggar ignoreras av Git.
 
-## Kontrollera revisionen
+## Verifiering
 
 ```sh
 npm run check
-```
-
-Det kör byggning, syntaxkontroll och Node-tester. Webbläsartester använder Python, Playwright och Chromium. För att installera separata testverktyg:
-
-```sh
 python3 -m venv .test-venv
 . .test-venv/bin/activate
 pip install -r requirements-test.txt
 python -m playwright install chromium
-export CHROMIUM_PATH="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
 npm run quality
+npm run test:cms
 ```
 
-`quality` startar testservrar på 4173 och 4174, kör HTTP-kontroller och URL-baserade webbläsartester och stänger servrarna. Portarna måste vara lediga. Linux kan även behöva Playwrights systembibliotek, installerade med `python -m playwright install --with-deps chromium`.
+`quality` kör bygge, syntax, Node-tester, HTTP och publik browser-E2E. `test:cms` startar en isolerad Worker på ledig port och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
 
-I en miljö där webbläsarens navigeringspolicy blockerar adresser kan de **separata dokumentrenderingstesterna** köras:
+## Miljöer och kontakt
 
-```sh
-python tests/browser.py --render-only --screenshots --section pages
-python tests/browser.py --render-only --screenshots --section interactions
-python tests/browser.py --render-only --screenshots --section privacy
-python tests/revision_browser.py
-python tests/card_export.py
-python tests/contrast.py
-python tests/email_render.py
-```
+`wrangler.staging.jsonc` pekar på separat testmiljö. Produktion använder `wrangler.jsonc` och befintlig Worker `omar-portfolio`. Produktions-CMS behöver egna bindings och en egen Access-applikation enligt [driftguiden](docs/DEPLOYMENT.md); dessa konfigureras först efter merge. Stagingdatabasen får aldrig bindas till produktion.
 
-De här lägena kör verklig DOM, CSS, canvas och interaktionskod, men anpassar origin, nätverk, lagring och vissa webbläsarbehörigheter. De är **inte fullständiga nätverks-E2E-tester**. Gränser och aktuella resultat finns i [QA.md](docs/QA.md).
-
-Pillow behövs endast för valfria grafikverktyg som `scripts/mail-art.py`; det ingår inte i webbplatsens drift. Färdig GIF och övriga grafikfiler finns redan i `public/`. Det äldre verktyget `scripts/artwork.py` använder även CairoSVG.
-
-## Uppdatera den befintliga webbplatsen
-
-Följ [DEPLOYMENT.md](docs/DEPLOYMENT.md). Ingen GitHub-workflow följer med den godkända bas-ZIP:en, och revisionen installerar inte någon. Behåll din befintliga publiceringsväg. Ladda inte upp hemligheter till GitHub eller som statiska resurser.
-
-Frivillig statistik förblir avstängd genom `ANALYTICS_ENABLED: "false"`. Kontaktmejl kräver inte samtycke till statistik. Aktivera inte statistik som en bieffekt av formulärinstallationen.
+Kontaktformuläret behåller Cloudflare Turnstile, serverbaserad Resend-integration och befintligt missbruksskydd. Se [CONTACT-SETUP.md](docs/CONTACT-SETUP.md). Lokala tester använder uttryckliga testsvar och skickar inga riktiga mejl. Frivillig statistik förblir avstängd med `ANALYTICS_ENABLED: "false"`.

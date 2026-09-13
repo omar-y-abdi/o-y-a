@@ -1,4 +1,7 @@
 import { readConsent, consentCookie } from './privacy.mjs';
+import { loadCopy, t } from './copy.mjs';
+
+await loadCopy();
 
 document.documentElement.classList.add('js-ready');
 document.querySelectorAll('.js-only').forEach(element => { element.hidden = false; });
@@ -18,13 +21,13 @@ const menu = document.querySelector('#mobile-menu');
 function closeMenu(returnFocus = false) {
   menu.hidden = true;
   menuButton.setAttribute('aria-expanded', 'false');
-  menuButton.setAttribute('aria-label', 'Öppna menyn');
+  menuButton.setAttribute('aria-label', t('runtime.nav.menu.open'));
   if (returnFocus) menuButton.focus();
 }
 menuButton?.addEventListener('click', () => {
   const open = menuButton.getAttribute('aria-expanded') !== 'true';
   menuButton.setAttribute('aria-expanded', String(open));
-  menuButton.setAttribute('aria-label', open ? 'Stäng menyn' : 'Öppna menyn');
+  menuButton.setAttribute('aria-label', t(open ? 'runtime.nav.menu.close' : 'runtime.nav.menu.open'));
   menu.hidden = !open;
 });
 menu?.addEventListener('click', event => { if (event.target.closest('a')) closeMenu(); });
@@ -37,7 +40,7 @@ let motionChoice = /(?:^|;\s*)oy_motion=off(?:;|$)/.test(document.cookie);
 function applyMotion() {
   const off = reduced.matches || motionChoice;
   root.dataset.motion = off ? 'off' : 'auto';
-  const label = reduced.matches ? 'Rörelser pausade av systeminställningen' : off ? 'Aktivera rörelser' : 'Pausa rörelser';
+  const label = reduced.matches ? t('runtime.motion.label.systemPaused') : off ? t('runtime.motion.label.enable') : t('runtime.motion.label.pause');
   motionButton?.setAttribute('aria-label', label);
   motionButton?.setAttribute('aria-pressed', String(off));
   if (motionButton) { motionButton.title = label; motionButton.disabled = reduced.matches; }
@@ -47,7 +50,7 @@ motionButton?.addEventListener('click', () => {
   motionChoice = !motionChoice;
   document.cookie = `oy_motion=${motionChoice ? 'off' : 'on'}; Path=/; Max-Age=15552000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
   applyMotion();
-  toast(motionChoice ? 'Rörelser pausade. Leken fungerar ändå.' : 'Rörelser aktiverade.');
+  toast(t(motionChoice ? 'runtime.motion.toast.paused' : 'runtime.motion.toast.enabled'));
 });
 reduced.addEventListener('change', applyMotion);
 applyMotion();
@@ -79,12 +82,12 @@ export function track(event) {
 function updatePrivacyStatus() {
   if (!status) return;
   const choice = readConsent(document.cookie);
-  status.textContent = privacySignal() ? 'Din webbläsare begär ingen spårning. Ingen frivillig statistik skickas.'
-    : !configChecked ? 'Kontrollerar om statistik är aktiverad i den här installationen.'
-    : !analyticsAvailable ? 'Statistik är inte aktiv i den här installationen. Inga statistikförfrågningar skickas.'
-    : !sessionDenied && choice === 'allow' ? 'Ditt nuvarande val: statistik tillåts. Du kan ändra det här.'
-    : sessionDenied || choice === 'deny' ? 'Ditt nuvarande val: bara nödvändiga inställningar. Ingen statistik skickas.'
-    : 'Du har inte valt ännu. Ingen statistik skickas före ett ja.';
+  status.textContent = privacySignal() ? t('runtime.privacy.status.noTracking')
+    : !configChecked ? t('runtime.privacy.status.checking')
+    : !analyticsAvailable ? t('runtime.privacy.status.unavailable')
+    : !sessionDenied && choice === 'allow' ? t('runtime.privacy.status.allowed')
+    : sessionDenied || choice === 'deny' ? t('runtime.privacy.status.denied')
+    : t('runtime.privacy.status.unset');
   document.querySelectorAll('[data-consent="allow"]').forEach(button => { button.disabled = !analyticsAvailable || privacySignal(); });
 }
 function openPrivacy(event) {
@@ -112,12 +115,12 @@ document.querySelectorAll('[data-consent]').forEach(button => button.addEventLis
   banner.hidden = true;
   if (dialog.open) dialog.close();
   updatePrivacyStatus();
-  if (!persisted) toast(choice === 'deny' ? 'Valet kunde inte sparas. Statistik är pausad här. Kontrollera kakinställningarna innan du byter sida.' : 'Webbläsaren sparade inte ditt val. Ingen frivillig statistik skickas.');
-  else toast(choice === 'allow' ? 'Tack. Bara enkel händelsestatistik, inga profiler.' : 'Bara nödvändiga. Precis som du valde.');
+  if (!persisted) toast(t(choice === 'deny' ? 'runtime.privacy.toast.persistFailedDenied' : 'runtime.privacy.toast.persistFailedAllow'));
+  else toast(t(choice === 'allow' ? 'runtime.privacy.toast.allowed' : 'runtime.privacy.toast.denied'));
   if (choice === 'allow' && persisted) track('page_view');
 }));
 updatePrivacyStatus();
-fetch('/api/config', { credentials:'same-origin', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(4000) })
+(!document.body.dataset.cmsPreview ? fetch('/api/config', { credentials:'same-origin', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(4000) }) : Promise.resolve(new Response('{"analytics":false}')))
   .then(response => response.ok ? response.json() : null)
   .then(config => { analyticsAvailable = config?.analytics === true; })
   .catch(() => { analyticsAvailable = false; })
@@ -133,30 +136,30 @@ const fold = document.querySelector('[data-fold]');
 fold?.addEventListener('click', () => {
   const folded = fold.getAttribute('aria-pressed') !== 'true';
   fold.setAttribute('aria-pressed', String(folded));
-  fold.childNodes[0].textContent = folded ? 'Vik ut ' : 'Vik ihop ';
+  fold.childNodes[0].textContent = t(folded ? 'runtime.fold.button.expand' : 'runtime.fold.button.collapse');
   document.querySelectorAll('.repeat-line').forEach(line => { line.hidden = folded; });
   document.querySelector('.folded-line').hidden = !folded;
-  document.querySelector('[data-fold-status]').textContent = folded ? 'Tre likadana rader är hopvikta. De finns kvar och visas med ”Vik ut”. En illustration, inte ett prestandatest.' : 'Alla rader visas. Detta är en illustration, inte en körning av Furl eller ett prestandatest.';
+  document.querySelector('[data-fold-status]').textContent = t(folded ? 'runtime.fold.status.folded' : 'runtime.fold.status.expanded');
 });
 
 if (document.querySelector('[data-machine], [data-bubble]')) {
   import('./joy.mjs').then(module => module.initJoy({ toast, track })).catch(() => {
     const note = document.querySelector('[data-machine-status]');
-    if (note) note.textContent = 'Maskinen kunde inte starta. Sidans vanliga länkar fungerar fortfarande.';
+    if (note) note.textContent = t('runtime.error.machineInit');
   });
 }
 
 // Keep the real page top distinct from the skip-to-content target below the header.
 document.querySelector('[data-back-top]')?.addEventListener('click', event => {
   event.preventDefault();
-  window.scrollTo({ top:0, left:0, behavior:root.dataset.motion === 'off' ? 'instant' : 'smooth' });
   document.querySelector('.site-header .brand')?.focus({ preventScroll:true });
+  window.scrollTo({ top:0, left:0, behavior:root.dataset.motion === 'off' ? 'instant' : 'smooth' });
 });
 if (document.querySelector('[data-contact-form]')) {
   import('./contact.mjs').then(module => module.initContact()).catch(() => {
-    document.querySelector('[data-contact-status]').textContent = 'Formuläret kunde inte starta. Försök ladda om sidan.';
+    document.querySelector('[data-contact-status]').textContent = t('runtime.error.contactInit');
   });
 }
 if (document.querySelector('[data-memory-grid]')) import('./games.mjs').then(module => module.initGames()).catch(() => {
-  document.querySelector('[data-memory-status]').textContent = 'Spelet kunde inte starta. Försök ladda om sidan.';
+  document.querySelector('[data-memory-status]').textContent = t('runtime.error.gamesInit');
 });

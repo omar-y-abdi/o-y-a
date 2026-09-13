@@ -1,5 +1,7 @@
 let bankPromise;
 export async function loadCards() {
+  const preview = globalThis.document?.querySelector('#cms-preview-data');
+  if (preview) return JSON.parse(preview.textContent).cards;
   if (!bankPromise) bankPromise = fetch('/data/cards.json', {credentials:'same-origin',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(8000)})
     .then(response => { if (!response.ok) throw new Error('Card bank unavailable'); return response.json(); })
     .catch(error => { bankPromise=null;throw error; });
