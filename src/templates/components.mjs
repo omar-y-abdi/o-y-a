@@ -22,7 +22,7 @@ export function flower(cls = '') {
 }
 export function machine({ workshop = false } = {}) {
   return `<div class="machine-stage ${workshop ? 'machine-stage--workshop' : ''}" data-machine>
-    <span class="stage-doodle doodle-plus" aria-hidden="true">✳</span><span class="stage-doodle doodle-ring" aria-hidden="true"></span>
+    <span class="stage-doodle doodle-ring" aria-hidden="true"></span>
     <div class="machine-note" aria-hidden="true">Psst. Den funkar<br>på riktigt.<svg width="65" height="48" viewBox="0 0 65 48"><path d="M3 3Q55 0 48 36m-9-9 9 10 10-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
     <div class="machine-shadow" aria-hidden="true"></div>
     <div class="machine-body">
