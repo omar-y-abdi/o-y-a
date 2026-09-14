@@ -46,7 +46,7 @@ export function initJoy({ toast, track }) {
     button.disabled = false;
     function showCard(card) {
       current = card;
-      message.textContent = card.text;
+      message.replaceChildren(...card.text.split('\n').flatMap((line, index) => [...(index ? [document.createElement('br')] : []), document.createTextNode(line)]));
       message.hidden = false;
       let artwork = receipt.querySelector('[data-win-artwork]');
       if (!artwork) { artwork = document.createElement('div'); artwork.dataset.winArtwork = ''; message.after(artwork); }
@@ -55,9 +55,11 @@ export function initJoy({ toast, track }) {
       const selected = card;
       renderingWin = (winModule ??= import('./win.mjs')).then(module => {
         if (current !== selected) return;
-        receipt.classList.add('has-win-design');
-        artwork.hidden = false;
-        message.hidden = true;
+        const hasDesign = Boolean(selected.design);
+        receipt.classList.toggle('has-win-design', hasDesign);
+        artwork.hidden = !hasDesign;
+        message.hidden = hasDesign;
+        // Keep the default export surface without replacing the native receipt.
         module.renderWin(artwork, selected);
       }).catch(() => { receipt.classList.remove('has-win-design'); artwork.hidden = true; message.hidden = false; });
       receipt.hidden = false;
