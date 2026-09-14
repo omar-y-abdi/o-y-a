@@ -1,0 +1,1 @@
+ALTER TABLE cms_media ADD COLUMN validation_version INTEGER NOT NULL DEFAULT 0;
