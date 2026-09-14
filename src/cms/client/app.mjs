@@ -1,3 +1,4 @@
+import { legacyEditorDraft } from './legacy.mjs';
 import { api, upload } from './api.mjs';
 import { Backups } from './backups.mjs';
 import { Draft } from './draft.mjs';
@@ -7,7 +8,7 @@ import { $, $$, escape, toast, dialog, confirmAction, field } from './dom.mjs';
 import { createEditor } from './editor.mjs';
 import { pageInspector, componentInspector, themeInspector } from './inspector.mjs';
 import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign } from './library.mjs';
-import { themeCss } from '../theme.mjs';
+import { themeCss, assetFontCss } from '../theme.mjs';
 
 let draft, identity, definitions, blank, assets = [], built;
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
@@ -286,7 +287,7 @@ async function preview(project = null, id = lastPage, label = '') {
     const height = width === 390 ? 844 : 1000;
     const wrapper = document.createElement('div'); wrapper.className = 'preview-frame'; wrapper.style.width = `${Math.floor(width * scale)}px`; wrapper.style.height = `${Math.floor(height * scale) + 28}px`;
     const title = document.createElement('div'); title.className = 'preview-frame-label'; title.textContent = `${label || 'INTERAKTIV VY'} · ${width === 390 ? 'MOBIL' : 'DATOR'} · ${width} PX`;
-    const frame = document.createElement('iframe'); frame.title = `${label || 'Förhandsvisning'} ${width === 390 ? 'mobil' : 'dator'}`; frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups'); frame.style.width = `${width}px`; frame.style.height = `${height}px`; frame.style.transform = `scale(${scale})`; frame.srcdoc = result.html;
+    const frame = document.createElement('iframe'); frame.title = `${label || 'Förhandsvisning'} ${width === 390 ? 'mobil' : 'dator'}`; frame.setAttribute('data-cms-preview-frame', ''); frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups'); frame.style.width = `${width}px`; frame.style.height = `${height}px`; frame.style.transform = `scale(${scale})`; frame.srcdoc = result.html;
     wrapper.append(title, frame); $('#preview-stage').append(wrapper);
   }
   $('#viewport-size').textContent = sizes.join(' + ') + ' px';
@@ -382,12 +383,21 @@ async function deletePage() {
 
 async function exportWin() {
   active?.flush();
-  const node = active?.editor.Canvas.getDocument().querySelector('.win-design') ?? active?.editor.Canvas.getBody();
-  if (!node) return;
-  const { toPng } = await import('html-to-image');
-  const data = await toPng(node, { pixelRatio: 2, cacheBust: false, skipFonts: false });
-  const link = document.createElement('a'); link.href = data; link.download = `en-liten-vinst-${current.id}.png`; link.click();
-  toast('Förhandsbilden är skapad från vinstens riktiga design.');
+  const id = current.id;
+  const { project } = await api('validate', { project: draft.project });
+  const win = project.cards.find(item => item.id === id);
+  if (!win) return;
+  const { renderWin, exportWin: exportCard, disposeWin } = await import('../../client/win.mjs');
+  const host = document.createElement('div'), fonts = document.createElement('style');
+  host.style.cssText = 'position:fixed;left:-10000px;top:0;width:600px;pointer-events:none';
+  fonts.textContent = assetFontCss(assets); document.head.append(fonts); document.body.append(host);
+  try {
+    renderWin(host, win);
+    const url = URL.createObjectURL(await exportCard(host));
+    const link = document.createElement('a'); link.href = url; link.download = `en-liten-vinst-${id}.png`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Förhandsbilden är skapad från vinstens riktiga design.');
+  } finally { disposeWin(host); host.remove(); fonts.remove(); }
 }
 
 async function submitAsset(item, patch) {
@@ -513,6 +523,13 @@ async function boot() {
     },
   });
   await backups.start();
+  const legacy = legacyEditorDraft(state.project);
+  if (legacy) {
+    const original = { project: state.project, version: state.version, pendingSave: null };
+    draft.change(legacy);
+    $('#legacy-editor-note').hidden = false;
+    $('#export-legacy-editor').onclick = () => backups.export(original);
+  }
   $('#environment-badge').hidden = state.environment !== 'staging';
   $('.owner-avatar').title = `Inloggad som ${identity.email}. Logga ut.`;
   openPage(draft.project.pages[0].id); status();

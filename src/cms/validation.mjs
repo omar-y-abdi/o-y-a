@@ -2,12 +2,16 @@ import { parse, parseFragment, serialize, serializeOuter } from 'parse5';
 import * as css from 'css-tree';
 import { HttpError } from './http.mjs';
 import { ID_REFERENCES } from './id-references.mjs';
+import { validateEditorShape } from './editor-schema.mjs';
 
-export const VALIDATION_POLICY = 'cms-policy-2-browser-parser-id-references';
+export const VALIDATION_POLICY = 'cms-policy-3-canonical-editor-widget-preview';
 
 const TAGS = new Set('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup dd del details dfn dialog div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i img input kbd label legend li main mark nav noscript ol optgroup option output p picture pre progress q rp rt ruby s samp section select small source span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var svg g path circle rect ellipse line polyline polygon defs lineargradient radialgradient stop clippath title desc mask pattern use'.split(' '));
 const ATTRS = new Set('id class title role lang dir tabindex hidden inert href target rel src srcset sizes alt width height loading decoding type name value checked disabled required readonly multiple min max step minlength maxlength autocomplete placeholder for rows cols method action novalidate open aria-label aria-labelledby aria-describedby aria-controls aria-live aria-atomic aria-hidden aria-expanded aria-pressed aria-current aria-disabled aria-invalid aria-busy scope colspan rowspan start reversed datetime cite download style viewbox fill fill-rule fill-opacity stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity d points x y x1 x2 y1 y2 cx cy r rx ry transform opacity offset stop-color stop-opacity gradientunits gradienttransform clip-path clip-rule preserveaspectratio xmlns'.split(' '));
-const FIXED = new Set(['id', 'type', 'name', 'required', 'hidden', 'disabled', 'role', 'autocomplete', ...ID_REFERENCES]);
+const STATE_ATTRIBUTES = ['type', 'name', 'required', 'hidden', 'disabled', 'readonly', 'multiple', 'checked', 'method', 'action', 'novalidate', 'min', 'max', 'step', 'minlength', 'maxlength'];
+const FIXED = new Set(['id', 'type', 'name', 'required', 'hidden', 'disabled', 'role', 'autocomplete', 'method', 'action', 'novalidate', 'readonly', 'multiple', ...STATE_ATTRIBUTES, ...ID_REFERENCES]);
+const CONTROLS = new Set(['input', 'textarea', 'select', 'button', 'fieldset', 'output', 'option', 'optgroup']);
+const semanticValue = node => ['option', 'button'].includes(node.tagName) || node.tagName === 'input' && ['radio', 'checkbox', 'hidden'].includes(attr(node, 'type'));
 const AT_RULES = new Set(['media', 'supports', 'keyframes', '-webkit-keyframes', 'font-face', 'layer', 'container', 'starting-style']);
 const LOCKED_CLASSES = new Set(['fika-board', 'repeat-line', 'folded-line', 'eye', 'memory-card', 'memory-front', 'memory-back']);
 const RESERVED = new Set(['admin', 'login', 'api', 'assets', 'media', 'data', 'cdn-cgi', 'cms-public']);
@@ -70,6 +74,7 @@ function checkAttribute(name, value, tag) {
   const lower = name.toLowerCase();
   if (typeof value !== 'string' || value.length > 20000 || /^on/i.test(lower) || /^data-gjs/i.test(lower)
     || (!ATTRS.has(lower) && !/^aria-[a-z-]+$/.test(lower) && !/^data-[a-z0-9-]+$/.test(lower))) invalid(`Attributet ${name} är inte tillåtet.`);
+  if (lower === 'id' && /^cms-(?:preview|win)-/.test(value) || lower.startsWith('data-cms-') && lower !== 'data-cms-node') invalid('Interna preview-markörer får inte användas i redigerbart innehåll.');
   if (lower === 'xmlns' && value !== 'http://www.w3.org/2000/svg') invalid('Okänd SVG-namnrymd.');
   if (lower === 'style') validateCss(value, 'declarationList');
   if (['src', 'poster'].includes(lower) && !resourceUrl(value)) invalid('Bilder måste väljas från webbplatsens egna resurser.');
@@ -100,10 +105,10 @@ export function preparePage(document) {
     node.attrs.push({ name: 'data-cms-node', value: key });
     const functional = node.attrs.some(a => a.name.startsWith('data-') && !a.name.startsWith('data-cms-'));
     const classes = (attr(node, 'class') ?? '').split(/\s+/);
-    const inForm = node.tagName === 'form' || ['input', 'textarea', 'select', 'label'].includes(node.tagName);
+    const inForm = node.tagName === 'form' || node.tagName === 'label' || CONTROLS.has(node.tagName);
     const special = functional || inForm || node.tagName === 'noscript' || ['main', 'mobile-menu', 'share-url'].includes(attr(node, 'id')) || classes.some(name => LOCKED_CLASSES.has(name));
     if (special) {
-      contracts.push({ key, tag: node.tagName, attrs: Object.fromEntries(node.attrs.filter(a => FIXED.has(a.name) || a.name.startsWith('data-') && !a.name.startsWith('data-cms-')).map(a => [a.name, a.value])), classes: classes.filter(Boolean) });
+      contracts.push({ key, tag: node.tagName, attrs: Object.fromEntries(node.attrs.filter(a => FIXED.has(a.name) || a.name === 'value' && semanticValue(node) || a.name.startsWith('data-') && !a.name.startsWith('data-cms-')).map(a => [a.name, a.value])), classes: classes.filter(Boolean) });
       // The print control reads its first span as the live button label.
       if (functional && attr(node, 'data-print') !== undefined) contracts.at(-1).span = true;
     }
@@ -118,6 +123,7 @@ export function preparePage(document) {
   traverse(body, node => {
     const contract = contractsByKey.get(attr(node, 'data-cms-node'));
     if (!contract) return;
+    if (contract.span) contract.spanKey = attr(node.childNodes?.find(child => child.tagName === 'span'), 'data-cms-node');
     let parent = node.parentNode;
     while (parent && !keys.has(attr(parent, 'data-cms-node'))) parent = parent.parentNode;
     contract.parent = parent ? attr(parent, 'data-cms-node') : null;
@@ -159,6 +165,9 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
       ids.add(id);
     }
     const key = attr(node, 'data-cms-node');
+    const contract = contracts.find(item => item.key === key);
+    if (contracts.length && node.attrs.some(item => item.name.startsWith('data-') && !item.name.startsWith('data-cms-') && !Object.hasOwn(contract?.attrs ?? {}, item.name))) invalid('Ett element får inte ta över en annan funktions kopplingar.');
+    if (contracts.length && !contract && (node.tagName === 'form' || CONTROLS.has(node.tagName))) invalid('Nya namngivna formulärkontroller får inte ändra en skyddad funktion.');
     if (contracts.length && node.attrs.some(item => item.name.startsWith('data-') && !item.name.startsWith('data-cms-')) && !protectedKeys.has(key)) invalid('Funktionskopplingar får inte dupliceras eller skapas som vanlig layout.');
     if (key) {
       if (nodes.has(key)) invalid('Ett skyddat element har dubblerats.');
@@ -179,6 +188,11 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
       if ((parent ? attr(parent, 'data-cms-node') : null) !== contract.parent) invalid('Ett funktionselement har flyttats utanför sin funktion. Flytta hela gruppen i stället.');
     }
     for (const [name, value] of Object.entries(contract.attrs)) if (attr(node, name) !== value) invalid('Ett skyddat funktionsattribut har ändrats.');
+    if (CONTROLS.has(node.tagName) || node.tagName === 'form') {
+      for (const name of STATE_ATTRIBUTES) if (attr(node, name) !== contract.attrs[name]) invalid('Ett skyddat formulärfält har fått ändrat tillstånd.');
+      if (semanticValue(node) && attr(node, 'value') !== contract.attrs.value) invalid('Ett funktionsvärde får inte ändras.');
+    }
+    if (contract.spanKey && attr(node.childNodes?.find(child => child.tagName === 'span'), 'data-cms-node') !== contract.spanKey) invalid('Maskinknappens första textfält måste behålla sin identitet.');
     const classes = (attr(node, 'class') ?? '').split(/\s+/);
     if (contract.classes.some(name => !classes.includes(name))) invalid('En klass som behövs för sidans funktion har tagits bort.');
     if (contract.span && !node.childNodes?.some(child => child.tagName === 'span')) invalid('Maskinknappens textfält måste finnas kvar.');
@@ -189,6 +203,7 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
 }
 
 export function validateEditorData(data, contracts = []) {
+  validateEditorShape(data);
   if (!plainObject(data) || JSON.stringify(data).length > 1000000) invalid('Editorprojektet är ogiltigt eller för stort.');
   let count = 0;
   function inspect(value, depth = 0, key = '') {

@@ -1,3 +1,5 @@
+import { previewData } from './previewdata.mjs';
+
 export const defaultCopy = Object.freeze({
   'runtime.nav.menu.open': 'Öppna menyn',
   'runtime.nav.menu.close': 'Stäng menyn',
@@ -121,9 +123,9 @@ export function t(key, values = {}) {
 export async function loadCopy() {
   if (copyPromise) return copyPromise;
   copyPromise = (async () => {
-    const preview = globalThis.document?.querySelector?.('#cms-preview-data');
+    const preview = previewData();
     if (preview) {
-      try { copyFromRuntime(JSON.parse(preview.textContent || '{}').runtime); } catch { /* Preview falls back to built-in copy. */ }
+      try { copyFromRuntime(preview.runtime); } catch { /* Preview falls back to built-in copy. */ }
       return activeCopy;
     }
     try {

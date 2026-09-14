@@ -2,6 +2,8 @@ import { imageDimensionsFromData } from 'image-dimensions';
 import { authenticateAdmin } from './auth.mjs';
 import { HttpError } from './http.mjs';
 import { digest } from './store.mjs';
+import { decodeRaster } from './raster-integrity.mjs';
+import { resourceReferences } from './resources.mjs';
 
 export const MAX_ASSET_BYTES = 10 * 1024 * 1024;
 export const MAX_ACTIVE_FONTS = 64;
@@ -59,9 +61,11 @@ export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
   const existing = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
   if (existing) {
     if (existing.sha256 !== hash) throw new HttpError(409, 'Uppladdningens identitet används redan av en annan fil.');
+    if (!existing.validation_version) await validateStoredMedia(env, existing);
     return record(existing);
   }
   if (info.mime === 'font/woff2' && (await assetPage(env.CMS_DB, { query: 'font/woff2', archived: false })).total >= MAX_ACTIVE_FONTS) throw new HttpError(413, 'Biblioteket stöder 64 aktiva typsnitt. Arkivera ett oanvänt typsnitt innan du laddar upp fler.');
+  if (info.mime.startsWith('image/')) await decodeRaster(env, bytes, info);
   const key = `${id}.${info.extension}`;
   const stored = await env.CMS_MEDIA.put(key, bytes, { onlyIf: { etagDoesNotMatch: '*' }, httpMetadata: { contentType: info.mime }, customMetadata: { sha256: hash } });
   if (!stored) {
@@ -70,10 +74,31 @@ export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
   }
   // Retrying the same ID can adopt a completed upload after a metadata outage.
   // Unregistered objects are never served publicly and never replace old assets.
-  await env.CMS_DB.prepare("INSERT OR IGNORE INTO cms_media (id, object_key, name, mime, bytes, width, height, alt, sha256, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ? != 'font/woff2' OR (SELECT count(*) FROM cms_media WHERE mime = 'font/woff2' AND archived_at IS NULL) < ?").bind(id, key, name.trim(), info.mime, bytes.byteLength, info.width, info.height, alt, hash, new Date().toISOString(), info.mime, MAX_ACTIVE_FONTS).run();
+  await env.CMS_DB.prepare("INSERT OR IGNORE INTO cms_media (id, object_key, name, mime, bytes, width, height, alt, sha256, created_at, validation_version) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1 WHERE ? != 'font/woff2' OR (SELECT count(*) FROM cms_media WHERE mime = 'font/woff2' AND archived_at IS NULL) < ?").bind(id, key, name.trim(), info.mime, bytes.byteLength, info.width, info.height, alt, hash, new Date().toISOString(), info.mime, MAX_ACTIVE_FONTS).run();
   const row = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
   if (!row || row.sha256 !== hash) throw new HttpError(409, 'Uppladdningen kunde inte bekräftas. Försök igen.');
   return record(row);
+}
+
+async function validateStoredMedia(env, row) {
+  const stored = await env.CMS_MEDIA?.get(row.object_key);
+  if (!stored) throw new HttpError(422, 'En vald fil saknas i medielagringen. Återställ eller ersätt filen.');
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  if (await digest(bytes) !== row.sha256) throw new HttpError(422, 'En vald fil har ändrats i medielagringen. Återställ originalfilen.');
+  const info = inspectAsset(bytes);
+  if (info.mime !== row.mime || info.width !== row.width || info.height !== row.height) throw new HttpError(422, 'Filens lagrade uppgifter stämmer inte med innehållet.');
+  if (info.mime.startsWith('image/')) await decodeRaster(env, bytes, info);
+  await env.CMS_DB.prepare('UPDATE cms_media SET validation_version = 1 WHERE id = ? AND sha256 = ?').bind(row.id, row.sha256).run();
+}
+
+export async function validateReferencedMedia(env, project) {
+  const keys = [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7));
+  if (!keys.length) return;
+  const rows = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(keys)).all();
+  if (rows.results.length !== keys.length) throw new HttpError(422, 'En vald fil saknas. Ladda upp filen innan du sparar.');
+  // Revalidate legacy uploads lazily; a broken old file cannot be newly promoted.
+  // Its old published revision/URL is retained for explicit historical recovery.
+  for (const row of rows.results) if (!row.validation_version) await validateStoredMedia(env, row);
 }
 
 export async function updateAsset(db, id, input) {

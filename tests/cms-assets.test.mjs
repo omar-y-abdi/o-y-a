@@ -7,9 +7,9 @@ import { publishSite, readSite } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/theme.mjs';
 import { migrateCmsDb } from './helpers/cms-runtime.mjs';
 
-const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default { fetch() { return new Response("test"); } };', compatibilityDate: '2026-09-11', d1Databases: ['CMS_DB'], r2Buckets: ['CMS_MEDIA'] }));
+const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default { fetch() { return new Response("test"); } };', compatibilityDate: '2026-09-11', d1Databases: ['CMS_DB'], r2Buckets: ['CMS_MEDIA'], images: { binding: 'CMS_IMAGES' } }));
 after(() => mf.dispose());
-const env = { CMS_DB: await mf.getD1Database('CMS_DB'), CMS_MEDIA: await mf.getR2Bucket('CMS_MEDIA') };
+const env = { CMS_DB: await mf.getD1Database('CMS_DB'), CMS_MEDIA: await mf.getR2Bucket('CMS_MEDIA'), CMS_IMAGES: await mf.getImagesBinding('CMS_IMAGES') };
 await migrateCmsDb(env.CMS_DB);
 const png = new Uint8Array(await readFile('public/social/omar-yusuf.png'));
 

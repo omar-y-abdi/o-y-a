@@ -12,9 +12,11 @@ The owner address is a Worker secret, never a bundled constant. Access applicati
 
 HTML is parsed with parse5, CSS with css-tree and project JSON traversed with depth/size limits. Scripts, event handlers, unsafe URLs, active embeds, foreign SVG content, external CSS imports, executable editor fields and prototype keys are rejected. Resources must come from approved local asset paths or registered R2 media paths. Page routes cannot shadow administration, APIs or infrastructure.
 
-Protected component contracts preserve functional attributes, required classes and the nearest functional parent. Visual wrappers and reordering within a function remain possible. Moving a control outside its functional group is rejected. Page validation also checks main content, heading structure, image alternatives and local links. Runtime text placeholders must retain their original set.
+Protected component contracts preserve functional attributes, exact hook ownership, control counts, semantic values and state, required classes and the nearest functional parent. Visual wrappers and reordering within a function remain possible. Moving a control outside its functional group is rejected. Page validation also checks main content, heading structure, image alternatives and local links. Runtime text placeholders must retain their original set.
 
 The client receives a restrictive CSP with no eval or remote script origins. Inline styles are necessary for GrapesJS and validated previews; arbitrary JavaScript remains unavailable. The visual editor's affordances are not the security boundary: server checks run for direct API requests too.
+
+HTML/CSS are the canonical editor representation. Legacy editor JSON is type/security checked on import but never trusted as a competing executable editor document. Preview-only JSON is restricted to one server-owned head record in a studio-owned srcdoc iframe; ordinary public documents always use validated public endpoints.
 
 ## Storage and recovery
 
@@ -22,7 +24,7 @@ D1 stores compressed immutable revisions, rendered public content and an atomic 
 
 Validation may reuse unchanged content from the server's trusted published baseline. Client-supplied cached facts do not create trust. Published media references are extracted from rendered HTML/CSS and actual uploaded font usage, excluding GrapesJS's private asset registry.
 
-R2 keys are immutable UUIDs. Upload parsing checks supported file headers, size and raster dimensions; MIME is derived by the server. A private upload is not served publicly until used by a published revision. Archiving hides a file from selection but preserves bytes and historical URLs. Previously published files remain public after removal from a current page. Do not upload confidential files expecting later archival to revoke their old public URLs.
+R2 keys are immutable UUIDs. Upload parsing checks headers, bounded container integrity, size and dimensions; raster files must also decode through the CMS_IMAGES binding before registration. MIME is derived by the server. Existing unverified rows are checked before promotion under the media-integrity migration. WOFF2 has its separate bounded header policy; raster decoding is not a font-integrity certification. A private upload is not served publicly until used by a published revision. Archiving hides a file from selection but preserves bytes and historical URLs. Previously published files remain public after removal from a current page. Do not upload confidential files expecting later archival to revoke their old public URLs.
 
 Current content limits: 64 pages, 2,000 wins, 8 MiB request bodies, 1.5 million compressed revision bytes, 500,000 characters of HTML per page, 200,000 CSS characters per stylesheet and 1 million characters of editor JSON per page. A file is limited to 10 MiB, 8192 px per dimension and 32 megapixels. These are validation limits, not a promise of fast editing at every maximum simultaneously.
 
@@ -35,3 +37,5 @@ A complete rollback considers Worker code, D1 content/schema and R2 references t
 ## Verification scope
 
 Node tests cover JWT rejection, XSS and CSS payloads, origins, route bypasses, size bounds, storage rollback, stale writes and retries. Integration tests run actual workerd, D1 and R2 using a locally signed identity fixture. Browser tests cover the real editor and published responses; remote staging additionally verifies Cloudflare Access and deployed persistence. These checks do not certify absence of every vulnerability or replace control of the owner's email account.
+
+The completion-package verification boundary and hosted Images prerequisites are recorded in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md); do not infer remote sign-off from offline codec tests.

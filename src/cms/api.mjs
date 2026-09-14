@@ -1,8 +1,8 @@
 import { authenticateAdmin } from './auth.mjs';
-import { assetResponse, assetPage, assetSelection, MAX_ASSET_BYTES, updateAsset, uploadAsset } from './assets.mjs';
+import { assetResponse, assetPage, assetSelection, MAX_ASSET_BYTES, updateAsset, uploadAsset, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
-import { publicationChunks, publishSite, readHistory, readSite } from './store.mjs';
+import { publicationChunks, publicationMedia, publishSite, readHistory, readSite } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
 
@@ -82,6 +82,8 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const body = await readJson(request, 8 * 1024 * 1024);
       const baseline = (await readSite(env.CMS_DB))?.project ?? initial;
       const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
+      await validateReferencedMedia(env, project);
+      await publicationMedia(env.CMS_DB, project);
       if (url.pathname.endsWith('/validate')) { publicationChunks(project, await resolveResources(env.CMS_DB, project)); return json({ project }); }
       if (body.cardId) {
         const card = project.cards.find(item => item.id === body.cardId);
@@ -96,6 +98,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const body = await readJson(request, 8 * 1024 * 1024);
       const baseline = (await readSite(env.CMS_DB))?.project ?? initial;
       const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
+      await validateReferencedMedia(env, project);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email }));
     }
     const asset = url.pathname.match(/^\/admin\/api\/assets\/([0-9a-f-]{36})$/);

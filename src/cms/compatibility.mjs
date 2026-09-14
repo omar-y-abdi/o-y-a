@@ -1,6 +1,6 @@
 import { validateProject } from './project.mjs';
-import { publicationChunks, readHistory, readSite } from './store.mjs';
-import { resolveResources } from './resources.mjs';
+import { publicationChunks, publicationMedia, readHistory, readSite } from './store.mjs';
+import { resolvedResources } from './resources.mjs';
 
 // No cache and no writes: a release must accept every retained restorable
 // revision under its own contracts, security policy and storage limits.
@@ -9,7 +9,7 @@ export async function checkCompatibility(db, { seed, initial }) {
   async function check(version, project) {
     try {
       const normalized = validateProject(structuredClone(project), seed);
-      publicationChunks(normalized, await resolveResources(db, normalized));
+      publicationChunks(normalized, resolvedResources(normalized, await publicationMedia(db, normalized)));
       results.push({ version, compatible: true });
     } catch (error) {
       if (![413, 422].includes(error.status)) throw error;

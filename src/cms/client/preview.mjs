@@ -1,7 +1,10 @@
+import { previewData } from '../../client/previewdata.mjs';
+
+const data = previewData();
 const win = document.querySelector('#cms-win-preview');
-if (win) {
+if (win && data?.cards.length === 1) {
   const { renderWin } = await import('../../client/win.mjs');
-  renderWin(win, JSON.parse(document.querySelector('#cms-win-data').textContent));
+  renderWin(win, data.cards[0]);
 }
 document.addEventListener('submit', event => event.preventDefault(), true);
 document.addEventListener('click', event => {

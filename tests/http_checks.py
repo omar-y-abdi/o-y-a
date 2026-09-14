@@ -111,12 +111,12 @@ def analytics():
     code,h,b=fetch('/api/config',port=ANALYTICS_PORT);assert code==200 and json.loads(b)=={'analytics':True}
     data=json.dumps({'event':'joy','page':'/verkstad/'})
     headers={'Origin':ANALYTICS_ORIGIN,'Cookie':'oy_privacy=v1.allow','Content-Type':'application/json','X-OY-Consent':'v1'}
-    code,h,b=fetch('/api/event','POST',headers,data,4174);assert code==204 and b==b''
+    code,h,b=fetch('/api/event','POST',headers,data,ANALYTICS_PORT);assert code==204 and b==b''
     assert h['cache-control']=='no-store'
     headers['Cookie']='oy_privacy=v1.deny'
-    code,h,b=fetch('/api/event','POST',headers,data,4174);assert code==403
+    code,h,b=fetch('/api/event','POST',headers,data,ANALYTICS_PORT);assert code==403
     headers['Cookie']='oy_privacy=v1.allow';headers['Origin']='https://evil.example'
-    code,h,b=fetch('/api/event','POST',headers,data,4174);assert code==403
+    code,h,b=fetch('/api/event','POST',headers,data,ANALYTICS_PORT);assert code==403
 check('Actual HTTP ingest: availability, accepted consent, deny and cross-origin rejection',analytics)
 
 report={'mode':'real local HTTP with Node adapter (not Cloudflare workerd)','passed':sum(x['status']=='PASS' for x in results),'failed':sum(x['status']=='FAIL' for x in results),'tests':results}

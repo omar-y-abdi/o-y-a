@@ -37,7 +37,7 @@ test('diagnosis: injected D1 and R2 failures emit correlated codes, never reques
     assert.equal(response.status,503);assert.equal(response.headers.get('X-Request-ID'),captured[0].requestId);assert.equal(captured[0].code,'storage-d1');
     const png=new Uint8Array(await readFile('public/mail/omar-smile.png'));
     let failure;
-    try{await uploadAsset({CMS_DB:runtime.db,CMS_MEDIA:{put(){throw new Error('R2_ERROR '+secret);}}},{id:crypto.randomUUID(),bytes:png,name:secret+'.png'});}catch(error){failure=error;}
+    try{await uploadAsset({CMS_DB:runtime.db,CMS_IMAGES:await runtime.mf.getImagesBinding('CMS_IMAGES'),CMS_MEDIA:{put(){throw new Error('R2_ERROR '+secret);}}},{id:crypto.randomUUID(),bytes:png,name:secret+'.png'});}catch(error){failure=error;}
     const uploadResponse=errorResponse(failure,'upload');
     assert.equal(uploadResponse.status,503);assert.equal(uploadResponse.headers.get('X-Request-ID'),captured[1].requestId);assert.equal(captured[1].operation,'upload');assert.equal(captured[1].code,'storage-r2');
     assert.ok(!JSON.stringify(captured).includes('SECRET')&&!JSON.stringify(captured).includes('@')&&!JSON.stringify(captured).includes('draft-private'));

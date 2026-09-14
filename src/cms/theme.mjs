@@ -28,3 +28,7 @@ export function referencedFonts(project) {
 export function fontCss(project) {
   return referencedFonts(project).map(id => `@font-face{font-family:"cms-font-${id}";src:url(/media/${id}.woff2) format("woff2");font-display:swap}`).join('');
 }
+
+export function assetFontCss(assets) {
+  return assets.filter(asset => asset.mime === 'font/woff2').map(asset => `@font-face{font-family:"cms-font-${asset.id}";src:url(${asset.src}) format("woff2");font-display:swap}`).join('');
+}

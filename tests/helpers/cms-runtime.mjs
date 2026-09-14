@@ -21,7 +21,7 @@ export async function cmsRuntime({ port = 0, persist = false } = {}) {
     compatibilityDate: '2026-09-11',
     bindings: { CMS_ACCESS_TEAM: team, CMS_ACCESS_AUD: audience, CMS_ADMIN_EMAIL: email, CMS_STAGE: 'true', PREVIEW_ORIGIN: `http://127.0.0.1:${port}`, ANALYTICS_ENABLED: 'false' },
     assets: { directory: 'dist', binding: 'ASSETS', run_worker_first: true, routerConfig: { has_user_worker: true }, assetConfig: { html_handling: 'force-trailing-slash', not_found_handling: '404-page' } },
-    d1Databases: ['CMS_DB'], r2Buckets: ['CMS_MEDIA'],
+    d1Databases: ['CMS_DB'], r2Buckets: ['CMS_MEDIA'], images: { binding: 'CMS_IMAGES' },
     ...(persist ? { d1Persist: 'output/cms-local/d1', r2Persist: 'output/cms-local/r2' } : {}),
     outboundService: async request => request.url === `${team}/cdn-cgi/access/certs` ? Response.json({ keys: [key] }) : new Response('Unexpected outbound request', { status: 502 }),
   };

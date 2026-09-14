@@ -23,7 +23,7 @@ Layout, rutnät/flex, avstånd, position, transformering, bakgrund, kanter och s
 
 ## Resurser och vinster
 
-PNG, JPEG, WebP, GIF, AVIF och WOFF2 accepteras. Max 10 MiB per fil; rasterbilder högst 8192 px per sida och 32 megapixlar. Befintliga SVG-illustrationer kan redigeras som komponenter. Aktiva SVG-filer kan inte laddas upp.
+PNG, JPEG, WebP, GIF och WOFF2 stöds. AVIF kräver stöd i den konfigurerade bildtjänsten. Rasterbilder kontrolleras både strukturellt och genom avkodning på servern innan de registreras. Max 10 MiB per fil; rasterbilder högst 8192 px per sida och 32 megapixlar. Befintliga SVG-illustrationer kan redigeras som komponenter. Aktiva SVG-filer kan inte laddas upp.
 
 Uppladdade filer är privata tills de används i publicerat innehåll. Editorbibliotekets registrering räcker inte för publicering. Alternativtext följer med när bilden läggs in; befintliga bilders text ändras på respektive sida. Ersätt fil byter ut referenser i utkastet. Save publicerar bytet. Arkivera döljer filen; Visa arkiverade och Återför till biblioteket tar tillbaka den. Publicerade filer bevaras för historik och tidigare länkar.
 
@@ -45,7 +45,7 @@ Memorykortens grundmarkup finns i editorn. Kort, fram-/baksida och SVG-behållar
 | Restore | Läs vald version som utkast. Save krävs för publicering. |
 | Lock view | Lås redigering och visa validerad förhandsvisning. |
 
-Reservutkast sparas lokalt i IndexedDB och kan återupptas vid nästa inloggning. Exportera utkast ger en JSON-reservkopia vid nätverks- eller sessionsproblem. Den innehåller innehåll och editorprojekt, inga inloggningsuppgifter.
+Reservutkast sparas lokalt i IndexedDB och kan återupptas vid nästa inloggning. Exportera utkast ger en JSON-reservkopia vid nätverks- eller sessionsproblem. Den innehåller HTML, CSS, övrigt innehåll och resursreferenser, inga inloggningsuppgifter. Äldre editor-JSON används inte som en separat innehållskälla. Vid öppning av en sådan version visas en möjlighet att exportera originalet; granska det kanoniska utkastet före Save.
 
 Två flikar kan inte tyst skriva över varandra. Vid konflikt kan utkast exporteras, historik granskas eller ändringar sammanföras. Oberoende sidor, vinstkort, temavärden och funktionstexter sammanförs. Har båda flikarna ändrat samma sida krävs uttryckligt val; vald sidversion behålls som helhet. Granska sedan och välj Save.
 

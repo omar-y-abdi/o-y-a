@@ -387,6 +387,9 @@ class CMSBrowserQA:
             page.locator("[data-action=lock]").click()
             page.locator("#preview-stage iframe").first.wait_for(state="attached", timeout=20000)
             preview_frame = page.frame_locator("#preview-stage iframe").first
+            # Attached frames first expose about:blank; wait for the srcdoc document,
+            # not an instantaneous count on a frame whose navigation just started.
+            preview_frame.locator('script[type=module][src*="/assets/main."]').wait_for(state="attached", timeout=20000)
             scripts = [
                 preview_frame.locator("script[src]").nth(index).get_attribute("src") or ""
                 for index in range(preview_frame.locator("script[src]").count())
@@ -1081,6 +1084,16 @@ class CMSBrowserQA:
             context.close()
 
 
+def launch_browser(playwright):
+    name = os.environ.get('CMS_BROWSER', 'chromium')
+    if name not in ('chromium', 'firefox', 'webkit'):
+        raise ValueError('CMS_BROWSER must be chromium, firefox or webkit')
+    options = {'headless': HEADLESS}
+    if os.environ.get('CMS_BROWSER_EXECUTABLE'):
+        options['executable_path'] = os.environ['CMS_BROWSER_EXECUTABLE']
+    return getattr(playwright, name).launch(**options)
+
+
 def main() -> int:
     reporter = Reporter(LOG_PATH)
     if not loopback_base(BASE_URL):
@@ -1096,8 +1109,8 @@ def main() -> int:
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=HEADLESS)
-            reporter.note(f"browser={playwright.chromium.executable_path}")
+            browser = launch_browser(playwright)
+            reporter.note(f"browser={os.environ.get('CMS_BROWSER', 'chromium')}")
             reporter.note(f"browser-version={browser.version}")
             qa = CMSBrowserQA(browser, reporter)
 

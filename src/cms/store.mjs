@@ -80,6 +80,18 @@ export function publicationChunks(project, resources = resourceSlots) {
   return chunks;
 }
 
+export async function publicationMedia(db, project) {
+  const mediaKeys = [...resourceReferences(project).keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(src)).map(src => src.slice(7));
+  let media = [];
+  if (mediaKeys.length) {
+    const available = await db.prepare('SELECT object_key, mime, width, height, alt, validation_version FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(mediaKeys)).all();
+    if (available.results.length !== mediaKeys.length) throw new HttpError(422, 'En vald fil saknas. Ladda upp filen innan du sparar.');
+    if (available.results.some(row => !row.validation_version)) throw new HttpError(422, 'En vald fil behöver kontrolleras igen innan publicering.');
+    media = available.results.map(row => ({ ...row, src: '/media/' + row.object_key }));
+  }
+  return media;
+}
+
 export async function publishSite(db, { project, baseVersion, requestId, actor }) {
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(requestId)) throw new HttpError(400, 'Sparförsöket saknar en giltig version eller identitet.');
   const serialized = JSON.stringify(project);
@@ -95,13 +107,8 @@ export async function publishSite(db, { project, baseVersion, requestId, actor }
   const version = baseVersion + 1;
   const createdAt = new Date().toISOString();
   const manifest = project.pages.map(metadata);
-  const mediaKeys = [...resourceReferences(project).keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(src)).map(src => src.slice(7));
-  let media = [];
-  if (mediaKeys.length) {
-    const available = await db.prepare('SELECT object_key, mime, width, height, alt FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(mediaKeys)).all();
-    if (available.results.length !== mediaKeys.length) throw new HttpError(422, 'En vald fil saknas. Ladda upp filen innan du sparar.');
-    media = available.results.map(row => ({ ...row, src: '/media/' + row.object_key }));
-  }
+  const media = await publicationMedia(db, project);
+  const mediaKeys = media.map(row => row.object_key);
   const statements = [db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ?').bind(version, requestId, baseVersion, actor, createdAt, hash, compressed, JSON.stringify(manifest), `${manifest.length} sidor · ${project.cards.length} vinster`, baseVersion)];
   const chunks = publicationChunks(project, resolvedResources(project, media));
   for (const chunk of chunks) statements.push(db.prepare("INSERT INTO cms_rendered (version, path, html, css, meta) SELECT ?, json_extract(value, '$.path'), json_extract(value, '$.html'), json_extract(value, '$.css'), json_extract(value, '$.meta') FROM json_each(?) WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)").bind(version, JSON.stringify(chunk), baseVersion, requestId));

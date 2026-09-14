@@ -39,6 +39,48 @@ jobs:
             output/visual/cms/*.png
             output/visual/studio/*.png
             output/logs/cms-interactions.log
+            output/logs/cms-review*.log
+            output/visual/review/**/*.png
+            output/visual/review-final/**/*.png
+            output/cms-modules/results.json
+            output/cms-modules/*.png
             output/revision/browser/revision-browser.json
             output/card-export/card-export-report.json
+          retention-days: 14
+
+  editor-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    env:
+      CMS_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run build
+      - run: npm run test:cms:modules
+      - run: node scripts/test-cms.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
+      - name: Retain compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: editor-${{ matrix.browser }}
+          path: |
+            output/logs/cms-review*.log
+            output/visual/review/**/*.png
+            output/visual/review-final/**/*.png
+            output/cms-modules/results.json
+            output/cms-modules/*.png
           retention-days: 14

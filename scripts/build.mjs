@@ -24,7 +24,7 @@ const winPath = `/cms-public/win.${hash(winCode)}.mjs`;
 await mkdir('dist/cms-public', { recursive:true });
 await writeFile(`dist${winPath}`, winCode);
 const js = {};
-for (const name of ['privacy','copy','cards','playlogic','memory','games','joy','contact','main']) {
+for (const name of ['privacy','previewdata','copy','cards','playlogic','memory','games','joy','contact','main']) {
   let code = await readFile(`src/client/${name}.mjs`, 'utf8');
   code = code.replaceAll("'./win.mjs'", `'${winPath}'`);
   for (const [dependency, filename] of Object.entries(js)) code = code.replaceAll(`'./${dependency}.mjs'`, `'./${filename}'`);

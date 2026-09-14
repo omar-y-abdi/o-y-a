@@ -8,7 +8,7 @@ export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self
 const safeStyle = css => css.replaceAll('<', '\\3c ');
 
 export function renderWinPreview(card, project, built) {
-  return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-win-data">${JSON.stringify(card).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body><div id="cms-win-preview"></div></body></html>`;
+  return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
 }
 
 export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin } = {}) {
@@ -17,7 +17,7 @@ export function renderPage(page, built, { version, preview, project, resources =
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
   let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${page.html}</body>`);
   const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
-  const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : '';
+  const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : '';
   return result.replace('</head>', `${styles}${fixture}</head>`);
 }
 

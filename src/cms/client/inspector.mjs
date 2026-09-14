@@ -1,4 +1,5 @@
 import { $, escape, field } from './dom.mjs';
+import { editableText, replaceEditableText } from './text-edit.mjs';
 import { defaultTheme, fontFamilies } from '../theme.mjs';
 
 export function pageInspector(page, { update, addPage, removePage, protectedPage }) {
@@ -29,8 +30,8 @@ export function componentInspector(component, editor, { assets, pickImage, chang
     $('#custom-inspector').append(shape);
     shape.querySelectorAll('input').forEach(input => input.addEventListener('change', event => { component.addAttributes({ [event.target.id.slice(6)]: event.target.value }); change(); }));
   }
-  if (textLike) $('#element-text').value = component.getEl()?.innerText ?? component.getEl()?.textContent ?? '';
-  $('#element-text')?.addEventListener('input', event => { component.components(escape(event.target.value).replaceAll('\n', '<br>')); change(); });
+  if (textLike) $('#element-text').value = editableText(component.getInnerHTML());
+  $('#element-text')?.addEventListener('input', event => { component.components().resetFromString(replaceEditableText(component.getInnerHTML(), event.target.value), { skipViewUpdate: false }); change(); });
   const move = document.createElement('div'); move.className = 'inspector-actions';
   move.innerHTML = '<button type="button" class="small-button" id="move-up">Flytta upp</button><button type="button" class="small-button" id="move-down">Flytta ned</button>';
   $('#custom-inspector .inspector-section').append(move);

@@ -63,7 +63,7 @@ def restore_prompt(page):
     ready(page)
 
 with sync_playwright() as pw:
-    browser = getattr(pw, ENGINE).launch()
+    browser = qa.launch_browser(pw)
     def context():
         ctx = browser.new_context(storage_state=str(qa.STATE_PATH), viewport={'width':1440,'height':900}, reduced_motion='reduce')
         publish(ctx, api(ctx, 'revision/0').json()['project'])

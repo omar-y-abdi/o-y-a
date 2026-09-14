@@ -20,6 +20,16 @@ npx wrangler deploy --config wrangler.staging.jsonc
 
 A migration or deploy command succeeding is not proof of working login or publication. Visit `/login/`, complete Access sign-in and verify Save from the studio through a fresh public request. Use the same hostname for all steps.
 
+## Image validation prerequisite for this release
+
+Apply `0003_media_integrity.sql` to the correct database before deploying this Worker. Retain the `images: { binding: "CMS_IMAGES" }` configuration in both environments and verify that Images is available for the account. Do not deploy a worker expecting the new column against the old schema. Local test fixtures supply Images and apply migrations without contacting the account.
+
+Use **only `0003_media_integrity.sql`** from the unified package. The older alternative ZIP used `0003_media_validation.sql` for the identical column addition. Do not retain or run both. If either has already been applied to a deployed database, inspect its migration history and reconcile the filename with that history before deployment; do not execute the same column addition again or delete migration records blindly. For a clean WIP checkout, no source deletion is required.
+
+The Images binding decodes actual bytes rather than merely inspecting metadata. This introduces deployment transformation usage; review account billing/limits. Cloudflare currently documents AVIF input as Enterprise-only. An offline AVIF pass does not prove production entitlement. Test your actual supported formats and animation in staging; unsupported format/configuration failures never register an unchecked asset.
+
+See [Images binding](https://developers.cloudflare.com/images/optimization/binding/), [format limits](https://developers.cloudflare.com/images/get-started/limits/) and the [local verification guide](CMS-LOCAL-VERIFICATION.md). No Images subscription, remote migration or deployment was performed by the completion package.
+
 ## Prepare production after merge
 
 Retain the existing production Worker `omar-portfolio`, domain routes, ASSETS, contact configuration and `ANALYTICS_ENABLED: "false"`. Do not copy staging database IDs, bucket names or Access audience into production.
@@ -56,7 +66,7 @@ Run `node scripts/smoke-live.mjs` for public read-only checks after production d
 
 For content mistakes, History → Restore → Save appends a new revision. Published R2 objects remain available, so old references survive. Revert affects only unsaved draft content.
 
-Before application/schema changes, export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
+Before application/schema changes, run the isolated backup drill (`node --test tests/cms-backup-drill.test.mjs`) and the read-only retained-revision checker (`node scripts/cms-check-release.mjs /path/to/trusted-d1-export.sql`). The latter requires Node 22.13 or newer and imports SQL with the native SQLite parser so multiline content is preserved. Then export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
 
 Protected component contracts derive from the source templates. If functional source markup changes after the CMS has been used, migrate existing saved content deliberately and test its continued editability before production deployment. See [CMS-SECURITY.md](CMS-SECURITY.md).
 

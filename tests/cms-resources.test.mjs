@@ -52,7 +52,7 @@ test('R6: typed font and image replacement covers CSS escapes and editor DTOs wi
 });
 
 test('R6/R7: font and all global resource slots publish registered immutable objects and restore older assignments',async()=>{
- const env={CMS_DB:runtime.db,CMS_MEDIA:await runtime.mf.getR2Bucket('CMS_MEDIA')};
+ const env={CMS_DB:runtime.db,CMS_MEDIA:await runtime.mf.getR2Bucket('CMS_MEDIA'),CMS_IMAGES:await runtime.mf.getImagesBinding('CMS_IMAGES')};
  const font=await uploadAsset(env,{id:crypto.randomUUID(),bytes:new Uint8Array(await readFile('tests/fixtures/dm-sans-latin-400-normal.woff2')),name:'Font.woff2'});
  const image=await uploadAsset(env,{id:crypto.randomUUID(),bytes:new Uint8Array(await readFile('public/social/omar-yusuf.png')),name:'Image.png',alt:'Versioned alt'});
  const original=validateProject(structuredClone(initial),seed);const project=structuredClone(original);

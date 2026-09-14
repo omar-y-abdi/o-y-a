@@ -41,7 +41,7 @@ def style(page, name, value):
 
 with sync_playwright() as p:
     if not qa_module.loopback_base(BASE): raise SystemExit('Loopback required')
-    browser = p.chromium.launch()
+    browser = qa_module.launch_browser(p)
     qa = Q(browser, reporter)
 
     def blocks_and_memory():

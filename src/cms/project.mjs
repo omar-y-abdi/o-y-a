@@ -3,7 +3,7 @@ import { HttpError } from './http.mjs';
 import { validateCss, validateEditorData, validateHtml, validatePagePath, VALIDATION_POLICY } from './validation.mjs';
 import { resolveSiteLink } from './routes.mjs';
 import { referencedIds } from './id-references.mjs';
-import { validateResources } from './resources.mjs';
+import { validateResources, resourceReferences } from './resources.mjs';
 
 import { validateTheme } from './theme.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
@@ -59,7 +59,10 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
       }
     }
     const style = compatible && page.css === saved.css ? saved.css : validateCss(page.css ?? '');
-    const project = compatible && JSON.stringify(page.project) === JSON.stringify(saved.project) ? saved.project : page.project ? validateEditorData(page.project, contracts) : null;
+    // Import legacy metadata safely, but persist one authoritative representation.
+    // Reconstructing from HTML/CSS removes the editor/public split-brain state.
+    if (page.project !== undefined && page.project !== null) validateEditorData(page.project, contracts);
+    const project = null;
     return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts };
   });
   if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
@@ -86,8 +89,14 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
       const html = validateHtml(card.design.html);
       const roots = parseFragment(html).childNodes.filter(node => node.tagName || node.nodeName === '#text' && node.value.trim());
       if (roots.length !== 1 || !roots[0].tagName) fail('Vinstens design behöver en enda rotbehållare. Lägg nya delar inuti den.');
-      if (elements(html).filter(node => attribute(node, 'data-card-text') !== undefined).length !== 1) fail('Vinstdesignen måste ha exakt ett textfält för vinsten.');
-      result.design = { html, css: validateCss(card.design.css ?? ''), project: card.design.project ? validateEditorData(card.design.project) : null };
+      const slots = elements(html).filter(node => attribute(node, 'data-card-text') !== undefined);
+      const containers = new Set('div span p h1 h2 h3 h4 h5 h6 section article blockquote pre strong em b i'.split(' '));
+      if (slots.length !== 1 || !containers.has(slots[0].tagName) || slots[0].namespaceURI !== 'http://www.w3.org/1999/xhtml') fail('Vinstdesignen behöver exakt en textbehållare som kan visa vinstens text.');
+      for (let node = slots[0]; node?.tagName; node = node.parentNode) {
+        if (attribute(node, 'hidden') !== undefined || attribute(node, 'inert') !== undefined || attribute(node, 'aria-hidden') === 'true' || ['svg', 'select', 'textarea', 'dialog', 'details'].includes(node.tagName)) fail('Vinstens text får inte placeras i dolt eller inaktivt innehåll.');
+      }
+      if (card.design.project !== undefined && card.design.project !== null) validateEditorData(card.design.project);
+      result.design = { html, css: validateCss(card.design.css ?? ''), project: null };
     }
     return result;
   });
@@ -102,5 +111,14 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     const variables = source => [...new Set([...source.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map(match => match[1]))].sort().join(',');
     if (publication && variables(value) !== variables(seed.runtime?.[key] ?? '')) fail(`Texten ${key} måste behålla samma dynamiska värden inom klamrar.`);
   }
-  return { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources) };
+  const result = { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources) };
+  if (publication && seed.staticPaths) {
+    const inventory = new Set(seed.staticPaths);
+    for (const path of resourceReferences(result).keys()) {
+      if (/^\/(?:assets|social|mail|cms-public)\//.test(path) || ['/favicon.svg', '/apple-touch-icon.png'].includes(path)) {
+        if (!inventory.has(path)) fail(`Resursen ${path} finns inte i webbplatsens byggda filer.`);
+      }
+    }
+  }
+  return result;
 }

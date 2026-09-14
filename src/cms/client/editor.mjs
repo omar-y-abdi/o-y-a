@@ -1,5 +1,6 @@
 import grapesjs from 'grapesjs';
-import { fontFamilies } from '../theme.mjs';
+import { fontFamilies, assetFontCss } from '../theme.mjs';
+import { liveHtml } from './live-text.mjs';
 
 const sectors = [
   { name: 'Layout & storlek', open: true, buildProps: ['display', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'overflow', 'flex-direction', 'justify-content', 'align-items', 'gap'], properties: [{ property: 'display', type: 'select', options: ['block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'none'].map(id => ({ id, label: id })) }] },
@@ -13,7 +14,7 @@ const sectors = [
 export function createEditor({ page, cssPath, assets, onChange, onSelect, onReady, onAssetPick }) {
   let disposed = false;
   let loading = true;
-  let timer;
+  let timer, textView = null, typing = false, previousSnapshot = '';
   const inspector = document.querySelector('#styles-panel');
   const blocksPanel = document.querySelector('#blocks-panel');
   const labelFields = () => { inspector.querySelectorAll('.gjs-sm-property').forEach(property => {
@@ -59,33 +60,33 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   const fontProperty = editor.StyleManager.getProperty('typografi', 'font-family') ?? editor.StyleManager.getSectors().find(sector => sector.get('name') === 'Typografi')?.getProperty('font-family');
   fontProperty?.set('options', [...Object.entries(fontFamilies).map(([label, id]) => ({ id, label })), ...assets.filter(asset => asset.mime === 'font/woff2').map(asset => ({ id: `cms-font-${asset.id}`, label: asset.name }))]);
   editor.on('component:create', component => component.on('component:clone', clone => remapClone(component, clone, editor)));
-  if (page.project) editor.loadProjectData(page.project);
-  else {
-    editor.setStyle(page.css);
-    // Importing components extracts inline styles into GrapesJS rules.
-    // Setting the stylesheet afterward would erase those imported rules.
-    editor.setComponents(page.html);
-  }
+  // The same validated HTML/CSS powers editing, preview and publication.
+  // Editor JSON is legacy import metadata, never a second content authority.
+  editor.setStyle(page.css);
+  // Importing components extracts inline styles; do not erase those afterward.
+  editor.setComponents(page.html);
   editor.AssetManager.add(assets.filter(asset => asset.mime.startsWith('image/')).map(asset => ({ src: asset.src, name: asset.name, width: asset.width, height: asset.height })));
   editor.getWrapper().addAttributes({ id: 'top', class: page.bodyClass, 'data-page': page.path });
   if (page.bodyClass === 'page-win') editor.getWrapper().set('droppable', false);
   editor.setDevice('Dator');
   function snapshot(force = false) {
-    if (disposed || loading || !force && editor.getDirtyCount() === 0) return null;
-    const project = editor.getProjectData();
-    project.assets = [];
-    return { html: editor.getWrapper().getInnerHTML(), css: editor.getCss(), project };
+    if (disposed || loading || !force && !typing && editor.getDirtyCount() === 0) return null;
+    return { html: liveHtml(editor, textView), css: editor.getCss(), project: null };
   }
   function flush() {
     clearTimeout(timer);
     const value = snapshot();
-    if (value) { onChange(value); editor.clearDirtyCount(); }
+    if (value) {
+      const serialized = JSON.stringify(value);
+      if (serialized !== previousSnapshot) { previousSnapshot = serialized; onChange(value); }
+      typing = false; editor.clearDirtyCount();
+    }
   }
   editor.on('load', () => {
     if (disposed) return;
     const doc = editor.Canvas.getDocument();
     const fontStyle = doc.createElement('style');
-    fontStyle.textContent = assets.filter(asset => asset.mime === 'font/woff2').map(asset => `@font-face{font-family:"cms-font-${asset.id}";src:url(${asset.src}) format("woff2");font-display:swap}`).join('');
+    fontStyle.textContent = assetFontCss(assets);
     doc.head.append(fontStyle);
     doc.documentElement.dataset.motion = 'off';
     doc.documentElement.classList.add('js-ready');
@@ -94,6 +95,14 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     loading = false;
     editor.clearDirtyCount();
     onReady(editor);
+  });
+  editor.on('rte:enable', view => { textView = view; });
+  editor.on('rte:disable', view => {
+    if (textView === view) { typing = true; flush(); textView = null; }
+  });
+  editor.on('component:input', () => {
+    if (disposed || loading || !textView) return;
+    typing = true; flush();
   });
   editor.on('update', () => {
     if (disposed || loading) return;

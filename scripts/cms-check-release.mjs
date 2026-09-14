@@ -1,15 +1,27 @@
 import { readFile } from 'node:fs/promises';
-import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import { DatabaseSync } from 'node:sqlite';
 import { seed, initial } from '../.generated/cms-seed.mjs';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
 
 const file = process.argv[2];
-if (!file) throw new Error('Usage: node scripts/cms-check-release.mjs path/to/d1-export.sql');
-const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default { fetch(){ return new Response("release-check"); } }', compatibilityDate: '2026-09-11', d1Databases: ['CMS_DB'] }));
+if (!file) throw new Error('Usage: node scripts/cms-check-release.mjs path/to/trusted-d1-export.sql');
+// D1 exec() splits on newlines, including those inside exported text literals.
+// Use SQLite's real SQL parser. This is a local copy, never the live database.
+const database = new DatabaseSync(':memory:', { enableForeignKeyConstraints: false });
 try {
-  const db = await mf.getD1Database('CMS_DB');
-  await db.exec(await readFile(file, 'utf8'));
+  database.exec(await readFile(file, 'utf8'));
+  database.exec('PRAGMA query_only = ON');
+  const db = {
+    prepare(sql) {
+      const statement = database.prepare(sql); let args = [];
+      return {
+        bind(...values) { args = values; return this; },
+        async first() { return statement.get(...args) ?? null; },
+        async all() { return { results: statement.all(...args) }; },
+      };
+    },
+  };
   const result = await checkCompatibility(db, { seed, initial });
   console.log(JSON.stringify(result, null, 2));
   if (!result.compatible) process.exitCode = 1;
-} finally { await mf.dispose(); }
+} finally { database.close(); }
