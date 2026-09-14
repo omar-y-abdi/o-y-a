@@ -2,15 +2,20 @@ import { handleContact, contactConfig } from './server/contact.mjs';
 import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
 import { CSP } from '../.generated/csp.mjs';
+import { seed, initial, built } from '../.generated/cms-seed.mjs';
+import { handleAdmin, assetResponse } from './cms/api.mjs';
+import { ADMIN_CSP, publicContent } from './cms/render.mjs';
+import { errorResponse } from './cms/http.mjs';
+import { reportFailure } from './cms/diagnostics.mjs';
 
 const PAGES = new Set(routes.filter(page => !page.noindex).map(page => page.path));
 const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
 const CANONICAL = 'https://omaryusuf.se';
 const MAX_BODY_BYTES = 256;
-function secure(response, https = true) {
+function secure(response, https = true, policy = CSP) {
   const result = new Response(response.body, response);
   const headers = result.headers;
-  headers.set('Content-Security-Policy',CSP);
+  headers.set('Content-Security-Policy', policy === ADMIN_CSP ? policy : headers.get('Content-Security-Policy') || policy);
   headers.set('X-Content-Type-Options','nosniff');
   headers.set('X-Frame-Options','DENY');
   headers.set('Referrer-Policy','no-referrer');
@@ -60,12 +65,24 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const local = isLocalPreview(url,env);
-    if (!local && !['omaryusuf.se','www.omaryusuf.se'].includes(url.hostname)) return secure(json({error:'Unknown host'},421));
+    const stage = env.CMS_STAGE === 'true' && url.protocol === 'https:' && url.origin === env.CMS_ORIGIN;
+    if (!local && !stage && !['omaryusuf.se','www.omaryusuf.se'].includes(url.hostname)) return secure(json({error:'Unknown host'},421));
     if (!local && (url.protocol !== 'https:' || url.hostname === 'www.omaryusuf.se' || url.port)) {
       return secure(new Response(null,{status:308,headers:{Location:CANONICAL+url.pathname+url.search}}));
     }
+    if (url.pathname.includes('%') || url.pathname.includes('\\') || url.pathname.includes('//')) return secure(json({error:'Non-canonical path'},400),url.protocol === 'https:');
     let response;
-    if (url.pathname === '/api/contact') response = await handleContact(request,env);
+    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+      response = await handleAdmin(request,env,{seed,initial,built});
+      const secured = secure(response,url.protocol === 'https:',ADMIN_CSP);
+      secured.headers.set('Cache-Control','no-store');
+      secured.headers.set('X-Robots-Tag','noindex, nofollow');
+      return request.method === 'HEAD' ? new Response(null,secured) : secured;
+    }
+    if (url.pathname.startsWith('/media/')) {
+      try { response = await assetResponse(request,env); } catch (error) { response = errorResponse(error,'media'); }
+    }
+    else if (url.pathname === '/api/contact') response = await handleContact(request,env);
     else if (url.pathname === '/api/contact/config') response = ['GET','HEAD'].includes(request.method) ? contactConfig(env) : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname === '/api/event') response = await eventResponse(request,env,url);
     else if (url.pathname === '/api/config') {
@@ -75,13 +92,14 @@ export default {
     } else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
-      try { response = await env.ASSETS.fetch(request); }
-      catch { response = new Response('Tillfälligt avbrott. Försök igen.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}}); }
+      try { response = await publicContent(request,env,built,CSP) ?? await env.ASSETS.fetch(request); }
+      catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
     }
     if (url.pathname === '/404.html' && response.status === 200) {
       response = new Response(response.body,{status:404,headers:response.headers});
     }
     const secured = secure(response,url.protocol === 'https:');
+    if (stage || url.pathname.startsWith('/login')) secured.headers.set('X-Robots-Tag','noindex, nofollow');
     if (request.method === 'HEAD') return new Response(null,secured);
     return secured;
   },

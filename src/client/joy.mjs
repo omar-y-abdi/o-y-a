@@ -1,3 +1,4 @@
+import { t } from './copy.mjs';
 import { bubbleComment } from './playlogic.mjs';
 import { getCard, createDeck, loadCards } from './cards.mjs';
 
@@ -5,6 +6,8 @@ export function initJoy({ toast, track }) {
   const reduced = () => document.documentElement.dataset.motion === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches;
   const stage = document.querySelector('[data-machine]');
   let current = null;
+  let winModule;
+  let renderingWin = Promise.resolve();
   const animations = new Set();
   function clearParticles() { for (const item of animations) { item.animation.cancel(); item.element.remove(); } animations.clear(); }
   function celebrate(target) {
@@ -44,8 +47,21 @@ export function initJoy({ toast, track }) {
     function showCard(card) {
       current = card;
       message.textContent = card.text;
+      message.hidden = false;
+      let artwork = receipt.querySelector('[data-win-artwork]');
+      if (!artwork) { artwork = document.createElement('div'); artwork.dataset.winArtwork = ''; message.after(artwork); }
+      artwork.hidden = true;
+      receipt.classList.remove('has-win-design');
+      const selected = card;
+      renderingWin = (winModule ??= import('./win.mjs')).then(module => {
+        if (current !== selected) return;
+        receipt.classList.add('has-win-design');
+        artwork.hidden = false;
+        message.hidden = true;
+        module.renderWin(artwork, selected);
+      }).catch(() => { receipt.classList.remove('has-win-design'); artwork.hidden = true; message.hidden = false; });
       receipt.hidden = false;
-      status.textContent = `En liten vinst: ${card.text}`;
+      status.textContent = t('runtime.joy.receipt.status', { text: card.text });
       document.querySelectorAll('[data-share],[data-save]').forEach(control => { control.disabled = false; });
       const radio = document.querySelector(`input[name="flavor"][value="${card.flavor}"]`);
       if (radio) radio.checked = true;
@@ -58,22 +74,22 @@ export function initJoy({ toast, track }) {
       stage.classList.add('is-working');
       stage.setAttribute('aria-busy','true');
       receipt.hidden = true;
-      buttonLabel.textContent = 'En liten vinst på väg…';
+      buttonLabel.textContent = t('runtime.joy.machine.printing');
       const flavor = document.querySelector('input[name="flavor"]:checked')?.value ?? 'kind';
       let card;
       try { drawCard ??= createDeck(await loadCards()); card = drawCard(flavor,current?.id); }
       catch {
         busy = false; button.disabled = false;
         stage.classList.remove('is-working'); stage.removeAttribute('aria-busy');
-        buttonLabel.textContent = 'Försök skriva ut igen';
-        status.textContent = 'Maskinen tappade bort pappret. Försök igen om en stund.';
+        buttonLabel.textContent = t('runtime.joy.machine.retry');
+        status.textContent = t('runtime.joy.machine.loadError');
         return;
       }
       finishPrint = () => {
         clearTimeout(printTimer); printTimer = null; finishPrint = null;
         showCard(card);
         celebrate(button);
-        buttonLabel.textContent = 'En liten vinst till';
+        buttonLabel.textContent = t('runtime.joy.machine.ready');
         stage.classList.remove('is-working');
         stage.removeAttribute('aria-busy');
         button.disabled = false;
@@ -109,52 +125,37 @@ export function initJoy({ toast, track }) {
     if(id && location.pathname === '/verkstad/') loadCards().then(cards=>{
       const shared=getCard(id,cards);
       if(shared){showCard(shared);requestAnimationFrame(()=>stage.scrollIntoView({block:'center',behavior:'instant'}));}
-      else toast('Det kortet finns inte. Tryck fram ett nytt i stället.');
-    }).catch(()=>toast('Kortet kunde inte laddas. Försök igen.'));
+      else toast(t('runtime.joy.sharedCard.invalid'));
+    }).catch(()=>toast(t('runtime.joy.sharedCard.loadError')));
   }
 
   document.querySelector('[data-share]')?.addEventListener('click', async () => {
     if (!current) return;
-    const url = new URL('/verkstad/', location.origin); url.searchParams.set('kort', current.id);
+    const url = new URL('/verkstad/', document.baseURI); url.searchParams.set('kort', current.id);
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(url.href);
-      toast('Kortlänken är kopierad. Skicka vidare en liten vinst.');
+      toast(t('runtime.joy.share.copied'));
     } catch {
       const fallback = document.querySelector('[data-copy-fallback]');
       const input = fallback.querySelector('input');
       fallback.hidden = false; input.value = url.href; input.focus(); input.select();
-      toast('Automatisk kopiering gick inte. Länken finns i fältet.');
+      toast(t('runtime.joy.share.fallback'));
     }
   });
-  document.querySelector('[data-save]')?.addEventListener('click', () => {
+  document.querySelector('[data-save]')?.addEventListener('click', async () => {
     if (!current) return;
-    const canvas = document.createElement('canvas'); canvas.width = 1200; canvas.height = 800;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) { toast('Bilden kunde inte skapas i den här webbläsaren. Kopiera kortlänken i stället.'); return; }
-    ctx.fillStyle = '#fff0b3'; ctx.fillRect(0,0,1200,800);
-    ctx.fillStyle = '#20261e'; ctx.font = 'bold 23px Arial'; ctx.fillText('EN LITEN VINST FRÅN OMAR YUSUF',75,94);
-    ctx.strokeStyle = '#b0a46a'; ctx.lineWidth = 1; ctx.beginPath();ctx.moveTo(75,125);ctx.lineTo(1125,125);ctx.stroke();
-    ctx.font = 'bold 61px Arial';
-    const lines = []; let line = '';
-    for (const word of current.text.split(' ')) {
-      const candidate = line ? `${line} ${word}` : word;
-      if (ctx.measureText(candidate).width > 1030 && line) { lines.push(line); line = word; } else line = candidate;
-    }
-    if (line) lines.push(line);
-    const top = 390 - (lines.length - 1) * 39;
-    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i],75,top + i * 78);
-    ctx.fillStyle = '#234ce7';ctx.fillRect(0,670,1200,130);
-    ctx.fillStyle = '#fffdf6';ctx.font = 'bold 24px Arial';ctx.fillText('omaryusuf.se',75,746);
-    ctx.font = '20px Arial';ctx.fillText('Lite hjärna. Lite hjärta. Lite bus i systemet.',550,746);
-    canvas.toBlob(blob => {
-      if (!blob) { toast('Bilden kunde inte sparas. Kopiera kortlänken i stället.'); return; }
-      const url = URL.createObjectURL(blob); const link = document.createElement('a');
-      link.href = url; link.download = `en-liten-vinst-${current.id}.png`;
-      document.body.append(link);link.click();link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      toast('Din lilla vinst är redo att sparas.');
-    },'image/png');
+    const selected = current;
+    try {
+      await renderingWin;
+      const module = await (winModule ??= import('./win.mjs'));
+      const host = document.querySelector('[data-win-artwork]');
+      const blob = await module.exportWin(host);
+      const url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url; link.download = t('runtime.joy.canvas.downloadFilename', { id: selected.id });
+      link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast(t('runtime.joy.canvas.saved'));
+    } catch { toast(t('runtime.joy.canvas.saveFailed')); }
   });
 
   const bubbles = [...document.querySelectorAll('[data-bubble]')];
@@ -166,7 +167,7 @@ export function initJoy({ toast, track }) {
   const soundButton = document.querySelector('[data-sound-toggle]');
   function updateSoundButton() {
     soundButton.setAttribute('aria-pressed', String(sound));
-    soundButton.lastChild.textContent = sound ? ' Ljud: på' : ' Ljud: av';
+    soundButton.lastChild.textContent = sound ? t('runtime.joy.sound.onSuffix') : t('runtime.joy.sound.offSuffix');
   }
   soundButton?.addEventListener('click', async () => {
     sound = !sound;
@@ -176,7 +177,7 @@ export function initJoy({ toast, track }) {
         if (!Audio) throw new Error('Audio unavailable');
         audio ??= new Audio();
         await audio.resume();
-      } catch { sound = false; toast('Ljud stöds inte här. Bubblorna fungerar ändå.'); }
+      } catch { sound = false; toast(t('runtime.joy.sound.unavailable')); }
     }
     updateSoundButton();
   });
@@ -195,7 +196,7 @@ export function initJoy({ toast, track }) {
       const id = button.dataset.bubble;
       if (popped.has(id)) return;
       popped.add(id);button.classList.add('is-popped');button.setAttribute('aria-pressed','true');
-      button.setAttribute('aria-label', `Bubbla ${Number(id)+1}, poppad`);
+      button.setAttribute('aria-label', t('runtime.joy.bubble.aria.popped', { number: Number(id)+1 }));
       popTone();
       popTimes.push(performance.now());popTimes=popTimes.slice(-5);
       if(!reduced() && button.animate) {
@@ -210,13 +211,13 @@ export function initJoy({ toast, track }) {
         const item={animation,element:ring};animations.add(item);animation.onfinish=()=>{ring.remove();animations.delete(item);};
       }
       const remaining = bubbles.length - popped.size;
-      bubbleStatus.textContent = (remaining ? `${remaining} ${remaining === 1 ? 'bubbla kvar' : 'bubblor kvar'}. ` : '') + bubbleComment(popTimes,remaining);
+      bubbleStatus.textContent = (remaining ? t(remaining === 1 ? 'runtime.joy.bubble.remaining.one' : 'runtime.joy.bubble.remaining.many', { remaining }) : '') + bubbleComment(popTimes,remaining);
       if (remaining === 0) { celebrate(button);track('bubble_complete'); }
     });
   });
   document.querySelector('[data-bubble-reset]').addEventListener('click', () => {
     popped = new Set();popTimes=[];clearParticles();
-    bubbles.forEach((button,i) => { button.classList.remove('is-popped');button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',`Poppa bubbla ${i+1}`); });
-    bubbleStatus.textContent = '12 nya bubblor. En ny, helt rimlig paus.';
+    bubbles.forEach((button,i) => { button.classList.remove('is-popped');button.setAttribute('aria-pressed','false');button.setAttribute('aria-label',t('runtime.joy.bubble.aria.idle', { number: i+1 })); });
+    bubbleStatus.textContent = t('runtime.joy.bubble.reset');
   });
 }

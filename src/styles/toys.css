@@ -9,6 +9,7 @@
 @media(max-width:760px){.game-copy .eyebrow{font-size:9px}.game-copy>p:not(.eyebrow){max-width:none}.envelope-top .eyebrow{font-size:8px}.receipt-message{font-size:clamp(18px,5vw,23px)}.receipt{padding:24px 18px 20px}}
 @media(prefers-reduced-motion:reduce){.joy-ball,.coffee-steam i{animation:none!important}}
 
+.receipt.has-win-design{padding:0;overflow:visible}.has-win-design .receipt-kicker,.has-win-design .receipt-total,.has-win-design .receipt-barcode,.has-win-design .receipt-bottom{display:none}.has-win-design .receipt-message{margin:0}.has-win-design .receipt-close{z-index:2}.has-win-design .receipt-link{display:block;padding:12px 20px}
 /* The cabinet is a static CSS solid; the original face and print motion stay intact. */
 .machine-body{
   border-color:#16319c;
