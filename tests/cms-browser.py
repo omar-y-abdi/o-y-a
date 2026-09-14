@@ -282,6 +282,25 @@ class CMSBrowserQA:
         return matches[0]
 
     @staticmethod
+    def lock_preview(page: Page, timeout: int = 20000) -> list[str]:
+        """Check the new locked preview, not the still-visible comparison frame."""
+        frames = page.locator("#preview-stage iframe")
+        previous = frames.first.element_handle() if frames.count() else None
+        try:
+            page.locator("[data-action=lock]").click()
+            if previous is not None:
+                # preview() keeps the old document while its API request runs.
+                # Its scripts cannot acknowledge the newly requested preview.
+                page.wait_for_function('frame => !frame.isConnected', arg=previous, timeout=timeout)
+            frames.first.wait_for(state="attached", timeout=timeout)
+            preview = page.frame_locator("#preview-stage iframe").first
+            preview.locator('head script[type=module][src*="/assets/main."]').wait_for(state="attached", timeout=timeout)
+            return preview.locator("script[src]").evaluate_all("scripts => scripts.map(script => script.getAttribute('src') || '')")
+        finally:
+            if previous is not None:
+                previous.dispose()
+
+    @staticmethod
     def wait_canvas(page: Page, timeout: int = 20000) -> None:
         page.locator("#editor iframe.gjs-frame").wait_for(state="attached", timeout=timeout)
         page.locator("#loading-state").wait_for(state="hidden", timeout=timeout)
@@ -447,16 +466,7 @@ class CMSBrowserQA:
                 public_context.close()
 
             # Verify the preview itself contains the public scripts used by the page.
-            page.locator("[data-action=lock]").click()
-            page.locator("#preview-stage iframe").first.wait_for(state="attached", timeout=20000)
-            preview_frame = page.frame_locator("#preview-stage iframe").first
-            # Attached frames first expose about:blank; wait for the srcdoc document,
-            # not an instantaneous count on a frame whose navigation just started.
-            preview_frame.locator('script[type=module][src*="/assets/main."]').wait_for(state="attached", timeout=20000)
-            scripts = [
-                preview_frame.locator("script[src]").nth(index).get_attribute("src") or ""
-                for index in range(preview_frame.locator("script[src]").count())
-            ]
+            scripts = self.lock_preview(page)
             if not any("main" in source or source.endswith(".mjs") for source in scripts):
                 raise ScenarioFailure(f"publica scripts saknas i preview: {scripts}")
         finally:

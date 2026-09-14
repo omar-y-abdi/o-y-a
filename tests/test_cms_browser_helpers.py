@@ -16,7 +16,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from playwright.sync_api import Error as PlaywrightError, sync_playwright, expect
+from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError, sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('cms_helpers_qa', ROOT/'tests/cms-browser.py')
@@ -88,6 +88,41 @@ class LibraryNavigationTests(unittest.TestCase):
         Q.open_assets(self.page)
         expect(self.page.locator('#special-stage [data-action=toggle-archived]')).to_be_visible()
         self.assertEqual(self.page.evaluate('fixture.requests'), 1)
+
+    def preview_fixture(self, previous=True, new_script=True, replace=True):
+        self.page.set_content('<button data-action="lock">Lock</button><div id="preview-stage"></div>')
+        self.page.evaluate("""options => {
+          const stage=document.querySelector('#preview-stage');
+          const frame=(name, script)=>{
+            const element=document.createElement('iframe');
+            element.srcdoc='<html><head>'+(script?'<script type="module" src="/assets/main.'+name+'.mjs"><'+'/script>':'')+'</head><body>'+name+'</body></html>';
+            return element;
+          };
+          if(options.previous)stage.append(frame('old',true));
+          document.querySelector('[data-action=lock]').onclick=()=>{
+            if(options.replace)setTimeout(()=>stage.replaceChildren(frame('new',options.newScript)),250);
+          };
+        }""", {'previous': previous, 'newScript': new_script, 'replace': replace})
+        if previous:
+            expect(self.page.frame_locator('#preview-stage iframe').locator('script[src]')).to_have_count(1)
+
+    def test_lock_preview_waits_for_new_frame_not_existing_compare_view(self):
+        self.preview_fixture()
+        self.assertEqual(Q.lock_preview(self.page, timeout=1500), ['/assets/main.new.mjs'])
+
+    def test_lock_preview_rejects_new_document_without_main_script(self):
+        self.preview_fixture(new_script=False)
+        with self.assertRaises(PlaywrightTimeoutError):
+            Q.lock_preview(self.page, timeout=1000)
+
+    def test_lock_preview_rejects_stale_frame_when_render_never_completes(self):
+        self.preview_fixture(replace=False)
+        with self.assertRaises(PlaywrightTimeoutError):
+            Q.lock_preview(self.page, timeout=1000)
+
+    def test_lock_preview_also_waits_when_no_previous_frame_exists(self):
+        self.preview_fixture(previous=False)
+        self.assertEqual(Q.lock_preview(self.page, timeout=1500), ['/assets/main.new.mjs'])
 
 
 class TransportOrderingTests(unittest.TestCase):
