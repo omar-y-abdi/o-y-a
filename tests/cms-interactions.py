@@ -98,7 +98,7 @@ with sync_playwright() as p:
             assert box['x'] >= stage['x'] and box['x']+box['width'] <= stage['x']+stage['width'], (box, stage)
             page.locator('#asset-name').fill('Liten bild, trygg plats')
             page.locator('#asset-alt').fill('En liten testbild')
-            page.locator('[data-action=save-asset]').click()
+            Q.save_asset_metadata(page)
             page.locator('[data-action=archive-asset]').click()
             Q.confirm_yes(page)
             page.locator('[data-action=toggle-archived]').click()
@@ -106,7 +106,9 @@ with sync_playwright() as p:
             page.locator('[data-action=unarchive-asset]').click()
             expect(page.locator('[data-action=archive-asset]')).to_be_visible()
             shot(page, 'asset-details')
-            assert browser.new_context().request.get(BASE+src).status == 404
+            private_context = browser.new_context()
+            try: assert private_context.request.get(BASE+src).status == 404
+            finally: private_context.close()
             asset_id = src.rsplit('/',1)[1].split('.')[0]
             page.locator('[data-library=pages]').click()
             page.locator('[data-action=add-page]').click()
@@ -126,8 +128,7 @@ with sync_playwright() as p:
             assert published.status==200 and published.body()==qa.upload_path.read_bytes()
             public_context.close()
             original(page)
-            page.locator('[data-library=assets]').click()
-            page.locator('[data-special=wins]').click()
+            Q.open_assets(page, 'wins')
             shot(page, 'wins-library')
             page.locator('[data-win-id]').first.click()
             qa.wait_canvas(page)

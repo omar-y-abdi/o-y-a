@@ -253,22 +253,40 @@ def save_screenshot(page: Page, name: str, selector: str | None = None, full_pag
     return path
 
 
-def wait_scroll_settled(page: Page, timeout: float = 3) -> int:
-    """Wait for real wheel scrolling to stop before asserting the final position."""
+def wait_scroll_settled(page: Page, timeout: float = 3) -> float:
+    """Require unchanged offsets; one-pixel drift is still scrolling."""
     deadline = time.monotonic() + timeout
     previous = page.evaluate("scrollY")
     stable = 0
     while time.monotonic() < deadline:
         time.sleep(0.08)
         current = page.evaluate("scrollY")
-        if abs(current - previous) <= 1:
+        if current == previous:
             stable += 1
             if stable >= 3:
-                return int(current)
+                return current
         else:
             stable = 0
         previous = current
     raise CheckFailure(f"scrollningen stabiliserades inte (senast {previous})")
+
+
+def scroll_to_footer(page: Page) -> float:
+    # Position the fixture without a wheel animation competing with the click.
+    page.evaluate("window.scrollTo({top: document.documentElement.scrollHeight, left: 0, behavior: 'instant'})")
+    current = wait_scroll_settled(page)
+    maximum = page.evaluate("Math.max(0, document.documentElement.scrollHeight - innerHeight)")
+    if current <= 0 or current < maximum - 2:
+        raise CheckFailure(f"sidans slut nåddes inte: scrollY={current}, maximum={maximum}")
+    return maximum
+
+
+def wait_at_top(page: Page, timeout: float = 5) -> float:
+    wait_until(lambda: page.evaluate("scrollY") == 0, timeout=timeout, description="toppläge")
+    current = wait_scroll_settled(page, timeout=timeout)
+    if current != 0:
+        raise CheckFailure(f"toppläget flyttades efter klicket: scrollY={current}")
+    return current
 
 
 def run_check(results: list[dict], name: str, fn) -> None:
@@ -314,19 +332,10 @@ def check_top_and_nojs(browser: Browser, results: list[dict]) -> None:
                 context, page, errors, _requests = make_page(browser, width, motion=motion)
                 try:
                     goto(page, "/")
-                    page.mouse.move(width / 2, 500)
-                    page.mouse.wheel(0, 5000)
-                    wait_until(lambda: page.evaluate("scrollY") > 0, description=f"scroll på {width}")
-                    wait_scroll_settled(page)
-                    maximum = page.evaluate("Math.max(0, document.documentElement.scrollHeight - innerHeight)")
-                    if page.evaluate("scrollY") < maximum - 2:
-                        page.mouse.wheel(0, 5000)
-                        wait_scroll_settled(page)
-                    if page.evaluate("scrollY") < maximum - 2:
-                        raise CheckFailure(f"sidans slut nåddes inte: scrollY={page.evaluate('scrollY')}, maximum={maximum}")
+                    maximum = scroll_to_footer(page)
                     page.locator("[data-back-top]").click()
                     try:
-                        wait_until(lambda: page.evaluate("scrollY") == 0, timeout=5, description="toppläge")
+                        wait_at_top(page)
                     except CheckFailure as error:
                         current = page.evaluate("scrollY")
                         raise CheckFailure(f"{error}; scrollY={current}; maximum={maximum}; width={width}; motion={motion}") from error
@@ -348,11 +357,9 @@ def check_top_and_nojs(browser: Browser, results: list[dict]) -> None:
             goto(page, "/", javascript=False)
             if page.locator("noscript").count() == 0:
                 raise CheckFailure("no-JS fallback saknas")
-            page.mouse.move(195, 500)
-            page.mouse.wheel(0, 5000)
-            wait_scroll_settled(page)
+            scroll_to_footer(page)
             page.locator("[data-back-top]").click()
-            wait_until(lambda: page.evaluate("scrollY") == 0, timeout=5, description="native topplänk")
+            wait_at_top(page)
             return {"javascript": False, "scrollY": page.evaluate("scrollY")}
         finally:
             context.close()

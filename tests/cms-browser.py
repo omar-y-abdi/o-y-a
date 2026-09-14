@@ -119,6 +119,11 @@ def loopback_base(url: str) -> bool:
     return parsed.scheme in {"http", "https"} and host in {"127.0.0.1", "localhost", "::1"}
 
 
+def read_api(request, url: str):
+    """Reconnect at most twice for GET/ECONNRESET; HTTP failures are not retried."""
+    return request.get(url, max_retries=2)
+
+
 def make_png(path: Path) -> None:
     """Create a tiny deterministic local PNG for the upload control."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,6 +222,64 @@ class CMSBrowserQA:
             if "idé väntar" in text or "lokalt utkast" in text:
                 dialog.locator("[data-confirm=no]").click()
                 dialog.wait_for(state="hidden", timeout=5000)
+
+    @staticmethod
+    def open_assets(page: Page, section: str = "media") -> None:
+        """Open the resource tab before selecting its unique sidebar entry."""
+        if section not in {"media", "wins"}:
+            raise ValueError(f"Unknown resource section: {section}")
+        # Selecting this tab already opens media; clicking its sidebar row too
+        # starts another fetch and can match the detail view's back button.
+        page.locator('[data-library=assets]').click()
+        if section == "wins":
+            page.locator('#library-list [data-special=wins]').click()
+        target = '#win-search' if section == "wins" else '[data-action=toggle-archived]'
+        page.locator(f'#special-stage {target}').wait_for(state="visible", timeout=20000)
+
+    @staticmethod
+    def save_asset_metadata(page: Page) -> None:
+        """Wait for both the server acknowledgement and the new version's form."""
+        previous = page.locator('#asset-name').element_handle()
+        if previous is None:
+            raise ScenarioFailure("Filens metadataformulär saknas")
+        try:
+            with page.expect_response(lambda response: response.request.method == 'POST' and urlsplit(response.url).path.startswith('/admin/api/assets/')) as pending:
+                page.locator('[data-action=save-asset]').click()
+            response = pending.value
+            if response.status != 200:
+                raise ScenarioFailure(f"Metadata sparades inte: HTTP {response.status}")
+            # A visible input alone is not an acknowledgement: the old form is
+            # still visible while the POST runs, with the old CAS version.
+            page.wait_for_function('input => !input.isConnected', arg=previous, timeout=20000)
+            page.locator('#asset-name').wait_for(state="visible", timeout=20000)
+        finally:
+            previous.dispose()
+
+    @staticmethod
+    def upload_file(page: Page, path: Path) -> dict:
+        """Upload via the UI; read its committed metadata outside the CDP cache."""
+        with page.expect_response(lambda response: response.request.method == 'POST' and urlsplit(response.url).path == '/admin/api/upload') as pending:
+            page.locator('#file-input').set_input_files(str(path))
+        response = pending.value
+        if response.status != 201:
+            raise ScenarioFailure(f"Uppladdningen misslyckades: HTTP {response.status}")
+        asset_id = response.request.headers.get('x-cms-upload-id')
+        if not asset_id:
+            raise ScenarioFailure("Uppladdningen saknar sin begärans fil-ID")
+        # The app clears this input in finally, after processing upload and
+        # any replacement. Do not replay a mutation to recover a cached body.
+        page.wait_for_function("() => document.querySelector('#file-input').files.length === 0", timeout=20000)
+        page.locator('#asset-name').wait_for(state="visible", timeout=20000)
+        state = read_api(page.request, BASE_URL+'/admin/api/state')
+        try:
+            if state.status != 200:
+                raise ScenarioFailure(f"Uppladdningens metadata kunde inte läsas: HTTP {state.status}")
+            matches = [asset for asset in state.json()['assets'] if asset['id'] == asset_id]
+        finally:
+            state.dispose()
+        if len(matches) != 1 or matches[0]['name'] != Path(path).name:
+            raise ScenarioFailure(f"Uppladdad fil saknas eller stämmer inte i lagringen: {asset_id}")
+        return matches[0]
 
     @staticmethod
     def wait_canvas(page: Page, timeout: int = 20000) -> None:
@@ -733,8 +796,7 @@ class CMSBrowserQA:
             asset_alt = f"Lokal QA PNG {RUN_ID}"
             page.locator("#asset-name").fill(asset_name)
             page.locator("#asset-alt").fill(asset_alt)
-            page.locator("[data-action=save-asset]").click()
-            page.locator("#asset-name").wait_for(state="visible", timeout=10000)
+            self.save_asset_metadata(page)
             if page.locator("#asset-name").input_value() != asset_name or page.locator("#asset-alt").input_value() != asset_alt:
                 raise ScenarioFailure("assetmetadata sparades inte via UI")
             self.screenshot(page, "assets-upload-metadata")

@@ -223,8 +223,8 @@ with sync_playwright() as pw:
             page=admin(ctx)
             for slot in ['social','icon','emailStatic','emailAnimated']:
                 assets=api(ctx,'state').json()['assets']; builtin=next(x for x in assets if x.get('slot')==slot)
-                page.locator('[data-library=assets]').click(); page.locator('[data-special=media]').click()
-                page.locator(f'[data-asset-id="{builtin["id"]}"]').click()
+                qa.CMSBrowserQA.open_assets(page)
+                page.locator(f'#special-stage [data-asset-id="{builtin["id"]}"]').click()
                 page.locator('[data-action=replace-asset]').click()
                 page.locator('#file-input').set_input_files(str(ROOT/'public/social/omar-yusuf.png'))
                 expect(page.locator('#studio-toast')).to_contain_text('referenser är ersatta',timeout=20000)

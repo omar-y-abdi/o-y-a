@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 npm run check
+python -m unittest discover -s tests -p test_revision_scroll.py
 mkdir -p artifacts
 public_port=${PUBLIC_TEST_PORT:-4173}
 analytics_port=${ANALYTICS_TEST_PORT:-4174}
