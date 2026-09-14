@@ -26,5 +26,5 @@
     "CMS_ACCESS_AUD": "90e4fe0941b104c6243a41081a9c2723001209c3aa6a61435ec07fdf348e61ac",
     "ANALYTICS_ENABLED": "false"
   },
-  "observability": { "enabled": true, "head_sampling_rate": 1 }
+  "observability": { "enabled": true, "head_sampling_rate": 1, "logs": { "invocation_logs": false } }
 }

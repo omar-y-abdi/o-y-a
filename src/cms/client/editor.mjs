@@ -58,6 +58,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   editor.DomComponents.addType('default', { model: { defaults: { ...base.model.prototype.defaults, resizable: true } } });
   const fontProperty = editor.StyleManager.getProperty('typografi', 'font-family') ?? editor.StyleManager.getSectors().find(sector => sector.get('name') === 'Typografi')?.getProperty('font-family');
   fontProperty?.set('options', [...Object.entries(fontFamilies).map(([label, id]) => ({ id, label })), ...assets.filter(asset => asset.mime === 'font/woff2').map(asset => ({ id: `cms-font-${asset.id}`, label: asset.name }))]);
+  editor.on('component:create', component => component.on('component:clone', clone => remapClone(component, clone, editor)));
   if (page.project) editor.loadProjectData(page.project);
   else {
     editor.setStyle(page.css);
@@ -101,9 +102,6 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   });
   editor.on('component:selected', component => onSelect(component, editor));
   editor.on('component:deselected', () => { if (!editor.getSelected()) onSelect(null, editor); });
-  editor.on('component:clone', component => {
-    for (const node of [component, ...component.find('*')]) { node.removeAttributes('data-cms-node'); node.removeAttributes('id'); }
-  });
   editor.on('asset:custom', props => {
     if (!props.open || !onAssetPick) return;
     onAssetPick(asset => {
@@ -115,3 +113,4 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   });
   return { editor, flush, snapshot, destroy() { flush(); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); editor.destroy(); } };
 }
+import { remapClone } from './clone.mjs';

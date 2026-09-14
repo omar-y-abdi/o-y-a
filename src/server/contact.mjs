@@ -1,4 +1,5 @@
 import { acknowledgment, notification, FROM } from './emails.mjs';
+import { resourceSlots } from '../content/resources.mjs';
 const json=(body,status=200,headers={})=>Response.json(body,{status,headers:{'Cache-Control':'no-store',...headers}});
 const emailValid=value=>typeof value==='string' && value.length<=254 && /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/.test(value) && value.split('@')[0].length<=64 && !value.split('@')[0].includes('..') && !value.startsWith('.') && !value.split('@')[0].endsWith('.');
 export function contactReady(env) {
@@ -25,7 +26,9 @@ export async function handleContact(request,env,transport=fetch) {
   if(request.headers.get('Origin')!==url.origin || request.headers.get('Sec-Fetch-Site')==='cross-site')return fail('Öppna formuläret på webbplatsen och försök igen.',403);
   if(request.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/json')return fail('Fel format på meddelandet.',415);
   let data;try{data=await readBody(request);}catch(error){return fail('Meddelandet kunde inte läsas.',error instanceof RangeError?413:400);}
-  if(!data||Array.isArray(data)||typeof data!=='object'||Object.keys(data).some(k=>!['name','email','message','website','token','submission'].includes(k)))return fail('Kontrollera formuläret.');
+  if(!data||Array.isArray(data)||typeof data!=='object'||Object.keys(data).some(k=>!['name','email','message','website','token','submission','contentVersion'].includes(k)))return fail('Kontrollera formuläret.');
+  const contentVersion=data.contentVersion??0;
+  if(!Number.isSafeInteger(contentVersion)||contentVersion<0)return fail('Kontrollera formulärets version.');
   if(typeof data.name!=='string'||!data.name.trim()||data.name.length>100||/[\u0000-\u001f\u007f]/.test(data.name))return fail('Skriv ditt namn på en rad.');
   if(!emailValid(data.email))return fail('Kontrollera mejladressen.');
   if(data.message!==undefined && (typeof data.message!=='string'||data.message.length>4000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(data.message)))return fail('Meddelandet får innehålla högst 4 000 tecken.');
@@ -42,8 +45,16 @@ export async function handleContact(request,env,transport=fetch) {
     const verified=await verification.json();
     if(verified.success!==true||verified.hostname!==url.hostname||verified.action!=='contact')return fail('Kontrollen behöver göras om. Försök igen.',403);
     const payload={name:data.name.trim(),email:data.email,message:data.message?.trim()||''};
-    const id=await contactDigest(JSON.stringify([data.submission,payload]),env.CONTACT_HASH_SECRET);
-    const emails=[{from:FROM,to:[env.CONTACT_TO],reply_to:data.email,...notification(payload)},{from:FROM,to:[data.email],...acknowledgment()}];
+    // Pin receipt images to the loaded page version: retries keep the same
+    // immutable provider payload even when the owner publishes new resources.
+    let resources=resourceSlots;
+    if(contentVersion){
+      const row=await env.CMS_DB?.prepare("SELECT p.html FROM cms_rendered p JOIN cms_revisions r ON r.version = p.version WHERE p.version = ? AND p.path = '@resources'").bind(contentVersion).first();
+      if(row)resources=JSON.parse(row.html);
+      else if(!await env.CMS_DB?.prepare('SELECT version FROM cms_revisions WHERE version = ?').bind(contentVersion).first())return fail('Sidans version saknas. Ladda om formuläret.',409);
+    }
+    const id=await contactDigest(JSON.stringify([data.submission,payload,...(contentVersion?[contentVersion]:[])]),env.CONTACT_HASH_SECRET);
+    const emails=[{from:FROM,to:[env.CONTACT_TO],reply_to:data.email,...notification(payload)},{from:FROM,to:[data.email],...acknowledgment({resources,origin:url.origin})}];
     const response=await transport('https://api.resend.com/emails/batch',{method:'POST',headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`,'Content-Type':'application/json','Idempotency-Key':`contact/${id}`},body:JSON.stringify(emails),signal:AbortSignal.timeout(12000)});
     if(!response.ok)return fail('Vi kunde inte bekräfta utskicket. Dina rader finns kvar här. Försök igen.',503);
     const result=await response.json();

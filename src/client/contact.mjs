@@ -57,7 +57,7 @@ export function initContact() {
     if(payload!==previousPayload||!submission){submission=crypto.randomUUID();previousPayload=payload;}
     sending=true;canSend();form.setAttribute('aria-busy','true');button.textContent=t('runtime.contact.submit.sending');status.textContent='';
     try {
-      const response=await fetch('/api/contact',{method:'POST',credentials:'same-origin',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,token,submission}),signal:AbortSignal.timeout(30000)});
+      const response=await fetch('/api/contact',{method:'POST',credentials:'same-origin',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,token,submission,contentVersion:Number(document.body.dataset.cmsVersion ?? 0)}),signal:AbortSignal.timeout(30000)});
       const result=await response.json();
       if(!response.ok||result.ok!==true){status.textContent=typeof result.message==='string'?result.message:t('runtime.contact.submit.unconfirmed');return;}
       sent=true;form.hidden=true;success.hidden=false;success.focus({preventScroll:true});form.reset();

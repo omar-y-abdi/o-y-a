@@ -1,4 +1,5 @@
 import { HttpError } from './http.mjs';
+import { resourceReferences } from './resources.mjs';
 function fail(message) { throw new HttpError(422, message); }
 export const fontFamilies = Object.freeze({ Arial: 'Arial, "Helvetica Neue", sans-serif', System: 'system-ui, sans-serif', Georgia: 'Georgia, serif', Monospace: '"Courier New", monospace', Verdana: 'Verdana, sans-serif', Trebuchet: '"Trebuchet MS", sans-serif' });
 export const defaultTheme = Object.freeze({ paper: '#fffdf6', butter: '#fff0b3', yellow: '#ffda44', ink: '#20261e', blue: '#234ce7', blueDark: '#1939b3', coral: '#ff815f', green: '#dfeacb', muted: '#5a604f', fontFamily: 'Arial', fontSize: 16, radius: 22 });
@@ -22,10 +23,7 @@ export function themeCss(input) {
 }
 
 export function referencedFonts(project) {
-  return [...new Set([...renderedSource(project).matchAll(/cms-font-([0-9a-f-]{36})/g)].map(match => match[1]))];
-}
-export function renderedSource(project) {
-  return JSON.stringify({ theme: project.theme, pages: project.pages.map(page => [page.html, page.css]), cards: project.cards.map(card => [card.design?.html, card.design?.css]) });
+  return [...resourceReferences(project).keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.woff2$/.test(src)).map(src => src.slice(7, -6));
 }
 export function fontCss(project) {
   return referencedFonts(project).map(id => `@font-face{font-family:"cms-font-${id}";src:url(/media/${id}.woff2) format("woff2");font-display:swap}`).join('');

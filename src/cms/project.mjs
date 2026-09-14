@@ -1,6 +1,9 @@
 import { parseFragment } from 'parse5';
 import { HttpError } from './http.mjs';
-import { validateCss, validateEditorData, validateHtml, validatePagePath } from './validation.mjs';
+import { validateCss, validateEditorData, validateHtml, validatePagePath, VALIDATION_POLICY } from './validation.mjs';
+import { resolveSiteLink } from './routes.mjs';
+import { referencedIds } from './id-references.mjs';
+import { validateResources } from './resources.mjs';
 
 import { validateTheme } from './theme.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
@@ -14,12 +17,12 @@ function text(value, name, max = 200, min = 1) {
 function elements(html) {
   const found = [];
   function visit(node) { if (node.tagName) found.push(node); for (const child of node.childNodes ?? []) visit(child); }
-  visit(parseFragment(html, { scriptingEnabled: false }));
+  visit(parseFragment(html, { scriptingEnabled: true }));
   return found;
 }
 const attribute = (node, name) => node.attrs.find(item => item.name === name)?.value;
 
-export function validateProject(input, seed, baseline) {
+export function validateProject(input, seed, baseline, { origins = [], publication = true } = {}) {
   if (!input || input.schemaVersion !== 1 || !Array.isArray(input.pages) || input.pages.length < 1 || input.pages.length > 64) fail('Projektets sidregister är ogiltigt.');
   const ids = new Set();
   const paths = new Set();
@@ -37,32 +40,40 @@ export function validateProject(input, seed, baseline) {
     const source = original ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank;
     if (page.sourceId && page.sourceId !== 'blank' && !seed.pages.some(item => item.id === page.sourceId)) fail('Sidans källmall finns inte.');
     const contracts = source?.contracts ?? [];
+    // An exact cache key avoids hash collisions and follows live contracts.
+    // Only facts loaded from the trusted database may satisfy this comparison.
+    const validationKey = JSON.stringify([VALIDATION_POLICY, contracts, publication]);
+    const compatible = saved?.facts?.validationKey === validationKey;
     let html, facts;
-    if (saved?.facts && saved.sourceId === (source?.id ?? 'blank') && page.html === saved.html) {
+    if (compatible && saved.sourceId === (source?.id ?? 'blank') && page.html === saved.html) {
       html = saved.html; facts = saved.facts;
     } else {
       const checked = validateHtml(page.html, contracts, true);
       html = checked.html;
       const nodes = checked.nodes;
-      if (nodes.filter(node => node.tagName === 'main' && attribute(node, 'id') === 'main').length !== 1 || nodes.filter(node => node.tagName === 'h1').length !== 1) fail(`${path} behöver ett huvudinnehåll och exakt en huvudrubrik.`);
-      facts = { ids: nodes.map(node => attribute(node, 'id')).filter(Boolean), links: nodes.map(node => attribute(node, 'href')).filter(Boolean) };
-      for (const node of nodes) if (node.tagName === 'img' && attribute(node, 'alt') === undefined) fail('Varje bild behöver alternativtext; dekorativa bilder kan ha tom text.');
-      for (const href of facts.links) if (href.startsWith('#') && href !== '#top' && href !== '#' && !facts.ids.includes(href.slice(1))) fail(`Länken ${href} på ${path} saknar mål.`);
+      if (publication && (nodes.filter(node => node.tagName === 'main' && attribute(node, 'id') === 'main').length !== 1 || nodes.filter(node => node.tagName === 'h1').length !== 1)) fail(`${path} behöver ett huvudinnehåll och exakt en huvudrubrik.`);
+      facts = { validationKey, ids: nodes.map(node => attribute(node, 'id')).filter(Boolean), links: nodes.filter(node => node.tagName === 'a').map(node => attribute(node, 'href')).filter(Boolean) };
+      for (const node of nodes) if (publication && node.tagName === 'img' && attribute(node, 'alt') === undefined) fail('Varje bild behöver alternativtext; dekorativa bilder kan ha tom text.');
+      for (const node of publication ? nodes : []) for (const item of node.attrs) for (const target of referencedIds(item.name, item.value)) {
+        if (!facts.ids.includes(target) && target !== 'top') fail(`Referensen ${item.name} till ${target} på ${path} saknar mål.`);
+      }
     }
-    const style = saved && page.css === saved.css ? saved.css : validateCss(page.css ?? '');
-    const project = saved && JSON.stringify(page.project) === JSON.stringify(saved.project) ? saved.project : page.project ? validateEditorData(page.project) : null;
-    return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80), title: text(page.title, 'Sidtitel', 160), description: text(page.description, 'Beskrivning', 320), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts };
+    const style = compatible && page.css === saved.css ? saved.css : validateCss(page.css ?? '');
+    const project = compatible && JSON.stringify(page.project) === JSON.stringify(saved.project) ? saved.project : page.project ? validateEditorData(page.project, contracts) : null;
+    return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts };
   });
   if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
   const targets = new Map(pages.map(page => [page.path, new Set(page.facts.ids)]));
-  for (const page of pages) for (const href of page.facts.links) {
-    if (!href?.startsWith('/') || href.startsWith('//')) continue;
-    const link = new URL(href, 'https://omaryusuf.se');
-    if (!link.pathname.endsWith('/')) continue;
-    if (!targets.has(link.pathname)) fail(`Länken ${href} på ${page.path} går till en sida som saknas. Uppdatera länken innan du sparar.`);
-    let fragment;
-    try { fragment = decodeURIComponent(link.hash.slice(1)); } catch { fail('Länkens ankare är ogiltigt.'); }
-    if (link.hash && link.hash !== '#top' && !targets.get(link.pathname).has(fragment)) fail(`Länken ${href} på ${page.path} saknar ett mål.`);
+  for (const page of publication ? pages : []) for (const href of page.facts.links) {
+    let link;
+    try { link = resolveSiteLink(href, page.path, origins); } catch { fail('Länkens adress eller ankare är ogiltigt.'); }
+    if (link.kind === 'external') continue;
+    if (link.kind === 'resource') {
+      if (link.path === '/login/' || link.path === '/login' || /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(link.path) || seed.staticPaths?.includes(link.path)) continue;
+      fail(`Länken ${href} på ${page.path} går till en resurs som saknas.`);
+    }
+    if (!targets.has(link.path)) fail(`Länken ${href} på ${page.path} går till en sida som saknas. Uppdatera länken innan du sparar.`);
+    if (link.hash && link.hash !== 'top' && !targets.get(link.path).has(link.hash)) fail(`Länken ${href} på ${page.path} saknar ett mål.`);
   }
   const cards = input.cards;
   if (!Array.isArray(cards) || cards.length > 2000) fail('Vinstbiblioteket är ogiltigt eller för stort.');
@@ -70,7 +81,7 @@ export function validateProject(input, seed, baseline) {
   const normalizedCards = cards.map(card => {
     if (!card || typeof card.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(card.id) || cardIds.has(card.id) || !FLAVORS.includes(card.flavor)) fail('Varje vinst behöver en unik identitet och en giltig kategori.');
     cardIds.add(card.id);
-    const result = { id: card.id, flavor: card.flavor, text: text(card.text, 'Vinsttext', 500) };
+    const result = { id: card.id, flavor: card.flavor, text: text(card.text, 'Vinsttext', 500, publication ? 1 : 0) };
     if (card.design) {
       const html = validateHtml(card.design.html);
       const roots = parseFragment(html).childNodes.filter(node => node.tagName || node.nodeName === '#text' && node.value.trim());
@@ -86,10 +97,10 @@ export function validateProject(input, seed, baseline) {
   for (const [key, value] of Object.entries(input.runtime)) {
     if (!/^[a-z][a-zA-Z0-9_.-]{0,100}$/.test(key) || ['constructor', 'prototype'].includes(key)) fail('Okänd funktionstext.');
     if (Object.keys(seed.runtime ?? {}).length && !Object.hasOwn(seed.runtime, key)) fail('Okänd funktionstext.');
-    text(value, 'Funktionstext', 1000);
+    text(value, 'Funktionstext', 1000, publication ? 1 : 0);
     runtime[key] = value;
     const variables = source => [...new Set([...source.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map(match => match[1]))].sort().join(',');
-    if (variables(value) !== variables(seed.runtime?.[key] ?? '')) fail(`Texten ${key} måste behålla samma dynamiska värden inom klamrar.`);
+    if (publication && variables(value) !== variables(seed.runtime?.[key] ?? '')) fail(`Texten ${key} måste behålla samma dynamiska värden inom klamrar.`);
   }
-  return { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme) };
+  return { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources) };
 }

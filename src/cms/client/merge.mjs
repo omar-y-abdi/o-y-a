@@ -1,4 +1,5 @@
 const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+import { defaultResources } from '../../content/resources.mjs';
 
 // A page stays atomic: its HTML, CSS and editor project must travel together.
 // Different pages/cards/theme keys merge; overlapping changes remain explicit.
@@ -18,9 +19,10 @@ export function mergeProjects(base, local, remote) {
       .filter(item => item !== undefined);
   }
   function properties(name) {
-    return Object.fromEntries([...new Set([...Object.keys(base[name]), ...Object.keys(local[name]), ...Object.keys(remote[name])])]
-      .map(key => [key, choose(`${name}:${key}`, base[name][key], local[name][key], remote[name][key])])
+    const before = base[name] ?? defaultResources, mine = local[name] ?? defaultResources, theirs = remote[name] ?? defaultResources;
+    return Object.fromEntries([...new Set([...Object.keys(before), ...Object.keys(mine), ...Object.keys(theirs)])]
+      .map(key => [key, choose(`${name}:${key}`, before[key], mine[key], theirs[key])])
       .filter(([, value]) => value !== undefined));
   }
-  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime') }, conflicts };
+  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime'), resources: properties('resources') }, conflicts };
 }

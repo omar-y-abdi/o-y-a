@@ -1,5 +1,6 @@
 export class ApiError extends Error {
-  constructor(message, status = 0) { super(message); this.status = status; }
+  constructor(message, status = 0, details) { super(message); this.status = status; this.details = details; }
+  get definitive() { return this.status >= 400 && this.status < 500 && this.status !== 408; }
 }
 
 export async function api(path, data) {
@@ -15,7 +16,7 @@ export async function api(path, data) {
   let result;
   try { result = await response.json(); }
   catch { throw new ApiError('Svaret kunde inte bekräftas. Ditt utkast finns kvar.', response.status); }
-  if (!response.ok) throw new ApiError(result.error ?? 'Åtgärden kunde inte slutföras.', response.status);
+  if (!response.ok) throw new ApiError(result.error ?? 'Åtgärden kunde inte slutföras.', response.status, result.details);
   return result;
 }
 
@@ -24,29 +25,4 @@ export async function upload(file, id) {
   const result = await response.json();
   if (!response.ok) throw new ApiError(result.error ?? 'Filen kunde inte laddas upp.', response.status);
   return result;
-}
-
-let database;
-async function recoveryDb() {
-  if (!database) database = new Promise((resolve, reject) => {
-    const opening = indexedDB.open('oy-portfolio-studio', 1);
-    opening.onupgradeneeded = () => opening.result.createObjectStore('drafts');
-    opening.onsuccess = () => resolve(opening.result);
-    opening.onerror = () => reject(opening.error);
-  });
-  return database;
-}
-
-export async function recovery(identity, value) {
-  const db = await recoveryDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('drafts', value === undefined ? 'readonly' : 'readwrite');
-    const store = tx.objectStore('drafts');
-    const operation = value === undefined ? store.get(identity) : value === null ? store.delete(identity) : store.put(value, identity);
-    let result;
-    operation.onsuccess = () => { result = operation.result; };
-    tx.oncomplete = () => resolve(result);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
 }

@@ -5,11 +5,12 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { inspectAsset, uploadAsset, listAssets, assetResponse } from '../src/cms/assets.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/theme.mjs';
+import { migrateCmsDb } from './helpers/cms-runtime.mjs';
 
 const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default { fetch() { return new Response("test"); } };', compatibilityDate: '2026-09-11', d1Databases: ['CMS_DB'], r2Buckets: ['CMS_MEDIA'] }));
 after(() => mf.dispose());
 const env = { CMS_DB: await mf.getD1Database('CMS_DB'), CMS_MEDIA: await mf.getR2Bucket('CMS_MEDIA') };
-await env.CMS_DB.exec(await readFile(new URL('../migrations/0001_cms.sql', import.meta.url), 'utf8'));
+await migrateCmsDb(env.CMS_DB);
 const png = new Uint8Array(await readFile('public/social/omar-yusuf.png'));
 
 test('actual file signature and dimensions determine stored content type', () => {

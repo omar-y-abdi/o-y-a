@@ -1,7 +1,11 @@
 import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+
+export async function migrateCmsDb(db) {
+  for (const file of (await readdir('migrations')).filter(name => name.endsWith('.sql')).sort()) await db.exec(await readFile(`migrations/${file}`, 'utf8'));
+}
 
 // A real Worker, D1, R2 and signed JWT. Only the outbound JWKS origin is
 // replaced by a local identity fixture. No auth bypass exists in product code.
@@ -30,7 +34,7 @@ export async function cmsRuntime({ port = 0, persist = false } = {}) {
     await mf.setOptions(convertV4MiniflareOptions(options));
   }
   const db = await mf.getD1Database('CMS_DB');
-  await db.exec(await readFile('migrations/0001_cms.sql', 'utf8'));
+  await migrateCmsDb(db);
   const token = async (overrides = {}) => new SignJWT({ email, type: 'app', ...overrides }).setProtectedHeader({ alg: 'RS256', kid: key.kid }).setIssuer(team).setAudience(audience).setSubject('owner-fixture').setIssuedAt().setExpirationTime('1h').sign(privateKey);
   return { mf, db, email, token, url: (await mf.ready).origin, close: () => mf.dispose() };
 }

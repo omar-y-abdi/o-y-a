@@ -1,5 +1,6 @@
 import { site } from '../content/site.mjs';
 import { escape, icon, flower } from './components.mjs';
+import { resourceSlots } from '../content/resources.mjs';
 export function structuredData(page) {
   const url = site.origin + page.path;
   const graph = [
@@ -11,6 +12,9 @@ export function structuredData(page) {
   return JSON.stringify({ '@context': 'https://schema.org', '@graph': graph }).replace(/</g, '\\u003c');
 }
 export function layout(page, content, assets) {
+  const resources = assets.resources ?? resourceSlots;
+  const social = resources.social;
+  const imageOrigin = assets.resourceOrigin ?? site.origin;
   return `<!doctype html>
 <html lang="sv" data-motion="auto">
 <head>
@@ -22,9 +26,9 @@ export function layout(page, content, assets) {
 ${page.noindex ? '<meta name="robots" content="noindex, follow">' : ''}
 <meta property="og:type" content="website"><meta property="og:locale" content="sv_SE"><meta property="og:site_name" content="Omar Yusuf">
 <meta property="og:title" content="${escape(page.title)}"><meta property="og:description" content="${escape(page.description)}"><meta property="og:url" content="${site.origin + page.path}">
-<meta property="og:image" content="${site.origin}/social/omar-yusuf.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:type" content="image/png"><meta property="og:image:alt" content="Omar Yusuf. Teknik med hjärna och lite bus i systemet. En leende gul figur mot koboltblått.">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${escape(page.title)}"><meta name="twitter:description" content="${escape(page.description)}"><meta name="twitter:image" content="${site.origin}/social/omar-yusuf.png"><meta name="twitter:image:alt" content="Omar Yusuf. Teknik med hjärna och lite bus i systemet.">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:image" content="${escape(imageOrigin + social.src)}"><meta property="og:image:width" content="${social.width}"><meta property="og:image:height" content="${social.height}"><meta property="og:image:type" content="${escape(social.mime)}"><meta property="og:image:alt" content="${escape(social.alt)}">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${escape(page.title)}"><meta name="twitter:description" content="${escape(page.description)}"><meta name="twitter:image" content="${escape(imageOrigin + social.src)}"><meta name="twitter:image:alt" content="${escape(social.alt)}">
+<link rel="icon" href="${escape(resources.icon.src === resourceSlots.icon.src ? '/favicon.svg' : resources.icon.src)}" type="${resources.icon.src === resourceSlots.icon.src ? 'image/svg+xml' : escape(resources.icon.mime)}"><link rel="apple-touch-icon" href="${escape(resources.icon.src)}">
 <link rel="stylesheet" href="${assets.css}">
 <script type="application/ld+json">${structuredData(page)}</script>
 <script type="module" src="${assets.main}"></script>

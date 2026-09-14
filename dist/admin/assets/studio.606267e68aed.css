@@ -25,3 +25,4 @@
 .asset-image{min-height:0;overflow:hidden;grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1fr)}.asset-image img{min-width:0;min-height:0;max-width:100%;max-height:100%}
 
 .special-heading p,.special-kicker,.asset-card-meta small,.history-row p,.history-row time,.asset-filters button,.studio-dialog p{color:#59634f}
+:root .backup-status{margin:0 12px 8px;font-size:10px;line-height:1.4;color:#4c5940}.backup-list{margin-top:24px}.backup-row{padding:18px 0;border-top:1px solid var(--studio-line)}.backup-row p{font-size:12px;overflow-wrap:anywhere}.backup-row .dialog-buttons{justify-content:flex-start;flex-wrap:wrap}.backup-row button{min-height:44px}

@@ -1,3 +1,5 @@
+import { reportFailure } from './diagnostics.mjs';
+
 export class HttpError extends Error {
   constructor(status, message, details) {
     super(message);
@@ -10,9 +12,10 @@ export function json(data, status = 200, headers = {}) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 }
 
-export function errorResponse(error) {
+export function errorResponse(error, operation) {
   if (error instanceof HttpError) return json({ error: error.message, ...(error.details ? { details: error.details } : {}) }, error.status);
-  return json({ error: 'Tjänsten kunde inte slutföra ändringen. Ditt utkast finns kvar.' }, 503);
+  const requestId = reportFailure(error, operation);
+  return json({ error: `Tjänsten kunde inte slutföra ändringen. Ditt utkast finns kvar. Fel-ID: ${requestId}`, requestId }, 503, { 'X-Request-ID': requestId });
 }
 
 export function requireWriteRequest(request, contentType = 'application/json') {

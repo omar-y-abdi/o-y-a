@@ -1,4 +1,5 @@
-import { api, upload, recovery } from './api.mjs';
+import { api, upload } from './api.mjs';
+import { Backups } from './backups.mjs';
 import { Draft } from './draft.mjs';
 import { mergeProjects } from './merge.mjs';
 import { runtimeView } from './runtime.mjs';
@@ -6,13 +7,15 @@ import { $, $$, escape, toast, dialog, confirmAction, field } from './dom.mjs';
 import { createEditor } from './editor.mjs';
 import { pageInspector, componentInspector, themeInspector } from './inspector.mjs';
 import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign } from './library.mjs';
-import { themeCss, renderedSource } from '../theme.mjs';
+import { themeCss } from '../theme.mjs';
 
 let draft, identity, definitions, blank, assets = [], built;
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
 let library = 'pages', device = matchMedia('(max-width:760px)').matches ? 'mobile' : 'desktop', zoom = 100, locked = false, saving = false, themeMode = false;
 let winFilter = 'all', winQuery = '', winLimit = 60, history, reviewVersion = null, replacement = null, archivedAssets = false;
-let recoveryTimer, previewSequence = 0, recoveryFailed = false;
+let backups, previewSequence = 0;
+let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer;
+const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
 const page = () => draft.project.pages.find(item => item.id === lastPage) ?? draft.project.pages[0];
 const card = () => draft.project.cards.find(item => item.id === current.id);
 
@@ -31,10 +34,7 @@ function status() {
 }
 
 function remember() {
-  clearTimeout(recoveryTimer);
-  recoveryTimer = setTimeout(() => recovery(identity.email, draft.dirty || draft.pendingSave ? { project: draft.project, baseProject: draft.saved, version: draft.version, pendingSave: draft.pendingSave, updatedAt: new Date().toISOString() } : null).catch(() => {
-    if (!recoveryFailed) { toast('Webbläsaren kunde inte spara reservutkastet. Behåll fliken öppen eller exportera en kopia.', true); recoveryFailed = true; }
-  }), 350);
+  backups?.schedule();
 }
 
 function change(project, group = '') { draft.change(project, group); status(); remember(); }
@@ -197,7 +197,7 @@ function specialBase(type) {
 
 async function showSpecial(type) {
   specialBase(type);
-  if (type === 'media') { library = 'assets'; $('#canvas-label').textContent = 'Resurser'; mediaGallery(assets, $('#library-search').value, archivedAssets); }
+  if (type === 'media') { library = 'assets'; $('#canvas-label').textContent = 'Resurser'; await loadMedia(); }
   if (type === 'wins') { library = 'assets'; $('#canvas-label').textContent = 'Små vinster'; renderWins(); }
   if (type === 'history') {
     $('#canvas-label').textContent = 'Historik'; $('#special-stage').innerHTML = '<div class="empty-state" role="status">Hämtar tidigare kapitel…</div>';
@@ -211,6 +211,19 @@ async function showSpecial(type) {
   renderSidebar();
 }
 
+async function loadMedia(more = false) {
+  const sequence = ++mediaSequence;
+  const query = $('#library-search').value;
+  const parameters = new URLSearchParams({ q: query, archived: archivedAssets ? '1' : '0', ...(more && mediaNext ? { cursor: mediaNext } : {}) });
+  const result = await api('assets?' + parameters);
+  if (sequence !== mediaSequence || current.type !== 'media') return;
+  cacheAssets(result.items);
+  mediaItems = more ? [...new Map([...mediaItems, ...result.items].map(asset => [asset.id, asset])).values()] : result.items;
+  mediaNext = result.next;
+  mediaGallery([...assets.filter(asset => asset.builtin), ...mediaItems], query, archivedAssets);
+  if (mediaNext) $('#special-stage').insertAdjacentHTML('beforeend', '<button type="button" class="small-button" data-action="more-media" style="margin-top:24px">Visa fler filer</button>');
+}
+
 function renderWins() {
   winGallery(draft.project.cards, winFilter, winQuery, winLimit);
   $('#win-search').addEventListener('input', event => {
@@ -220,12 +233,15 @@ function renderWins() {
   });
 }
 
-function showAsset(id) {
+async function showAsset(id) {
   specialBase('asset'); current.id = id; library = 'assets';
   const item = assets.find(asset => asset.id === id); if (!item) return;
-  const text = renderedSource(draft.project);
-  const usage = item.mime === 'font/woff2' ? text.split(`cms-font-${item.id}`).length - 1 : text.split(item.src).length - 1;
-  assetDetail(item, usage); $('#canvas-label').textContent = 'Resurs'; $('#selection-name').textContent = 'Filens uppgifter'; $('#selection-type').textContent = item.mime; renderSidebar();
+  assetDetail(item); $('#canvas-label').textContent = 'Resurs'; $('#selection-name').textContent = 'Filens uppgifter'; $('#selection-type').textContent = item.mime; renderSidebar();
+  const view = current;
+  try {
+    const { counts } = await api('resource-usage', { project: draft.project });
+    if (current === view) $('#asset-usage').textContent = `${counts[item.src] ?? 0} referenser i aktuellt utkast. Äldre versioners filer bevaras.`;
+  } catch (error) { if (current === view) $('#asset-usage').textContent = `Användningen kunde inte kontrolleras: ${error.message}`; }
 }
 
 function pickImage(select) {
@@ -284,23 +300,21 @@ async function save() {
   try {
     const intent = draft.project;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const pending = draft.pendingSave ?? { project: draft.project, baseVersion: draft.version, requestId: crypto.randomUUID() };
-      draft.pendingSave = pending; remember();
+      const pending = draft.beginSave();
+      await backups.persist();
       const result = await api('save', pending);
       draft.acknowledge(pending.project, result.version);
       if (!draft.dirty || pending.project === intent || draft.project !== intent) break;
     }
     toast(draft.dirty ? 'Versionen sparades. Dina nyare ändringar finns kvar som utkast.' : `Version ${draft.version} är sparad och publicerad.`);
   } catch (error) {
-    if (error.status === 409 || error.status === 422) draft.pendingSave = null;
+    draft.rejectSave(error);
     showError(error);
-  } finally { saving = false; status(); remember(); }
+  } finally { await backups.persist(); saving = false; status(); }
 }
 
 function exportDraft() {
-  active?.flush();
-  const blob = new Blob([JSON.stringify({ project: draft.project, baseVersion: draft.version }, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob), link = document.createElement('a'); link.href = url; link.download = 'omar-studio-utkast.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  backups.export();
 }
 
 function showError(error) {
@@ -327,7 +341,7 @@ async function revert() {
   if (!await confirmAction({ title: 'Tillbaka till det sparade?', message: 'Osparade ändringar i detta utkast försvinner. Publicerad webbplats och historik påverkas inte.', action: 'Revert', danger: true })) return;
   const state = await api('state');
   if (!unchangedSince(snapshot)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; openPage(lastPage); status(); remember();
+  clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; openPage(lastPage); status(); await backups.persist();
 }
 
 async function restore(version) {
@@ -376,6 +390,21 @@ async function exportWin() {
   toast('Förhandsbilden är skapad från vinstens riktiga design.');
 }
 
+async function submitAsset(item, patch) {
+  try {
+    const updated = await api(`assets/${item.id}`, { ...patch, baseVersion: item.version });
+    assets = assets.map(asset => asset.id === item.id ? updated : asset);
+    toast('Filens uppgifter är sparade.');
+    return patch.archived === true ? showSpecial('media') : showAsset(updated.id);
+  } catch (error) {
+    if (error.status !== 409 || !error.details?.asset) throw error;
+    const latest = error.details.asset;
+    dialog(`<span class="dialog-eyebrow">FILEN HAR NYARE UPPGIFTER</span><h2>Granska innan du skriver över.</h2><p>Ditt formulär finns kvar. Nu sparat: ${escape(latest.name)}, ${latest.archived ? 'arkiverad' : 'i biblioteket'}. Alternativtext: ${escape(latest.alt || '(tom)')}.</p><p>Dina val: ${escape(JSON.stringify(patch))}</p><div class="dialog-buttons"><button class="small-button" data-action="close-dialog">Behåll formuläret</button><button class="small-button" id="refresh-asset">Hämta aktuella uppgifter</button><button class="small-button primary" id="retry-asset">Tillämpa mina val</button></div>`);
+    $('#refresh-asset').onclick = () => { assets = assets.map(asset => asset.id === item.id ? latest : asset); $('#studio-dialog').close(); showAsset(item.id); };
+    $('#retry-asset').onclick = () => { $('#studio-dialog').close(); submitAsset(latest, patch).catch(showError); };
+  }
+}
+
 async function perform(action) {
   if (!draft && action !== 'close-dialog') return;
   if (action === 'close-dialog') return $('#studio-dialog').close();
@@ -396,17 +425,20 @@ async function perform(action) {
   if (action === 'add-page') return newPage();
   if (action === 'upload') { replacement = null; return $('#file-input').click(); }
   if (action === 'toggle-archived') { archivedAssets = !archivedAssets; return showSpecial('media'); }
+  if (action === 'more-media') return loadMedia(true);
   if (action === 'replace-asset') { replacement = assets.find(asset => asset.id === current.id); return $('#file-input').click(); }
   if (['save-asset', 'archive-asset', 'unarchive-asset'].includes(action)) {
     const item = assets.find(asset => asset.id === current.id);
     if (action === 'archive-asset' && !await confirmAction({ title: 'Arkivera filen?', message: 'Filen döljs i biblioteket. Publicerade sidor och historiska versioner behåller den.', action: 'Arkivera' })) return;
-    const updated = await api(`assets/${item.id}`, { name: $('#asset-name').value, alt: $('#asset-alt').value, archived: action === 'archive-asset' || action === 'save-asset' && item.archived });
-    assets = assets.map(asset => asset.id === item.id ? updated : asset); toast('Filens uppgifter är sparade.'); return action === 'archive-asset' ? showSpecial('media') : showAsset(updated.id);
+    const patch = action === 'save-asset' ? Object.fromEntries([['name', $('#asset-name').value], ['alt', $('#asset-alt').value]].filter(([key, value]) => value !== item[key])) : { archived: action === 'archive-asset' };
+    if (!Object.keys(patch).length) return toast('Filens uppgifter är redan sparade.');
+    return submitAsset(item, patch);
   }
   if (action === 'new-win') { const id = `win-${crypto.randomUUID()}`; change({ ...draft.project, cards: [...draft.project.cards, { id, flavor: 'kind', text: 'Du behöver inte vara färdig för att vara på väg.' }] }); return openWin(id); }
   if (action === 'more-wins') { const top = $('#special-stage').scrollTop; winLimit += 60; renderWins(); $('#special-stage').scrollTop = top; return; }
   if (action === 'export-win') return exportWin();
   if (action === 'export-draft') return exportDraft();
+  if (action === 'backups') return backups.show();
 }
 
 function shortcuts(event) {
@@ -441,7 +473,7 @@ document.addEventListener('click', event => {
 document.addEventListener('input', event => { if (event.target.dataset.copyKey) change({ ...draft.project, runtime: { ...draft.project.runtime, [event.target.dataset.copyKey]: event.target.value } }, `copy-${event.target.dataset.copyKey}`); });
 document.addEventListener('keydown', shortcuts, true);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') document.body.classList.remove('show-pages', 'show-properties'); });
-$('#library-search').addEventListener('input', () => { renderSidebar(); if (current.type === 'media') mediaGallery(assets, $('#library-search').value, archivedAssets); });
+$('#library-search').addEventListener('input', () => { renderSidebar(); clearTimeout(searchTimer); if (current.type === 'media') searchTimer = setTimeout(() => loadMedia().catch(showError), 200); });
 $('#file-input').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file) return;
   const replacing = replacement; replacement = null;
@@ -450,8 +482,12 @@ $('#file-input').addEventListener('change', async event => {
     const asset = await upload(file, crypto.randomUUID()); assets = [...assets, asset];
     if (replacing) {
       if (replacing.mime.startsWith('image/') !== asset.mime.startsWith('image/')) throw new Error('Filen laddades upp, men bild och typsnitt kan inte ersätta varandra.');
-      const next = JSON.parse(JSON.stringify(draft.project).replaceAll(replacing.src, asset.src));
-      change(next); toast('Filen är ersatt i utkastet. Save uppdaterar webbplatsen.');
+      active?.flush();
+      const before = draft.project;
+      const result = await api('replace-resource', { project: before, fromId: replacing.id, toId: asset.id });
+      if (!unchangedSince(before)) { toast('Filen är uppladdad. Utkastet ändrades under ersättningen; välj ersättning igen.', true); return; }
+      if (result.replacements) { change(result.project); cacheAssets(result.assets); toast('Filens referenser är ersatta i utkastet. Save uppdaterar webbplatsen.'); }
+      else toast('Filen är uppladdad. Den gamla filen används inte i utkastet, så inget innehåll ersattes.');
     } else toast('Filen finns i biblioteket. Den blir offentlig när den används i en sparad sida.');
     showAsset(asset.id);
   } catch (error) { showError(error); }
@@ -468,18 +504,23 @@ new ResizeObserver(() => { if (active && !locked && device !== 'compare') fit();
 async function boot() {
   const state = await api('state');
   draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; built = state.built;
+  backups = new Backups(identity.email, {
+    snapshot: () => draft,
+    flush: () => active?.flush(),
+    install: ({ project, pendingSave, base, version }) => {
+      clearEditor(); draft = new Draft(base, version); draft.change(project); draft.pendingSave = pendingSave;
+      openPage(lastPage); status();
+    },
+  });
+  await backups.start();
   $('#environment-badge').hidden = state.environment !== 'staging';
   $('.owner-avatar').title = `Inloggad som ${identity.email}. Logga ut.`;
   openPage(draft.project.pages[0].id); status();
-  let saved;
-  try { saved = await recovery(identity.email); } catch { return; }
-  if (saved?.project && await confirmAction({ title: 'En idé väntar på dig.', message: 'Ett lokalt utkast finns från en tidigare session. Återuppta det eller fortsätt med den publicerade versionen.', action: 'Återuppta utkast' })) {
-    const verified = await api('validate', { project: saved.project });
-    const base = saved.baseProject ?? (await api(`revision/${saved.version}`)).project;
-    clearEditor(); draft = new Draft(base, saved.version); change(verified.project); draft.pendingSave = saved.pendingSave ?? null; openPage(lastPage); status();
-  }
+  await backups.offer();
 }
 
 boot().catch(error => {
+  if (draft) { showError(error); return; }
+  $('#loading-state').hidden = false;
   $('#loading-state').innerHTML = `<h1>Studion kunde inte öppnas.</h1><p>${escape(error.message)}</p><a class="small-button primary" href="/admin/">Försök logga in igen ↗</a>`;
 });

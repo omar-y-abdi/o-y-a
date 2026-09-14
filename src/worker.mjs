@@ -6,6 +6,7 @@ import { seed, initial, built } from '../.generated/cms-seed.mjs';
 import { handleAdmin, assetResponse } from './cms/api.mjs';
 import { ADMIN_CSP, publicContent } from './cms/render.mjs';
 import { errorResponse } from './cms/http.mjs';
+import { reportFailure } from './cms/diagnostics.mjs';
 
 const PAGES = new Set(routes.filter(page => !page.noindex).map(page => page.path));
 const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
@@ -79,7 +80,7 @@ export default {
       return request.method === 'HEAD' ? new Response(null,secured) : secured;
     }
     if (url.pathname.startsWith('/media/')) {
-      try { response = await assetResponse(request,env); } catch (error) { response = errorResponse(error); }
+      try { response = await assetResponse(request,env); } catch (error) { response = errorResponse(error,'media'); }
     }
     else if (url.pathname === '/api/contact') response = await handleContact(request,env);
     else if (url.pathname === '/api/contact/config') response = ['GET','HEAD'].includes(request.method) ? contactConfig(env) : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
@@ -92,7 +93,7 @@ export default {
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
       try { response = await publicContent(request,env,built,CSP) ?? await env.ASSETS.fetch(request); }
-      catch { response = new Response('Tillfälligt avbrott. Försök igen.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}}); }
+      catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
     }
     if (url.pathname === '/404.html' && response.status === 200) {
       response = new Response(response.body,{status:404,headers:response.headers});

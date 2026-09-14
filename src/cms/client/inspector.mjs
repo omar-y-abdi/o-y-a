@@ -60,7 +60,6 @@ export function componentInspector(component, editor, { assets, pickImage, chang
   $('#select-parent').addEventListener('click', () => { if (component.parent()) editor.select(component.parent()); });
   $('#duplicate-element')?.addEventListener('click', () => {
     const copy = component.clone();
-    for (const node of [copy, ...copy.find('*')]) { node.removeAttributes('data-cms-node'); node.removeAttributes('id'); }
     component.parent().append(copy, { at: component.index() + 1 });
     editor.select(copy); change();
   });

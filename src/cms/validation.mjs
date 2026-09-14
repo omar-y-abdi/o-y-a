@@ -1,10 +1,13 @@
-import { parse, parseFragment, serialize } from 'parse5';
+import { parse, parseFragment, serialize, serializeOuter } from 'parse5';
 import * as css from 'css-tree';
 import { HttpError } from './http.mjs';
+import { ID_REFERENCES } from './id-references.mjs';
+
+export const VALIDATION_POLICY = 'cms-policy-2-browser-parser-id-references';
 
 const TAGS = new Set('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup dd del details dfn dialog div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i img input kbd label legend li main mark nav noscript ol optgroup option output p picture pre progress q rp rt ruby s samp section select small source span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var svg g path circle rect ellipse line polyline polygon defs lineargradient radialgradient stop clippath title desc mask pattern use'.split(' '));
 const ATTRS = new Set('id class title role lang dir tabindex hidden inert href target rel src srcset sizes alt width height loading decoding type name value checked disabled required readonly multiple min max step minlength maxlength autocomplete placeholder for rows cols method action novalidate open aria-label aria-labelledby aria-describedby aria-controls aria-live aria-atomic aria-hidden aria-expanded aria-pressed aria-current aria-disabled aria-invalid aria-busy scope colspan rowspan start reversed datetime cite download style viewbox fill fill-rule fill-opacity stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity d points x y x1 x2 y1 y2 cx cy r rx ry transform opacity offset stop-color stop-opacity gradientunits gradienttransform clip-path clip-rule preserveaspectratio xmlns'.split(' '));
-const FIXED = new Set('id type name required hidden disabled role for aria-controls autocomplete'.split(' '));
+const FIXED = new Set(['id', 'type', 'name', 'required', 'hidden', 'disabled', 'role', 'autocomplete', ...ID_REFERENCES]);
 const AT_RULES = new Set(['media', 'supports', 'keyframes', '-webkit-keyframes', 'font-face', 'layer', 'container', 'starting-style']);
 const LOCKED_CLASSES = new Set(['fika-board', 'repeat-line', 'folded-line', 'eye', 'memory-card', 'memory-front', 'memory-back']);
 const RESERVED = new Set(['admin', 'login', 'api', 'assets', 'media', 'data', 'cdn-cgi', 'cms-public']);
@@ -98,12 +101,17 @@ export function preparePage(document) {
     const functional = node.attrs.some(a => a.name.startsWith('data-') && !a.name.startsWith('data-cms-'));
     const classes = (attr(node, 'class') ?? '').split(/\s+/);
     const inForm = node.tagName === 'form' || ['input', 'textarea', 'select', 'label'].includes(node.tagName);
-    const special = functional || inForm || ['main', 'mobile-menu', 'share-url'].includes(attr(node, 'id')) || classes.some(name => LOCKED_CLASSES.has(name));
+    const special = functional || inForm || node.tagName === 'noscript' || ['main', 'mobile-menu', 'share-url'].includes(attr(node, 'id')) || classes.some(name => LOCKED_CLASSES.has(name));
     if (special) {
       contracts.push({ key, tag: node.tagName, attrs: Object.fromEntries(node.attrs.filter(a => FIXED.has(a.name) || a.name.startsWith('data-') && !a.name.startsWith('data-cms-')).map(a => [a.name, a.value])), classes: classes.filter(Boolean) });
       // The print control reads its first span as the live button label.
       if (functional && attr(node, 'data-print') !== undefined) contracts.at(-1).span = true;
     }
+  });
+  // Fallback HTML belongs to the trusted source template, not authored markup.
+  // Record it after every descendant has received its stable editor key.
+  traverse(body, node => {
+    if (node.tagName === 'noscript') contracts.find(item => item.key === attr(node, 'data-cms-node')).fallback = serializeOuter(node);
   });
   const keys = new Set(contracts.map(item => item.key));
   const contractsByKey = new Map(contracts.map(item => [item.key, item]));
@@ -117,9 +125,15 @@ export function preparePage(document) {
   return { html: serialize(body), contracts, bodyClass: attr(body, 'class') ?? '' };
 }
 
-export function validateHtml(source, contracts = [], includeNodes = false) {
-  if (typeof source !== 'string' || source.length > 500000) invalid('Sidans innehåll är för stort eller saknas.');
+function canonicalFallback(source) {
   const tree = parseFragment(source, { scriptingEnabled: false });
+  traverse(tree, node => node.attrs?.sort((a, b) => a.name.localeCompare(b.name)));
+  return serialize(tree);
+}
+
+export function validateHtml(source, contracts = [], includeNodes = false, fallbacks = contracts) {
+  if (typeof source !== 'string' || source.length > 500000) invalid('Sidans innehåll är för stort eller saknas.');
+  const tree = parseFragment(source, { scriptingEnabled: true });
   const nodes = new Map();
   const ids = new Set();
   const protectedKeys = new Set(contracts.map(contract => contract.key));
@@ -129,6 +143,15 @@ export function validateHtml(source, contracts = [], includeNodes = false) {
     elements.push(node);
     const tag = node.tagName.toLowerCase();
     if (!TAGS.has(tag)) invalid(`Elementet ${node.tagName} får inte läggas in i webbplatsen.`);
+    if (tag === 'noscript') {
+      const fallback = fallbacks.find(item => item.fallback && item.key === attr(node, 'data-cms-node'));
+      if (node.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !fallback || canonicalFallback(serializeOuter(node)) !== canonicalFallback(fallback.fallback)) invalid('JavaScript-fallback får bara komma från den skyddade källmallen.');
+      // GrapesJS reorders attributes. Accept an identical inert source tree,
+      // then emit the trusted bytes, never the browser-sensitive candidate.
+      const trusted = parseFragment(fallback.fallback, { scriptingEnabled: true }).childNodes[0];
+      node.attrs = trusted.attrs; node.childNodes = trusted.childNodes;
+      node.childNodes.forEach(child => { child.parentNode = node; });
+    }
     for (const item of node.attrs) checkAttribute(item.prefix ? `${item.prefix}:${item.name}` : item.name, item.value, tag);
     const id = attr(node, 'id');
     if (id) {
@@ -161,10 +184,11 @@ export function validateHtml(source, contracts = [], includeNodes = false) {
     if (contract.span && !node.childNodes?.some(child => child.tagName === 'span')) invalid('Maskinknappens textfält måste finnas kvar.');
   }
   const html = serialize(tree);
+  if (serialize(parseFragment(html, { scriptingEnabled: true })) !== html) invalid('HTML ändrar betydelse när webbläsaren läser den.');
   return includeNodes ? { html, nodes: elements } : html;
 }
 
-export function validateEditorData(data) {
+export function validateEditorData(data, contracts = []) {
   if (!plainObject(data) || JSON.stringify(data).length > 1000000) invalid('Editorprojektet är ogiltigt eller för stort.');
   let count = 0;
   function inspect(value, depth = 0, key = '') {
@@ -172,6 +196,14 @@ export function validateEditorData(data) {
     if (Array.isArray(value)) { value.forEach(item => inspect(item, depth + 1, key)); return; }
     if (!value || typeof value !== 'object') return;
     if (!plainObject(value)) invalid('Editorprojektet innehåller en ogiltig datatyp.');
+    if (value.tagName?.toLowerCase() === 'noscript') {
+      const fallback = contracts.find(item => item.key === value.attributes?.['data-cms-node'] && item.fallback);
+      if (!fallback) invalid('Editorprojektets fallback saknar en skyddad källmall.');
+      const node = parseFragment(fallback.fallback, { scriptingEnabled: true }).childNodes[0];
+      value.attributes = Object.fromEntries(node.attrs.map(item => [item.name, item.value]));
+      value.components = [];
+      value.content = node.childNodes.map(child => child.value ?? '').join('');
+    }
     // Editor controls are reconstructed by trusted code. Never persist custom
     // toolbar markup or trait configuration supplied inside a document.
     delete value.toolbar;
@@ -202,8 +234,8 @@ export function validateEditorData(data) {
     if (value.dataSources?.length) invalid('Externa datakällor får inte läggas till i editorn.');
     // GrapesJS text nodes hold literal text and escape it on export. Treating
     // them as HTML would double-encode ampersands on each save/reload cycle.
-    if (typeof value.content === 'string' && value.type !== 'textnode') value.content = validateHtml(value.content);
-    if (typeof value.components === 'string') value.components = validateHtml(value.components);
+    if (typeof value.content === 'string' && value.type !== 'textnode') value.content = validateHtml(value.content, [], false, contracts);
+    if (typeof value.components === 'string') value.components = validateHtml(value.components, [], false, contracts);
     if (plainObject(value.attributes)) for (const [name, attribute] of Object.entries(value.attributes)) checkAttribute(name, String(attribute), String(value.tagName ?? 'div').toLowerCase());
     if (plainObject(value.style)) {
       for (const [name, rule] of Object.entries(value.style)) {

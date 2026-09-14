@@ -11,6 +11,13 @@ export class Draft {
     this.pendingSave = null;
   }
   get dirty() { return this.project !== this.saved; }
+  beginSave() {
+    this.pendingSave ??= { project: structuredClone(this.project), baseVersion: this.version, requestId: crypto.randomUUID() };
+    return this.pendingSave;
+  }
+  rejectSave(error) {
+    if (error.definitive) this.pendingSave = null;
+  }
   change(project, group = '') {
     if (project === this.project) return;
     const now = Date.now();

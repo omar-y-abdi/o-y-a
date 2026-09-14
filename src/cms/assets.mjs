@@ -4,6 +4,7 @@ import { HttpError } from './http.mjs';
 import { digest } from './store.mjs';
 
 export const MAX_ASSET_BYTES = 10 * 1024 * 1024;
+export const MAX_ACTIVE_FONTS = 64;
 const MIME = { png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -22,12 +23,32 @@ export function inspectAsset(bytes) {
 }
 
 function record(row) {
-  return { id: row.id, src: `/media/${row.object_key}`, name: row.name, mime: row.mime, bytes: row.bytes, width: row.width, height: row.height, alt: row.alt, createdAt: row.created_at, publishedAt: row.published_at, archived: Boolean(row.archived_at) };
+  return { id: row.id, version: row.version, src: `/media/${row.object_key}`, name: row.name, mime: row.mime, bytes: row.bytes, width: row.width, height: row.height, alt: row.alt, createdAt: row.created_at, publishedAt: row.published_at, archived: Boolean(row.archived_at) };
 }
 
 export async function listAssets(db) {
   const rows = await db.prepare('SELECT * FROM cms_media ORDER BY created_at DESC').all();
   return rows.results.map(record);
+}
+
+export async function assetSelection(db, ids = [], { fonts = false } = {}) {
+  const rows = await db.prepare("SELECT * FROM cms_media WHERE id IN (SELECT value FROM json_each(?)) OR (? AND mime = 'font/woff2' AND archived_at IS NULL) ORDER BY created_at DESC, id DESC").bind(JSON.stringify(ids), Number(fonts)).all();
+  return rows.results.map(record);
+}
+
+export async function assetPage(db, { cursor = null, query = '', archived = null, images = false } = {}) {
+  if (typeof query !== 'string' || query.length > 200 || ![null, true, false].includes(archived)) throw new HttpError(400, 'Sökningen är ogiltig.');
+  let before = ['', ''];
+  try { if (cursor) before = JSON.parse(cursor); } catch { throw new HttpError(400, 'Biblioteksmarkören är ogiltig.'); }
+  if (!Array.isArray(before) || before.length !== 2 || before.some(value => typeof value !== 'string') || cursor && (!/^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(before[0]) || !UUID.test(before[1]))) throw new HttpError(400, 'Biblioteksmarkören är ogiltig.');
+  const filter = "(? = -1 OR (archived_at IS NOT NULL) = ?) AND (? = 0 OR mime LIKE 'image/%') AND (instr(lower(name),lower(?)) > 0 OR instr(lower(mime),lower(?)) > 0)";
+  const parameters = [archived === null ? -1 : Number(archived), Number(archived), Number(images), query, query];
+  const [rows, count] = await Promise.all([
+    db.prepare(`SELECT * FROM cms_media WHERE ${filter} AND (? = '' OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT 61`).bind(...parameters, ...[before[0], before[0], before[0], before[1]]).all(),
+    db.prepare(`SELECT count(*) AS total FROM cms_media WHERE ${filter}`).bind(...parameters).first(),
+  ]);
+  const items = rows.results.slice(0, 60);
+  return { items: items.map(record), total: count.total, next: rows.results.length > 60 ? JSON.stringify([items.at(-1).created_at, items.at(-1).id]) : null };
 }
 
 export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
@@ -40,6 +61,7 @@ export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
     if (existing.sha256 !== hash) throw new HttpError(409, 'Uppladdningens identitet används redan av en annan fil.');
     return record(existing);
   }
+  if (info.mime === 'font/woff2' && (await assetPage(env.CMS_DB, { query: 'font/woff2', archived: false })).total >= MAX_ACTIVE_FONTS) throw new HttpError(413, 'Biblioteket stöder 64 aktiva typsnitt. Arkivera ett oanvänt typsnitt innan du laddar upp fler.');
   const key = `${id}.${info.extension}`;
   const stored = await env.CMS_MEDIA.put(key, bytes, { onlyIf: { etagDoesNotMatch: '*' }, httpMetadata: { contentType: info.mime }, customMetadata: { sha256: hash } });
   if (!stored) {
@@ -48,16 +70,21 @@ export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
   }
   // Retrying the same ID can adopt a completed upload after a metadata outage.
   // Unregistered objects are never served publicly and never replace old assets.
-  await env.CMS_DB.prepare('INSERT OR IGNORE INTO cms_media (id, object_key, name, mime, bytes, width, height, alt, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, key, name.trim(), info.mime, bytes.byteLength, info.width, info.height, alt, hash, new Date().toISOString()).run();
+  await env.CMS_DB.prepare("INSERT OR IGNORE INTO cms_media (id, object_key, name, mime, bytes, width, height, alt, sha256, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ? != 'font/woff2' OR (SELECT count(*) FROM cms_media WHERE mime = 'font/woff2' AND archived_at IS NULL) < ?").bind(id, key, name.trim(), info.mime, bytes.byteLength, info.width, info.height, alt, hash, new Date().toISOString(), info.mime, MAX_ACTIVE_FONTS).run();
   const row = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
   if (!row || row.sha256 !== hash) throw new HttpError(409, 'Uppladdningen kunde inte bekräftas. Försök igen.');
   return record(row);
 }
 
 export async function updateAsset(db, id, input) {
-  if (!UUID.test(id) || !input || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 200 || /[\u0000-\u001f]/.test(input.name) || typeof input.alt !== 'string' || input.alt.length > 1000 || typeof input.archived !== 'boolean') throw new HttpError(422, 'Filens uppgifter är ogiltiga.');
-  const result = await db.prepare('UPDATE cms_media SET name = ?, alt = ?, archived_at = ? WHERE id = ? RETURNING *').bind(input.name.trim(), input.alt, input.archived ? new Date().toISOString() : null, id).first();
-  if (!result) throw new HttpError(404, 'Filen finns inte.');
+  if (!UUID.test(id) || !input || Object.keys(input).some(key => !['baseVersion', 'name', 'alt', 'archived'].includes(key)) || input.name !== undefined && (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 200 || /[\u0000-\u001f]/.test(input.name)) || input.alt !== undefined && (typeof input.alt !== 'string' || input.alt.length > 1000) || input.archived !== undefined && typeof input.archived !== 'boolean') throw new HttpError(422, 'Filens uppgifter är ogiltiga.');
+  if (!Number.isSafeInteger(input.baseVersion) || input.baseVersion < 0) throw new HttpError(428, 'Hämta filens aktuella uppgifter innan du ändrar dem.');
+  const result = await db.prepare('UPDATE cms_media SET name = COALESCE(?, name), alt = COALESCE(?, alt), archived_at = CASE WHEN ? THEN ? ELSE archived_at END, version = version + 1 WHERE id = ? AND version = ? RETURNING *').bind(input.name?.trim() ?? null, input.alt ?? null, Number(input.archived !== undefined), input.archived ? new Date().toISOString() : null, id, input.baseVersion).first();
+  if (!result) {
+    const current = await db.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+    if (!current) throw new HttpError(404, 'Filen finns inte.');
+    throw new HttpError(409, 'Filens uppgifter ändrades i en annan flik. Ditt formulär finns kvar.', { asset: record(current) });
+  }
   return record(result);
 }
 
