@@ -36,6 +36,8 @@ export function machine({ workshop = false } = {}) {
       <button class="machine-button" data-print disabled>${icon('smile')}<span>Ge mig en liten vinst</span>${icon('arrow')}</button>
       <div class="printer-slot" aria-hidden="true"></div>
       <span class="screw screw-1" aria-hidden="true"></span><span class="screw screw-2" aria-hidden="true"></span>
+      <span class="machine-vents" aria-hidden="true"></span>
+      <span class="machine-foot machine-foot--left" aria-hidden="true"></span><span class="machine-foot machine-foot--right" aria-hidden="true"></span>
     </div>
     <div class="machine-lever" aria-hidden="true"><div class="lever-stick"></div><div class="lever-ball"></div><div class="lever-base"></div></div>
     <div class="receipt" hidden data-receipt>

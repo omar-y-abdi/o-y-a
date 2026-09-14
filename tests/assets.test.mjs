@@ -102,7 +102,9 @@ test('production transfer budgets stay small without framework bundles', async (
     assert.doesNotMatch(html, /(?:src|href)="\/admin\//, 'Public pages must not load the editor');
     let css=0;
     for(const [,path] of html.matchAll(/rel="stylesheet" href="([^"]+)"/g)) css+=gzipSync(await readFile('dist'+path)).byteLength;
-    assert.ok(css < 14000, `${route.path}: loaded styles gzip ${css} > 14 KB`);
+    // The machine's material layers get 3 KB; unrelated pages keep their original budget.
+    const cssBudget = ['home','workshop'].includes(route.template) ? 17000 : 14000;
+    assert.ok(css < cssBudget, `${route.path}: loaded styles gzip ${css} > ${cssBudget} bytes`);
   }
   assert.ok(gzipSync(await htmlFor(routes[0])).byteLength < 9000);
 });
