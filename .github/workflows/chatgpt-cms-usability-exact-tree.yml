@@ -1,4 +1,4 @@
-name: ChatGPT CMS usability targeted transport diagnostic
+name: ChatGPT CMS usability splice diagnostic
 
 on:
   push:
@@ -15,39 +15,58 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Map corruption zone
+      - name: Score observed splice candidates
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import base64, struct, zlib
           root=Path('.github/cms-usability-bundle')
           s={i:(root/f'{i:02d}').read_text().replace('=','') for i in range(7)}
-          for a,b in [(3,4),(4,5),(4,6),(5,6)]:
-              A,B=s[a],s[b]
-              print(f'PAIR {a:02d}->{b:02d} lens={len(A)},{len(B)}')
-              for label,needle in [('A_head',A[:128]),('A_tail',A[-128:]),('B_head',B[:128]),('B_tail',B[-128:])]:
-                  print(f'  {label}: inA={A.find(needle)} inB={B.find(needle)}')
-          for src in (4,5):
-              A=s[src]
-              print(f'MAP {src:02d}:')
-              offsets=range(0,len(A)-127,500)
-              for off in offsets:
-                  needle=A[off:off+128]
-                  print(f'  off={off}: in04={s[4].find(needle)} in05={s[5].find(needle)} in06={s[6].find(needle)}')
-          print('CORRUPTION-ZONE chunk04 snippets:')
-          for off in range(4200,6201,100):
+          base=s[0]+s[1]+s[2]+s[3]
+
+          def score(encoded):
+              cut=len(encoded)%4
+              if cut: encoded=encoded[:-cut]
+              try: raw=base64.b64decode(encoded,validate=True)
+              except Exception as e: return (-1,0,f'b64:{e}')
+              pack=raw.find(b'PACK')
+              if pack<0 or pack+12>len(raw): return (-1,0,'no pack')
+              version,count=struct.unpack('>II',raw[pack+4:pack+12])
+              pos=pack+12
+              for index in range(count):
+                  try:
+                      first=raw[pos]; pos+=1; typ=(first>>4)&7; byte=first
+                      while byte&0x80: byte=raw[pos]; pos+=1
+                      if typ==6:
+                          byte=raw[pos]; pos+=1
+                          while byte&0x80: byte=raw[pos]; pos+=1
+                      elif typ==7: pos+=20
+                      elif typ not in (1,2,3,4): return (index,pos,f'type{typ}')
+                      inf=zlib.decompressobj(); chunk=raw[pos:]; inf.decompress(chunk)
+                      if not inf.eof: return (index,pos,'incomplete')
+                      pos += len(chunk)-len(inf.unused_data)
+                  except Exception as e:
+                      return (index,pos,f'{type(e).__name__}:{e}')
+              return (count,pos,'all objects parsed')
+
+          candidates=[]
+          # observed exact 128-char mappings around the first corruption
+          for off in (4200,4300,4400,4500,4600,4700,4800,4900,5000,5100,5200,5300,5400,5600,5700,5800):
               needle=s[4][off:off+128]
-              print(f'  off={off}: in05={s[5].find(needle)} in06={s[6].find(needle)}')
-          # Detect repeated chunk prefixes inside the giant tail.
-          for src in range(6):
-              needle=s[src][:128]
-              positions=[]; start=0
+              start=0
               while True:
                   p=s[6].find(needle,start)
                   if p<0: break
-                  positions.append(p); start=p+1
-                  if len(positions)>=20: break
-              print(f'chunk{src:02d}_head_in_06={positions}')
+                  candidates.append((off,p))
+                  start=p+1
+          seen=set()
+          for off,p in candidates:
+              if (off,p) in seen: continue
+              seen.add((off,p))
+              result=score(base+s[4][:off]+s[6][p:])
+              print(f'splice chunk04[:{off}] + chunk06[{p}:] -> parsed={result[0]} failbyte={result[1]} reason={result[2]}')
+          print('CONTROL original04+05+06',score(base+s[4]+s[5]+s[6]))
           PY
           exit 1
