@@ -1,4 +1,4 @@
-name: ChatGPT CMS usability transport diagnostic
+name: ChatGPT CMS usability transport recovery
 
 on:
   push:
@@ -9,32 +9,77 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  recover:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Inspect bundle chunks
+      - name: Test single-padding root-cause hypothesis
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          import string
+          import base64, hashlib, struct, subprocess, zlib
+
           root = Path('.github/cms-usability-bundle')
-          allowed = set(string.ascii_letters + string.digits + '+/=')
-          total = ''
-          for i in range(7):
-              p = root / f'{i:02d}'
-              s = p.read_text()
-              bad = [(j, repr(ch)) for j, ch in enumerate(s) if ch not in allowed]
-              pads = [j for j, ch in enumerate(s) if ch == '=']
-              print(f'{i:02d}: len={len(s)} mod4={len(s)%4} pads={pads[:20]} pad_count={len(pads)} bad={bad[:20]} bad_count={len(bad)}')
-              print(f'{i:02d}: head={s[:32]!r} tail={s[-32:]!r}')
-              total += s
-          pads = [j for j, ch in enumerate(total) if ch == '=']
-          bad = [(j, repr(ch)) for j, ch in enumerate(total) if ch not in allowed]
-          print(f'total: len={len(total)} mod4={len(total)%4} pad_count={len(pads)} first_pads={pads[:50]} bad_count={len(bad)} first_bad={bad[:50]}')
+          chunks = [(root / f'{i:02d}').read_text() for i in range(7)]
+          if chunks[2].count('=') != 1 or not chunks[2].endswith('='):
+              raise SystemExit('Unexpected chunk02 padding shape')
+          if any('=' in s for i, s in enumerate(chunks) if i != 2):
+              raise SystemExit('Unexpected padding outside chunk02')
+          encoded = ''.join(chunks)
+          encoded = encoded.replace('=', '')
+          encoded += '=' * ((-len(encoded)) % 4)
+          raw = base64.b64decode(encoded, validate=True)
+          pack = raw.find(b'PACK')
+          if pack < 0:
+              raise SystemExit('PACK header not found')
+          version, count = struct.unpack('>II', raw[pack+4:pack+12])
+          print(f'pack_offset={pack} version={version} objects={count} decoded_bytes={len(raw)}')
+          if version not in (2, 3):
+              raise SystemExit(f'Unsupported pack version {version}')
+          pos = pack + 12
+          for index in range(count):
+              first = raw[pos]; pos += 1
+              obj_type = (first >> 4) & 7
+              byte = first
+              while byte & 0x80:
+                  byte = raw[pos]; pos += 1
+              if obj_type == 6:
+                  byte = raw[pos]; pos += 1
+                  while byte & 0x80:
+                      byte = raw[pos]; pos += 1
+              elif obj_type == 7:
+                  pos += 20
+              elif obj_type not in (1, 2, 3, 4):
+                  raise SystemExit(f'Invalid object type {obj_type} at object {index+1}/{count}, byte {pos}')
+              inflater = zlib.decompressobj()
+              chunk = raw[pos:]
+              inflater.decompress(chunk)
+              if not inflater.eof:
+                  raise SystemExit(f'Object {index+1}/{count} zlib stream incomplete at byte {pos}')
+              pos += len(chunk) - len(inflater.unused_data)
+          trailer_end = pos + 20
+          if trailer_end > len(raw):
+              raise SystemExit('PACK trailer incomplete')
+          expected = raw[pos:trailer_end]
+          actual = hashlib.sha1(raw[pack:pos]).digest()
+          print(f'pack_end={trailer_end} discarded_bytes={len(raw)-trailer_end} checksum_match={expected == actual}')
+          if expected != actual:
+              raise SystemExit('PACK checksum mismatch')
+          candidate = raw[:trailer_end]
+          path = Path('/tmp/candidate.bundle')
+          path.write_bytes(candidate)
+          subprocess.run(['git', 'bundle', 'verify', str(path)], check=True)
+          subprocess.run(['git', 'fetch', str(path), 'refs/heads/__bundle_candidate:refs/remotes/bundle/candidate'], check=True)
+          commit = subprocess.check_output(['git','rev-parse','refs/remotes/bundle/candidate'], text=True).strip()
+          tree = subprocess.check_output(['git','rev-parse','refs/remotes/bundle/candidate^{tree}'], text=True).strip()
+          print(f'candidate={commit}')
+          print(f'tree={tree}')
+          if commit != 'd46670b7bf1da8322e372e62b2365a647c6f9bf8':
+              raise SystemExit('Candidate commit mismatch')
+          if tree != '8e35ef71c58963b7a04abf2577cfa1fc9254ef7c':
+              raise SystemExit('Candidate tree mismatch')
           PY
-          exit 1
