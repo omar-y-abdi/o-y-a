@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Test single-padding root-cause hypothesis
+      - name: Recover and cryptographically verify bundle prefix
         shell: bash
         run: |
           set -euo pipefail
@@ -29,19 +29,21 @@ jobs:
               raise SystemExit('Unexpected chunk02 padding shape')
           if any('=' in s for i, s in enumerate(chunks) if i != 2):
               raise SystemExit('Unexpected padding outside chunk02')
-          encoded = ''.join(chunks)
-          encoded = encoded.replace('=', '')
-          encoded += '=' * ((-len(encoded)) % 4)
+          encoded = ''.join(chunks).replace('=', '')
+          ignored = len(encoded) % 4
+          if ignored:
+              encoded = encoded[:-ignored]
           raw = base64.b64decode(encoded, validate=True)
           pack = raw.find(b'PACK')
           if pack < 0:
               raise SystemExit('PACK header not found')
           version, count = struct.unpack('>II', raw[pack+4:pack+12])
-          print(f'pack_offset={pack} version={version} objects={count} decoded_bytes={len(raw)}')
+          print(f'pack_offset={pack} version={version} objects={count} decoded_bytes={len(raw)} ignored_tail_chars={ignored}')
           if version not in (2, 3):
               raise SystemExit(f'Unsupported pack version {version}')
           pos = pack + 12
           for index in range(count):
+              if pos >= len(raw): raise SystemExit(f'Object {index+1}/{count} missing')
               first = raw[pos]; pos += 1
               obj_type = (first >> 4) & 7
               byte = first
@@ -57,7 +59,10 @@ jobs:
                   raise SystemExit(f'Invalid object type {obj_type} at object {index+1}/{count}, byte {pos}')
               inflater = zlib.decompressobj()
               chunk = raw[pos:]
-              inflater.decompress(chunk)
+              try:
+                  inflater.decompress(chunk)
+              except zlib.error as exc:
+                  raise SystemExit(f'Object {index+1}/{count} zlib error at byte {pos}: {exc}')
               if not inflater.eof:
                   raise SystemExit(f'Object {index+1}/{count} zlib stream incomplete at byte {pos}')
               pos += len(chunk) - len(inflater.unused_data)
@@ -69,17 +74,14 @@ jobs:
           print(f'pack_end={trailer_end} discarded_bytes={len(raw)-trailer_end} checksum_match={expected == actual}')
           if expected != actual:
               raise SystemExit('PACK checksum mismatch')
-          candidate = raw[:trailer_end]
           path = Path('/tmp/candidate.bundle')
-          path.write_bytes(candidate)
+          path.write_bytes(raw[:trailer_end])
           subprocess.run(['git', 'bundle', 'verify', str(path)], check=True)
           subprocess.run(['git', 'fetch', str(path), 'refs/heads/__bundle_candidate:refs/remotes/bundle/candidate'], check=True)
           commit = subprocess.check_output(['git','rev-parse','refs/remotes/bundle/candidate'], text=True).strip()
           tree = subprocess.check_output(['git','rev-parse','refs/remotes/bundle/candidate^{tree}'], text=True).strip()
           print(f'candidate={commit}')
           print(f'tree={tree}')
-          if commit != 'd46670b7bf1da8322e372e62b2365a647c6f9bf8':
-              raise SystemExit('Candidate commit mismatch')
-          if tree != '8e35ef71c58963b7a04abf2577cfa1fc9254ef7c':
-              raise SystemExit('Candidate tree mismatch')
+          if commit != 'd46670b7bf1da8322e372e62b2365a647c6f9bf8': raise SystemExit('Candidate commit mismatch')
+          if tree != '8e35ef71c58963b7a04abf2577cfa1fc9254ef7c': raise SystemExit('Candidate tree mismatch')
           PY
