@@ -21,8 +21,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/cms-usability-bundle/0{0..6} | base64 --decode > /tmp/candidate.bundle
-          git bundle verify /tmp/candidate.bundle
+          python - <<'PY'
+          from pathlib import Path
+          import base64, subprocess, sys
+
+          root = Path('.github/cms-usability-bundle')
+          head = ''.join((root / f'{i:02d}').read_text() for i in range(6))
+          tail = (root / '06').read_text()
+          padding = [i for i, ch in enumerate(tail) if ch == '=']
+          print(f'head_chars={len(head)} tail_chars={len(tail)} padding_candidates={len(padding)}')
+          for pos in padding:
+              for end in (pos + 1, pos + 2):
+                  candidate = head + tail[:end]
+                  try:
+                      raw = base64.b64decode(candidate, validate=True)
+                  except Exception:
+                      continue
+                  path = Path('/tmp/candidate.bundle')
+                  path.write_bytes(raw)
+                  check = subprocess.run(['git', 'bundle', 'verify', str(path)], text=True, capture_output=True)
+                  if check.returncode == 0:
+                      print(f'valid_base64_end={end} bundle_bytes={len(raw)}')
+                      print(check.stdout)
+                      sys.exit(0)
+          raise SystemExit('No strictly-decodable, git-verified bundle prefix found in chunk 06')
+          PY
           git fetch /tmp/candidate.bundle refs/heads/__bundle_candidate:refs/remotes/bundle/candidate
           candidate=$(git rev-parse refs/remotes/bundle/candidate)
           tree=$(git rev-parse refs/remotes/bundle/candidate^{tree})
