@@ -1,41 +1,13 @@
 name: ChatGPT CMS usability bridge
 
 on:
-  push:
-    branches:
-      - chatgpt-cms-usability-bridge
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  bundle:
+  idle:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Fetch all refs
-        run: git fetch --all --tags --prune
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Create verified transport
-        run: |
-          git bundle create repo.bundle --all
-          git bundle verify repo.bundle
-          git rev-parse HEAD > HEAD_SHA
-          git rev-parse HEAD^{tree} > HEAD_TREE
-          tar -czf node_modules.tar.gz node_modules
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cms-usability-workspace
-          path: |
-            repo.bundle
-            HEAD_SHA
-            HEAD_TREE
-            node_modules.tar.gz
-          retention-days: 1
+      - run: echo "Transport branch parked while exact patch is uploaded"
