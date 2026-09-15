@@ -8,7 +8,7 @@ import { preparePage } from '../src/cms/validation.mjs';
 import { validateProject, defaultTheme } from '../src/cms/project.mjs';
 import { adminPage, loginPage } from '../src/cms/templates.mjs';
 import { defaultCopy } from '../src/client/copy.mjs';
-import { resourceSlots } from '../src/content/resources.mjs';
+import { resourceSlots, managedVectorSources } from '../src/content/resources.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
 export async function buildCms({ styles, js }) {
@@ -39,7 +39,7 @@ export async function buildCms({ styles, js }) {
     let bytes;
     try { bytes = await readFile(`public${src}`); } catch { return null; }
     const dimensions = imageDimensionsFromData(bytes);
-    return { id: `builtin-${name}`, slot, src, name, alt: name, mime: src.endsWith('.gif') ? 'image/gif' : 'image/png', bytes: bytes.length, width: dimensions?.width, height: dimensions?.height, builtin: true };
+    const vectorSrc=managedVectorSources[slot]; const vectorSvg=vectorSrc ? await readFile(`public${vectorSrc}`,'utf8') : null; return { id: `builtin-${name}`, slot, src, name, alt: name, mime: src.endsWith('.gif') ? 'image/gif' : 'image/png', bytes: bytes.length, width: dimensions?.width, height: dimensions?.height, builtin: true, ...(vectorSvg ? { vectorSrc, vectorSvg } : {}) };
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
   const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));

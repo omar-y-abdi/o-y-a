@@ -18,24 +18,28 @@ The client receives a restrictive CSP with no eval or remote script origins. Inl
 
 HTML/CSS are the canonical editor representation. Legacy editor JSON is type/security checked on import but never trusted as a competing executable editor document. Preview-only JSON is restricted to one server-owned head record in a studio-owned srcdoc iframe; ordinary public documents always use validated public endpoints.
 
-## Storage and recovery
+Validation may reuse unchanged content from the server's trusted published baseline only with a matching current contract/policy fingerprint. Client-supplied cached facts do not create trust. Published media references are extracted from rendered HTML/CSS and actual uploaded font usage, excluding GrapesJS's private asset registry.
 
-D1 stores compressed immutable revisions, rendered public content and an atomic current pointer. A save includes baseVersion and a unique requestId. Stale updates fail with 409. Transaction rollback prevents half-published websites. Retries with the same request are idempotent. Restoring an older revision creates a draft; a subsequent Save appends a new revision.
-
-Validation may reuse unchanged content from the server's trusted published baseline. Client-supplied cached facts do not create trust. Published media references are extracted from rendered HTML/CSS and actual uploaded font usage, excluding GrapesJS's private asset registry.
-
-R2 keys are immutable UUIDs. Upload parsing checks headers, bounded container integrity, size and dimensions; raster files must also decode through the CMS_IMAGES binding before registration. MIME is derived by the server. Existing unverified rows are checked before promotion under the media-integrity migration. WOFF2 has its separate bounded header policy; raster decoding is not a font-integrity certification. A private upload is not served publicly until used by a published revision. Archiving hides a file from selection but preserves bytes and historical URLs. Previously published files remain public after removal from a current page. Do not upload confidential files expecting later archival to revoke their old public URLs.
+R2 keys are immutable UUIDs. Upload parsing checks headers, bounded container integrity, size and dimensions; raster files must also decode through the CMS_IMAGES binding before registration. MIME is derived by the server. Existing unverified rows are checked before promotion under the media-integrity migration. WOFF2 has its separate bounded header policy; raster decoding is not a font-integrity certification. A private upload is not served publicly until used by a published revision. Archive is reversible and preserves bytes. Trash is blocked while the current draft references the resource. Permanent delete requires trash and is blocked by any current or retained-revision reference; uploaded R2 deletion uses version/CAS checks and restores bytes best-effort if metadata deletion fails. Previously published files can therefore remain reachable when history requires them. Do not upload confidential files expecting archival to revoke old public URLs.
 
 Current content limits: 64 pages, 2,000 wins, 8 MiB request bodies, 1.5 million compressed revision bytes, 500,000 characters of HTML per page, 200,000 CSS characters per stylesheet and 1 million characters of editor JSON per page. A file is limited to 10 MiB, 8192 px per dimension and 32 megapixels. These are validation limits, not a promise of fast editing at every maximum simultaneously.
 
+Managed SVG editing is restricted to explicit built-in/vector-enabled resources. The submitted SVG is parsed and reserialized through a strict element/attribute/color/number allowlist; scripts, events, foreignObject, external references and animation are rejected. The public site consumes a bounded raster derivative through the normal image validation path rather than serving arbitrary active SVG uploads.
+
+Shared content is keyed by trusted semantic markers such as `data-cms-shared="footer.tagline"`, not by equal text. Normalization requires all instances of a shared key to agree; unrelated equal strings are never coupled. Win lifecycle is similarly explicit: missing state means active for backward compatibility, random decks include active only, archived IDs remain addressable and trash is omitted from public output.
+
+## Storage and recovery
+
+D1 publishes only after the project has been validated, media registrations are complete and all rendered rows fit their byte budgets. D1 writes for revisions, rendered rows, request IDs and media publication are committed in one batch. An R2 failure or validation error before that point cannot advance the D1 head. Unknown save outcomes replay the original immutable request; definitive request/payload validation failures may start a new corrected request.
+
+Uploaded media is not public merely because it exists in R2. The `/media/` route returns an object only after D1 marks it published. A private object referenced by a historical version remains available when restoring that version. Missing objects fail restore/publish; the CMS does not rewrite content around them.
+
+Revision payloads are compressed, checksummed and verified on read. The Worker keeps immutable version rows and rendered output so browser routes do not render editor content on every request. A restore is a draft until explicitly saved as a new version; history is never rewritten. Retained revisions are checked against the current validator without cached policy facts before an incompatible release is approved.
+
+Draft recovery is separate from published state. IndexedDB backups belong to one signed-in session instance and use monotonic generations; one tab cannot silently acknowledge or delete another live tab's recovery. Unsafe/malformed backups remain exportable but are not applied. IndexedDB failure is visible and does not disable server save.
+
 ## Changes to functional code
 
-CMS history versions content, not the Worker binary. Source changes that alter protected structure require an explicit content migration and verification against existing saved projects; do not deploy changed contracts over existing content and assume compatibility. Restore-to-original uses the current build's seed. Back up D1 before a contract/schema change and retain the matching Worker version for rollback.
-
-A complete rollback considers Worker code, D1 content/schema and R2 references together. Normal CMS Restore does not downgrade application code or database schema. Do not run a destructive down migration against retained historical content.
-
-## Verification scope
-
-Node tests cover JWT rejection, XSS and CSS payloads, origins, route bypasses, size bounds, storage rollback, stale writes and retries. Integration tests run actual workerd, D1 and R2 using a locally signed identity fixture. Browser tests cover the real editor and published responses; remote staging additionally verifies Cloudflare Access and deployed persistence. These checks do not certify absence of every vulnerability or replace control of the owner's email account.
+Direct edits to scripts, handlers or protected form/game semantics are outside visual CMS scope and belong in source control with normal review/test/deploy. The server allows presentation changes around protected functions, not silent mutation of their contracts.
 
 The completion-package verification boundary and hosted Images prerequisites are recorded in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md); do not infer remote sign-off from offline codec tests.

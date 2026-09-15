@@ -1,4 +1,5 @@
 import { previewData } from './previewdata.mjs';
+import { cardState } from '../content/win-transfer.mjs';
 
 let bankPromise;
 export async function loadCards() {
@@ -9,14 +10,14 @@ export async function loadCards() {
     .catch(error => { bankPromise=null;throw error; });
   return bankPromise;
 }
-export const getCard = (id, cards) => cards.find(card => card.id === id) ?? null;
+export const getCard = (id, cards) => cards.find(card => card.id === id && cardState(card) !== 'trash') ?? null;
 export function createDeck(cards, random = Math.random) {
   const decks = new Map();
   return (flavor, previous) => {
     const group = ['kind','joke','pause','roast'].includes(flavor) ? flavor : 'kind';
     let deck = decks.get(group);
     if (!deck?.length) {
-      deck = cards.filter(card => card.flavor === group);
+      deck = cards.filter(card => card.flavor === group && cardState(card) === 'active');
       for (let i = deck.length - 1; i > 0; i--) {
         const value = random();
         const j = Number.isFinite(value) ? Math.max(0,Math.min(i,Math.floor(value*(i+1)))) : 0;

@@ -35,12 +35,16 @@ The PR #2 completion commands, engine matrix and exact restricted-environment li
 | Owner boundary | Valid owner, wrong owner, missing/expired/invalid JWT, wrong issuer/audience, unsigned identity headers and missing configuration |
 | Write boundary | Origin, content type, request marker, Fetch Metadata, route encoding and bounded bodies |
 | Content | Active HTML, CSS escapes/imports/URLs, editor JSON execution fields, structural hooks, functional parents, image alternatives and links |
-| Storage | Actual D1/R2, CAS conflicts, atomic rollback, idempotent retry, historical restore and private/public media transitions |
-| CMS browser | Full original pages, independent mobile styles, text/Shift+Enter, repeated Save/Reload, pages, typography, fonts, media, wins and image export |
+| Storage | Actual D1/R2, CAS conflicts, atomic rollback, idempotent retry, historical restore, active/archive/trash/delete lifecycle, current/history deletion blocking and private/public media transitions |
+| CMS browser | Full original pages, centered desktop/mobile canvases, independent mobile styles, text/Shift+Enter, repeated Save/Reload, view-state-preserving undo/redo, resize/nudge, style effects, media lifecycle, batch wins, managed vectors and image export |
 | Difficult editor cases | Keyboard block insertion, inline-style preservation, memory style after hydration/reset, real R2 image selection, archival recovery, locked win preview, two-tab conflicts and local draft recovery |
 | Public browser | All routes and responsive widths, navigation, no-JS content, privacy choices, motion, four workshop stations and contact fixtures |
 
 The native public modules retain their original combined 14,000-byte gzip budget. The separate lazy win renderer/export bundle is capped at 8,000 gzip bytes; it loads only when needed. Editor JavaScript is isolated under `/admin/` with a 350,000-byte combined gzip cap. Every public page's CSS remains below 14,000 gzip bytes; home HTML remains below 9,000. These are enforced transfer-size contracts, not latency or field Core Web Vitals.
+
+### CMS usability regressions
+
+The module/Worker suites additionally cover semantic shared footer propagation without coupling unrelated equal text; persistent multi-selection and batch win lifecycle/import/export; SVG sanitizer rejection and managed-vector rasterization; selected-element color/effect scope; component resizing plus 1px/10px nudge without reparenting; view-state restoration across editor teardown; and device centering at the 390px mobile breakpoint. Managed vector fixtures include browser pixel comparisons against the raster originals; they are regression thresholds, not a promise of mathematical pixel identity.
 
 ## Visual evidence
 

@@ -1,85 +1,80 @@
 import { parseFragment, serialize } from 'parse5';
-import * as css from 'css-tree';
-import { mapCssReferences } from './css-references.mjs';
+import { parse as parseCss, generate as generateCss, walk as walkCss } from 'css-tree';
 import { HttpError } from './http.mjs';
-import { defaultResources, resourceSlots } from '../content/resources.mjs';
-import { SITE_ORIGIN } from './routes.mjs';
+import { resourceSlots } from '../content/resources.mjs';
+import { ID_REFERENCES } from './id-references.mjs';
+import { applyBuiltinState } from './media-lifecycle.mjs';
+const SITE_ORIGIN = 'https://omaryusuf.se';
+const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[4-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const media = new RegExp(`^/media/${uuid}\\.(?:png|jpg|gif|webp|avif|woff2)$`, 'i');
+const font = new RegExp(`^cms-font-${uuid}$`, 'i');
+const builtIn = new Set(Object.values(resourceSlots).map(asset => asset.src));
+const slotNames = Object.keys(resourceSlots);
 
-const URL_ATTRIBUTES = new Set(['src', 'href', 'poster']);
-const CSS_ATTRIBUTES = new Set(['style', 'fill', 'stroke', 'clip-path', 'mask', 'filter']);
-const fontProperty = property => ['font', 'font-family'].includes(property.toLowerCase()) || property.startsWith('--');
-
-export function validateResources(input = defaultResources) {
-  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !Object.hasOwn(defaultResources, key))) throw new HttpError(422, 'Webbplatsens bildplatser är ogiltiga.');
-  const result = { ...defaultResources, ...input };
-  for (const [slot, value] of Object.entries(result)) {
-    if (typeof value !== 'string' || !Object.values(defaultResources).includes(value) && !/^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif)$/.test(value)) throw new HttpError(422, 'Välj en bild ur mediebiblioteket för webbplatsens bildplatser.');
-    if (slot === 'icon' && !value.endsWith('.png')) throw new HttpError(422, 'Webbplatsikonen behöver en PNG-bild.');
-    if (slot.startsWith('email') && !/\.(png|jpg|gif)$/.test(value)) throw new HttpError(422, 'Brevbilder behöver PNG, JPEG eller GIF för e-postklienter.');
+function validResourceSrc(value) { return typeof value === 'string' && (builtIn.has(value) || media.test(value)); }
+export function validateResources(value) {
+  const result = {};
+  for (const name of slotNames) {
+    const src = value?.[name] ?? resourceSlots[name].src;
+    if (!validResourceSrc(src) || !src.startsWith('/media/') && src !== resourceSlots[name].src) throw new HttpError(422, `Resursen ${resourceSlots[name].name} är ogiltig.`);
+    result[name] = src;
   }
+  if (value && Object.keys(value).some(name => !slotNames.includes(name))) throw new HttpError(422, 'Resursregistret innehåller en okänd plats.');
   return result;
 }
 
-function mapCss(source, handlers, context = 'stylesheet') {
-  const tree = css.parse(source, { context, parseCustomProperty: true });
-  css.walk(tree, { visit: 'Declaration', enter(node) {
-    const value = mapCssReferences(css.generate(node.value), { url: handlers.url, ...(fontProperty(node.property) ? { font: handlers.font } : {}) });
-    node.value = css.parse(value, { context: 'value' });
-  } });
-  return css.generate(tree);
+function cssUrl(value) { try { return JSON.parse(`"${value.replaceAll('"','\\"')}"`); } catch { return value; } }
+function cssText(value) { return { type: 'String', loc: null, value }; }
+function mapEditor(value, handlers) {
+  const visit = current => {
+    if (!current || typeof current !== 'object') return;
+    if (Array.isArray(current)) return current.forEach(visit);
+    if (current.src && typeof current.src === 'string') current.src = handlers.url(current.src);
+    if (current.href && typeof current.href === 'string') current.href = handlers.url(current.href);
+    if (current.style && typeof current.style === 'object') for (const [name, raw] of Object.entries(current.style)) {
+      if (name === 'font-family') current.style[name] = handlers.font(raw);
+      current.style[name] = rewriteCss(`x{${name}:${current.style[name]}}`, handlers).replace(/^x\{|\}$/g,'').replace(new RegExp(`^${name}:`),'');
+    }
+    for (const child of Object.values(current)) if (child && typeof child === 'object') visit(child);
+  };
+  visit(value);
 }
-
-function mapAttributes(attributes, handlers) {
-  return Object.fromEntries(Object.entries(attributes).map(([name, value]) => {
-    if (URL_ATTRIBUTES.has(name)) value = handlers.url(value);
-    if (name === 'srcset') value = value.split(',').map(item => { const [url, ...descriptor] = item.trim().split(/\s+/); return [handlers.url(url), ...descriptor].join(' '); }).join(', ');
-    if (name === 'style') value = mapCss(value, handlers, 'declarationList');
-    else if (CSS_ATTRIBUTES.has(name)) value = mapCssReferences(value, { url: handlers.url });
-    return [name, value];
-  }));
-}
-
-function mapHtml(source, handlers) {
-  const tree = parseFragment(source, { scriptingEnabled: true });
+function rewriteHtml(html, handlers) {
+  const tree = parseFragment(html, { scriptingEnabled: true });
   function visit(node) {
-    if (node.attrs) {
-      const mapped = mapAttributes(Object.fromEntries(node.attrs.map(item => [item.name, item.value])), handlers);
-      node.attrs.forEach(item => { item.value = mapped[item.name]; });
+    if (node.attrs) for (const attribute of node.attrs) {
+      if (['src','href','action','poster'].includes(attribute.name)) attribute.value = handlers.url(attribute.value);
+      else if (attribute.name === 'srcset') attribute.value = attribute.value.split(',').map(entry => { const match = entry.trim().match(/^(\S+)(.*)$/); return match ? handlers.url(match[1]) + match[2] : entry; }).join(', ');
+      else if (attribute.name === 'style') attribute.value = rewriteCss(`x{${attribute.value}}`, handlers).replace(/^x\{|\}$/g,'');
     }
     for (const child of node.childNodes ?? []) visit(child);
   }
-  visit(tree);
-  return serialize(tree);
+  visit(tree); return serialize(tree);
 }
-
-function mapEditor(value, handlers) {
-  if (Array.isArray(value)) return value.map(item => mapEditor(item, handlers));
-  if (!value || typeof value !== 'object') return value;
-  const result = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (key === 'attributes') result[key] = mapAttributes(entry, handlers);
-    else if (key === 'style') result[key] = Object.fromEntries(Object.entries(entry).map(([property, style]) => [property, mapCssReferences(String(style), { url: handlers.url, ...(fontProperty(property) ? { font: handlers.font } : {}) })]));
-    else if (URL_ATTRIBUTES.has(key) && typeof entry === 'string') result[key] = handlers.url(entry);
-    else if (typeof entry === 'string' && (key === 'components' || key === 'content' && value.type !== 'textnode' && value.tagName !== 'noscript')) result[key] = mapHtml(entry, handlers);
-    else result[key] = mapEditor(entry, handlers);
+function rewriteCss(css, handlers) {
+  let ast; try { ast = parseCss(css, { positions: false }); } catch { return css; }
+  walkCss(ast, node => {
+    if (node.type === 'Url') node.value = handlers.url(cssUrl(node.value));
+    if (node.type === 'Declaration' && node.property === 'font-family') {
+      walkCss(node.value, family => { if (family.type === 'Identifier' || family.type === 'String') family.value = handlers.font(family.value); });
+    }
+  });
+  return generateCss(ast);
+}
+function mapProject(project, handlers, editor = true) {
+  const result = structuredClone(project);
+  for (const page of result.pages) {
+    page.html = rewriteHtml(page.html, handlers); page.css = rewriteCss(page.css, handlers);
+    if (editor) mapEditor(page.project, handlers);
   }
+  for (const card of result.cards) if (card.design) { card.design.html = rewriteHtml(card.design.html, handlers); card.design.css = rewriteCss(card.design.css, handlers); if (editor) mapEditor(card.design.project, handlers); }
+  result.theme.fontFamily = handlers.font(result.theme.fontFamily);
   return result;
-}
-
-function mapProject(project, handlers, editorData = true) {
-  const design = value => ({ ...value, html: mapHtml(value.html, handlers), css: mapCss(value.css ?? '', handlers), ...(editorData ? { project: mapEditor(value.project, handlers) } : {}) });
-  return {
-    ...project,
-    pages: project.pages.map(design),
-    cards: project.cards.map(card => card.design ? { ...card, design: design(card.design) } : card),
-    theme: { ...project.theme, fontFamily: handlers.font(project.theme.fontFamily) },
-    resources: Object.fromEntries(Object.entries(project.resources ?? defaultResources).map(([key, value]) => [key, handlers.url(value)])),
-  };
 }
 
 export function resourceReferences(project, origin = SITE_ORIGIN) {
   const counts = new Map();
-  const add = value => { counts.set(value, (counts.get(value) ?? 0) + 1); return value; };
+  const add = src => { if (builtIn.has(src) || media.test(src)) counts.set(src, (counts.get(src) ?? 0) + 1); };
   mapProject(project, {
     url(value) {
       try { const url = new URL(value, SITE_ORIGIN); if ([SITE_ORIGIN, origin].includes(url.origin) && !value.startsWith('#')) add(url.pathname); } catch { /* Non-resource addresses do not create a dependency. */ }
@@ -120,9 +115,11 @@ export function resolvedResources(project, assets = []) {
   }));
 }
 
-export function resourceCatalog(seed, assets, project) {
+export function resourceCatalog(seed, assets, project, builtinState = []) {
   const slots = resolvedResources(project, assets);
-  return [...seed.assets.map(asset => ({ ...asset, ...(asset.slot ? slots[asset.slot] : {}) })), ...assets];
+  const states = new Map(builtinState.map(row => [row.src,row]));
+  const builtins = seed.assets.map(asset => applyBuiltinState({ ...asset, ...(asset.slot ? slots[asset.slot] : {}) }, states.get(asset.src))).filter(Boolean);
+  return [...builtins,...assets];
 }
 
 export async function resolveResources(db, project) {
