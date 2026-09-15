@@ -1,0 +1,28 @@
+name: ChatGPT CMS rebuild export
+
+on:
+  push:
+    branches:
+      - chatgpt-cms-usability-rebuild
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive exact partial candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "2b1bc9e76c965ec9c869b7164f80958b9701503c"
+          git archive --format=zip --output=/tmp/cms-rebuild-source.zip 2b1bc9e76c965ec9c869b7164f80958b9701503c
+          sha256sum /tmp/cms-rebuild-source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cms-rebuild-source
+          path: /tmp/cms-rebuild-source.zip
+          retention-days: 1
