@@ -1,4 +1,4 @@
-name: ChatGPT CMS usability transport overlap diagnostic
+name: ChatGPT CMS usability targeted transport diagnostic
 
 on:
   push:
@@ -15,35 +15,39 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Map duplicated transport regions
+      - name: Map corruption zone
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          from difflib import SequenceMatcher
           root=Path('.github/cms-usability-bundle')
           s={i:(root/f'{i:02d}').read_text().replace('=','') for i in range(7)}
           for a,b in [(3,4),(4,5),(4,6),(5,6)]:
               A,B=s[a],s[b]
-              print(f'PAIR {a:02d}->{b:02d}: lens {len(A)},{len(B)}')
-              print('  Bhead_in_A',A.find(B[:128]),' Ahead_in_B',B.find(A[:128]))
-              print('  Btail_in_A',A.find(B[-128:]),' Atail_in_B',B.find(A[-128:]))
-              overlap=0
-              for k in range(4,min(len(A),len(B))+1,4):
-                  if A[-k:]==B[:k]: overlap=k
-              print('  suffix_prefix_overlap',overlap)
+              print(f'PAIR {a:02d}->{b:02d} lens={len(A)},{len(B)}')
+              for label,needle in [('A_head',A[:128]),('A_tail',A[-128:]),('B_head',B[:128]),('B_tail',B[-128:])]:
+                  print(f'  {label}: inA={A.find(needle)} inB={B.find(needle)}')
           for src in (4,5):
-              print(f'MAP {src:02d} snippets into 05/06')
               A=s[src]
-              for off in range(0,len(A),1000):
-                  needle=A[off:off+96]
-                  if len(needle)<96: continue
-                  print(f'  off={off}: in05={s[5].find(needle)} in06={s[6].find(needle)}')
-          # Top exact matching blocks, excluding tiny coincidences.
-          for a,b in [(4,5),(4,6),(5,6)]:
-              sm=SequenceMatcher(None,s[a],s[b],autojunk=False)
-              blocks=sorted((m for m in sm.get_matching_blocks() if m.size>=64),key=lambda m:m.size,reverse=True)[:12]
-              print(f'BLOCKS {a:02d}<->{b:02d}:',[(m.a,m.b,m.size) for m in blocks])
+              print(f'MAP {src:02d}:')
+              offsets=range(0,len(A)-127,500)
+              for off in offsets:
+                  needle=A[off:off+128]
+                  print(f'  off={off}: in04={s[4].find(needle)} in05={s[5].find(needle)} in06={s[6].find(needle)}')
+          print('CORRUPTION-ZONE chunk04 snippets:')
+          for off in range(4200,6201,100):
+              needle=s[4][off:off+128]
+              print(f'  off={off}: in05={s[5].find(needle)} in06={s[6].find(needle)}')
+          # Detect repeated chunk prefixes inside the giant tail.
+          for src in range(6):
+              needle=s[src][:128]
+              positions=[]; start=0
+              while True:
+                  p=s[6].find(needle,start)
+                  if p<0: break
+                  positions.append(p); start=p+1
+                  if len(positions)>=20: break
+              print(f'chunk{src:02d}_head_in_06={positions}')
           PY
           exit 1
