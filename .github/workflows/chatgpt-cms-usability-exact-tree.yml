@@ -1,4 +1,4 @@
-name: ChatGPT CMS usability exact-tree gate
+name: ChatGPT CMS usability transport diagnostic
 
 on:
   push:
@@ -9,120 +9,32 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  diagnose:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Reconstruct exact candidate
+      - name: Inspect bundle chunks
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          import base64, hashlib, struct, subprocess, zlib
-
+          import string
           root = Path('.github/cms-usability-bundle')
-          encoded = ''.join((root / f'{i:02d}').read_text() for i in range(7))
-          encoded = encoded[:len(encoded) - (len(encoded) % 4)]
-          raw = base64.b64decode(encoded, validate=True)
-          pack = raw.find(b'PACK')
-          if pack < 0:
-              raise SystemExit('PACK header not found')
-          if raw[pack:pack+4] != b'PACK':
-              raise SystemExit('Bad PACK header')
-          version, count = struct.unpack('>II', raw[pack+4:pack+12])
-          if version not in (2, 3):
-              raise SystemExit(f'Unsupported pack version {version}')
-          pos = pack + 12
-          for index in range(count):
-              first = raw[pos]
-              pos += 1
-              obj_type = (first >> 4) & 7
-              shift = 4
-              byte = first
-              while byte & 0x80:
-                  byte = raw[pos]
-                  pos += 1
-                  shift += 7
-              if obj_type == 6:
-                  byte = raw[pos]
-                  pos += 1
-                  while byte & 0x80:
-                      byte = raw[pos]
-                      pos += 1
-              elif obj_type == 7:
-                  pos += 20
-              inflater = zlib.decompressobj()
-              chunk = raw[pos:]
-              inflater.decompress(chunk)
-              if not inflater.eof:
-                  raise SystemExit(f'Object {index + 1}/{count} zlib stream incomplete')
-              consumed = len(chunk) - len(inflater.unused_data)
-              pos += consumed
-          trailer_end = pos + 20
-          if trailer_end > len(raw):
-              raise SystemExit('PACK trailer incomplete')
-          expected = raw[pos:trailer_end]
-          actual = hashlib.sha1(raw[pack:pos]).digest()
-          if expected != actual:
-              raise SystemExit(f'PACK checksum mismatch after {count} objects')
-          candidate = raw[:trailer_end]
-          path = Path('/tmp/candidate.bundle')
-          path.write_bytes(candidate)
-          print(f'encoded_chars={len(encoded)} pack_version={version} objects={count} bundle_bytes={len(candidate)} discarded_bytes={len(raw)-len(candidate)}')
-          subprocess.run(['git', 'bundle', 'verify', str(path)], check=True)
+          allowed = set(string.ascii_letters + string.digits + '+/=')
+          total = ''
+          for i in range(7):
+              p = root / f'{i:02d}'
+              s = p.read_text()
+              bad = [(j, repr(ch)) for j, ch in enumerate(s) if ch not in allowed]
+              pads = [j for j, ch in enumerate(s) if ch == '=']
+              print(f'{i:02d}: len={len(s)} mod4={len(s)%4} pads={pads[:20]} pad_count={len(pads)} bad={bad[:20]} bad_count={len(bad)}')
+              print(f'{i:02d}: head={s[:32]!r} tail={s[-32:]!r}')
+              total += s
+          pads = [j for j, ch in enumerate(total) if ch == '=']
+          bad = [(j, repr(ch)) for j, ch in enumerate(total) if ch not in allowed]
+          print(f'total: len={len(total)} mod4={len(total)%4} pad_count={len(pads)} first_pads={pads[:50]} bad_count={len(bad)} first_bad={bad[:50]}')
           PY
-          git fetch /tmp/candidate.bundle refs/heads/__bundle_candidate:refs/remotes/bundle/candidate
-          candidate=$(git rev-parse refs/remotes/bundle/candidate)
-          tree=$(git rev-parse refs/remotes/bundle/candidate^{tree})
-          echo "candidate=$candidate"
-          echo "tree=$tree"
-          test "$candidate" = "d46670b7bf1da8322e372e62b2365a647c6f9bf8"
-          test "$tree" = "8e35ef71c58963b7a04abf2577cfa1fc9254ef7c"
-          git checkout --detach "$candidate"
-          test "$(git rev-parse HEAD^{tree})" = "8e35ef71c58963b7a04abf2577cfa1fc9254ef7c"
-          git status --short
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-          cache: npm
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          npm ci
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-test.txt
-          python -m playwright install --with-deps chromium firefox webkit
-
-      - name: Build lint and Node tests
-        run: npm run check
-
-      - name: Public HTTP/browser quality
-        run: npm run quality
-
-      - name: CMS Chromium
-        run: npm run test:cms
-
-      - name: CMS Firefox and WebKit
-        run: npm run test:cms:compat
-
-      - name: Worker dry run
-        run: npm run edge:check
-
-      - name: Final exact-tree check
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "d46670b7bf1da8322e372e62b2365a647c6f9bf8"
-          test "$(git rev-parse HEAD^{tree})" = "8e35ef71c58963b7a04abf2577cfa1fc9254ef7c"
-          git diff --check HEAD^
+          exit 1
