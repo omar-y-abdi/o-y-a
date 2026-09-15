@@ -23,28 +23,58 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          import base64, subprocess, sys
+          import base64, hashlib, struct, subprocess, zlib
 
           root = Path('.github/cms-usability-bundle')
-          head = ''.join((root / f'{i:02d}').read_text() for i in range(6))
-          tail = (root / '06').read_text()
-          padding = [i for i, ch in enumerate(tail) if ch == '=']
-          print(f'head_chars={len(head)} tail_chars={len(tail)} padding_candidates={len(padding)}')
-          for pos in padding:
-              for end in (pos + 1, pos + 2):
-                  candidate = head + tail[:end]
-                  try:
-                      raw = base64.b64decode(candidate, validate=True)
-                  except Exception:
-                      continue
-                  path = Path('/tmp/candidate.bundle')
-                  path.write_bytes(raw)
-                  check = subprocess.run(['git', 'bundle', 'verify', str(path)], text=True, capture_output=True)
-                  if check.returncode == 0:
-                      print(f'valid_base64_end={end} bundle_bytes={len(raw)}')
-                      print(check.stdout)
-                      sys.exit(0)
-          raise SystemExit('No strictly-decodable, git-verified bundle prefix found in chunk 06')
+          encoded = ''.join((root / f'{i:02d}').read_text() for i in range(7))
+          encoded = encoded[:len(encoded) - (len(encoded) % 4)]
+          raw = base64.b64decode(encoded, validate=True)
+          pack = raw.find(b'PACK')
+          if pack < 0:
+              raise SystemExit('PACK header not found')
+          if raw[pack:pack+4] != b'PACK':
+              raise SystemExit('Bad PACK header')
+          version, count = struct.unpack('>II', raw[pack+4:pack+12])
+          if version not in (2, 3):
+              raise SystemExit(f'Unsupported pack version {version}')
+          pos = pack + 12
+          for index in range(count):
+              first = raw[pos]
+              pos += 1
+              obj_type = (first >> 4) & 7
+              shift = 4
+              byte = first
+              while byte & 0x80:
+                  byte = raw[pos]
+                  pos += 1
+                  shift += 7
+              if obj_type == 6:
+                  byte = raw[pos]
+                  pos += 1
+                  while byte & 0x80:
+                      byte = raw[pos]
+                      pos += 1
+              elif obj_type == 7:
+                  pos += 20
+              inflater = zlib.decompressobj()
+              chunk = raw[pos:]
+              inflater.decompress(chunk)
+              if not inflater.eof:
+                  raise SystemExit(f'Object {index + 1}/{count} zlib stream incomplete')
+              consumed = len(chunk) - len(inflater.unused_data)
+              pos += consumed
+          trailer_end = pos + 20
+          if trailer_end > len(raw):
+              raise SystemExit('PACK trailer incomplete')
+          expected = raw[pos:trailer_end]
+          actual = hashlib.sha1(raw[pack:pos]).digest()
+          if expected != actual:
+              raise SystemExit(f'PACK checksum mismatch after {count} objects')
+          candidate = raw[:trailer_end]
+          path = Path('/tmp/candidate.bundle')
+          path.write_bytes(candidate)
+          print(f'encoded_chars={len(encoded)} pack_version={version} objects={count} bundle_bytes={len(candidate)} discarded_bytes={len(raw)-len(candidate)}')
+          subprocess.run(['git', 'bundle', 'verify', str(path)], check=True)
           PY
           git fetch /tmp/candidate.bundle refs/heads/__bundle_candidate:refs/remotes/bundle/candidate
           candidate=$(git rev-parse refs/remotes/bundle/candidate)
