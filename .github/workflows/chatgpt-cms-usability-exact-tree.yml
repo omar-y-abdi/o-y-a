@@ -1,0 +1,75 @@
+name: ChatGPT CMS usability exact-tree gate
+
+on:
+  push:
+    branches:
+      - chatgpt-cms-usability-ci-candidate
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/cms-usability-bundle/0{0..6} | base64 --decode > /tmp/candidate.bundle
+          git bundle verify /tmp/candidate.bundle
+          git fetch /tmp/candidate.bundle refs/heads/__bundle_candidate:refs/remotes/bundle/candidate
+          candidate=$(git rev-parse refs/remotes/bundle/candidate)
+          tree=$(git rev-parse refs/remotes/bundle/candidate^{tree})
+          echo "candidate=$candidate"
+          echo "tree=$tree"
+          test "$candidate" = "d46670b7bf1da8322e372e62b2365a647c6f9bf8"
+          test "$tree" = "8e35ef71c58963b7a04abf2577cfa1fc9254ef7c"
+          git checkout --detach "$candidate"
+          test "$(git rev-parse HEAD^{tree})" = "8e35ef71c58963b7a04abf2577cfa1fc9254ef7c"
+          git status --short
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+          python -m playwright install --with-deps chromium firefox webkit
+
+      - name: Build lint and Node tests
+        run: npm run check
+
+      - name: Public HTTP/browser quality
+        run: npm run quality
+
+      - name: CMS Chromium
+        run: npm run test:cms
+
+      - name: CMS Firefox and WebKit
+        run: npm run test:cms:compat
+
+      - name: Worker dry run
+        run: npm run edge:check
+
+      - name: Final exact-tree check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d46670b7bf1da8322e372e62b2365a647c6f9bf8"
+          test "$(git rev-parse HEAD^{tree})" = "8e35ef71c58963b7a04abf2577cfa1fc9254ef7c"
+          git diff --check HEAD^
