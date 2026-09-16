@@ -1,0 +1,24 @@
+name: ChatGPT PR4 workspace bridge
+on:
+  push:
+    branches:
+      - chatgpt/pr4-ci-workspace-20260916
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Create verified repository bundle
+        run: |
+          git fetch --all --tags --prune
+          git bundle create repo.bundle --all
+          git bundle verify repo.bundle
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: chatgpt-pr4-repo-bundle
+          path: repo.bundle
+          retention-days: 1
