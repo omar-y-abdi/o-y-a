@@ -1,0 +1,43 @@
+name: ChatGPT PR4 R20 diagnostic
+on:
+  push:
+    branches:
+      - chatgpt/pr4-ci-workspace-20260916
+permissions:
+  contents: read
+jobs:
+  r20:
+    runs-on: ubuntu-24.04
+    env:
+      CMS_BROWSER: webkit
+      CMS_MODULE_CASE: R20-preserve-rich-structure-and-simple-newlines
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m playwright install --with-deps webkit
+      - run: npm run build
+      - name: Instrument R20 state
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/cms-modules.py')
+          text = path.read_text()
+          needle = '''            assert page.evaluate("snapshots.at(-1).html.includes('changed')")'''
+          debug = '''            print('R20_DEBUG', page.evaluate("""()=>({input:document.querySelector('#element-text')?.value,model:handle.editor.getWrapper().find('p')[0]?.getInnerHTML(),dom:handle.editor.Canvas.getDocument().querySelector('p')?.innerHTML,dirty:handle.editor.getDirtyCount(),snapshots:snapshots.slice(-4).map(x=>x.html)})"""), flush=True)\n''' + needle
+          if needle not in text: raise SystemExit('target assertion not found')
+          path.write_text(text.replace(needle, debug, 1))
+          PY
+      - name: Run R20 repeatedly
+        run: |
+          for i in 1 2 3 4 5; do
+            echo "=== R20 attempt $i ==="
+            python tests/cms-modules.py || true
+          done
