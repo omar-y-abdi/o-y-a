@@ -81,7 +81,7 @@ with sync_playwright() as pw:
                 assert any(r['project']['pages'][0]['description']=='Tab A independent valuable draft' for r in records(a))
                 # Revert B's next edit must only acknowledge B's own generation.
                 b.locator('#page-description').fill('Tab B disposable edit'); backup_settled(b)
-                b.locator('[data-action=revert]').click(); b.locator('[data-confirm=yes]').click()
+                qa.CMSBrowserQA.revert_if_dirty(b)
                 expect(b.locator('#page-description')).to_have_value('Tab B published version')
                 expect(b.locator('#backup-status')).to_have_text('Reservutkast redo')
                 if order == 'B': b.close()
