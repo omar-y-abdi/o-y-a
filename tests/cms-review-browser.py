@@ -203,6 +203,7 @@ with sync_playwright() as pw:
             saved_page=next(x for x in saved_state['project']['pages'] if x['id']=='review-clone')
             compact_css=saved_page['css'].replace(' ','')
             assert 'padding:19px' in compact_css and 'color:rgb(201,32,17)' in compact_css, saved_page['css']
+            assert 'color:black' not in compact_css and 'border:0solidblack' not in compact_css, saved_page['css']
             public=browser.new_page()
             with public.expect_response(lambda response: '/cms-public/v' in response.url and response.url.endswith('/review-clone.css')) as css_info:
                 public.goto(BASE+'/review-clone/',wait_until='load')

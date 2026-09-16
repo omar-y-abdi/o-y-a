@@ -246,8 +246,14 @@ with sync_playwright() as pw:
         try:
             content={**PAGE,'html':'<main><section id="copy-section" aria-labelledby="copy-target" style="padding:19px;color:rgb(201,32,17)"><h2 id="copy-target">Local clone target</h2><a href="#copy-target">Local clone link</a><svg viewBox="0 0 10 10"><defs><clipPath id="copy-clip"><circle cx="5" cy="5" r="5"></circle></clipPath></defs><rect width="10" height="10" clip-path="url(#copy-clip)"></rect></svg></section></main>','css':'','project':None}
             frame=editor(page,content)
-            page.evaluate("""()=>{const ed=handle.editor;const section=ed.getWrapper().find('#copy-section')[0];ed.select(section);cmsTest.componentInspector(section,ed,{assets:[],change(){handle.flush()},onError(message){throw Error(message)},pickImage(){}})}""")
+            page.evaluate("""()=>{const ed=handle.editor;ed.select(ed.getWrapper().find('#copy-target')[0]);handle.setStyleMode('normal')}""")
+            page.wait_for_timeout(100)
+            page.evaluate("""()=>{const ed=handle.editor;const section=ed.getWrapper().find('#copy-section')[0];ed.select(section);handle.setStyleMode('normal');cmsTest.componentInspector(section,ed,{assets:[],change(){handle.flush()},onError(message){throw Error(message)},pickImage(){}})}""")
+            page.wait_for_timeout(100)
             page.locator('#duplicate-element').click()
+            page.wait_for_timeout(100)
+            page.evaluate("handle.setStyleMode('normal')")
+            page.wait_for_timeout(100)
             expect(frame.get_by_text('Local clone target',exact=True)).to_have_count(2)
             page.evaluate('handle.flush()')
             result=page.evaluate("""()=>{const nodes=[...handle.editor.Canvas.getDocument().querySelectorAll('section:has(h2#copy-target),section:has(h2[id^=\"copy-target-\"])')];return {css:snapshots.at(-1)?.css??'',nodes:nodes.map(node=>({id:node.id,padding:getComputedStyle(node).padding,color:getComputedStyle(node).color,heading:node.querySelector('h2').id,href:node.querySelector('a').getAttribute('href'),clip:node.querySelector('clipPath').id,clipRef:node.querySelector('rect').getAttribute('clip-path')}))}}""")
@@ -258,6 +264,7 @@ with sync_playwright() as pw:
                 assert node['href']=='#'+node['heading'],result
                 assert node['clipRef']=='url(#'+node['clip']+')',result
             assert 'padding:19px' in result['css'] and 'color:rgb(201,32,17)' in result['css'],result
+            assert 'color:black' not in result['css'] and 'border:0 solid black' not in result['css'], result
             return result
         finally: page.close()
 

@@ -49,7 +49,14 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   editor.on('block:click', () => { if (!editor.getSelected()) editor.select(editor.getWrapper().find('main')[0] ?? editor.getWrapper().components().at(0)); });
   const fontOptions = [...Object.entries(fontFamilies).map(([label, id]) => ({ id, label })), ...assets.filter(asset => asset.mime === 'font/woff2').map(asset => ({ id: `cms-font-${asset.id}`, label: asset.name }))];
   const applyFontOptions = () => editor.StyleManager.getProperty('typografi', 'font-family')?.set('options', fontOptions);
-  const setStyleMode = mode => { applyStyleMode(editor, mode); if (mode === 'normal') applyFontOptions(); };
+  let styleMode = 'normal';
+  const setStyleMode = mode => {
+    if (mode !== styleMode) {
+      applyStyleMode(editor, mode);
+      styleMode = mode;
+    }
+    if (mode === 'normal') applyFontOptions();
+  };
   applyFontOptions();
   editor.on('component:create', component => { configureVisualComponent(component); component.on('component:clone', clone => remapClone(component, clone, editor)); });
   // The same validated HTML/CSS powers editing, preview and publication.
