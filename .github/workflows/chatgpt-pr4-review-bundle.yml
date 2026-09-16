@@ -1,0 +1,22 @@
+name: ChatGPT PR4 review workspace bundle
+on:
+  push:
+    branches:
+      - chatgpt/pr4-review-workspace-20260916b
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 546710a171daeee8796a1a5af8a617f93036951a
+          fetch-depth: 0
+      - name: Create repository bundle
+        run: git bundle create repo.bundle --all && git bundle verify repo.bundle
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: chatgpt-pr4-review-bundle
+          path: repo.bundle
+          retention-days: 1
