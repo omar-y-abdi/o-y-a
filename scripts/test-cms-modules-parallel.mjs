@@ -23,7 +23,6 @@ const CASES = [
   'cms-client-shared-content-sync',
   'cms-locked-preview-mobile-center',
   'cms-managed-svg-uses-shared-editor',
-  'cms-managed-svg-preserves-existing-visual-baseline',
 ];
 const SMOKE = new Set([
   'R14-active-typing-newlines-composition-flush',
@@ -53,8 +52,19 @@ function runCase(name) {
 async function worker() {
   while (index < cases.length) await runCase(cases[index++]);
 }
+async function runManagedSvgFidelity() {
+  const child = spawn(python, ['tests/managed-svg-fidelity.py'], { stdio: 'inherit', env: process.env });
+  running.add(child);
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', value => resolve(value ?? 1));
+  });
+  running.delete(child);
+  if (code) failed = true;
+}
 function stop(signal) { for (const child of running) child.kill(signal); }
 process.once('SIGINT', () => stop('SIGINT'));
 process.once('SIGTERM', () => stop('SIGTERM'));
 await Promise.all(Array.from({ length: workers }, worker));
+await runManagedSvgFidelity();
 if (failed) process.exitCode = 1;
