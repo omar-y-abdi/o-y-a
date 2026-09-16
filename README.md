@@ -66,4 +66,4 @@ npm run verify:full
 
 `wrangler.staging.jsonc` pekar på separat testmiljö. Produktion använder `wrangler.jsonc` och befintlig Worker `omar-portfolio`. Produktions-CMS behöver egna bindings och en egen Access-applikation enligt [driftguiden](docs/DEPLOYMENT.md); dessa konfigureras först efter merge. Stagingdatabasen får aldrig bindas till produktion.
 
-Kontaktformuläret behåller Cloudflare Turnstile, serverbaserad Resend-integration och befintligt missbruksskydd. Se [CONTACT-SETUP.md](docs/CONTACT-SETUP.md). Lokala tester använder uttryckliga testsvar och skickar inga riktiga mejl. Frivillig statistik förblir avstängd med `ANALYTICS_ENABLED: "false".
+Kontaktformuläret behåller Cloudflare Turnstile, serverbaserad Resend-integration och befintligt missbruksskydd. Se [CONTACT-SETUP.md](docs/CONTACT-SETUP.md). Lokala tester använder uttryckliga testsvar och skickar inga riktiga mejl. Frivillig statistik förblir avstängd med `ANALYTICS_ENABLED: "false"`.
