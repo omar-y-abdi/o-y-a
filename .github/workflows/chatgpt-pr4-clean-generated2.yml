@@ -1,0 +1,55 @@
+name: ChatGPT PR4 exact generated artifact cleanup
+on:
+  push:
+    branches: [cms-usability-20260915]
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: cms-usability-20260915
+          fetch-depth: 0
+      - name: Restore pre-review generated output and verify final tree
+        run: |
+          BASE=a05117b2c7b3f5f7b76a6664be5ffd9cdbcdfa61
+          git restore --source="$BASE" --worktree --staged -- dist
+          rm -f .github/workflows/chatgpt-pr4-clean-generated.yml
+          rm -f .github/workflows/chatgpt-pr4-clean-generated2.yml
+          git diff --check
+          actual="$(git diff --name-only "$BASE" -- | sort)"
+          expected="$(printf '%s\n' \
+            src/cms/api.mjs \
+            src/cms/assets.mjs \
+            src/cms/client/clone.mjs \
+            src/cms/client/editor.mjs \
+            src/cms/client/position.mjs \
+            src/cms/client/view-state.mjs \
+            src/cms/compatibility.mjs \
+            src/cms/resources.mjs \
+            src/cms/shared-content.mjs \
+            src/cms/store.mjs \
+            tests/cms-modules.py \
+            tests/cms-usability.test.mjs | sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo 'Unexpected final diff:'
+            printf '%s\n' "$actual"
+            exit 1
+          fi
+          hash="$(git diff --binary "$BASE" -- \
+            src/cms/api.mjs src/cms/assets.mjs src/cms/client/clone.mjs src/cms/client/editor.mjs \
+            src/cms/client/position.mjs src/cms/client/view-state.mjs src/cms/compatibility.mjs \
+            src/cms/resources.mjs src/cms/shared-content.mjs src/cms/store.mjs \
+            tests/cms-modules.py tests/cms-usability.test.mjs | sha256sum | cut -d' ' -f1)"
+          echo "final_patch_sha256=$hash"
+          test "$hash" = "7194f4d4d90b8b6e40a86492f680227482163c2b2ad109adf37a447bbfbce2eb"
+      - name: Commit cleanup only
+        run: |
+          git config user.name 'OpenAI ChatGPT'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'chore: remove generated review artifacts'
+          git push origin HEAD:cms-usability-20260915
