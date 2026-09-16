@@ -1,0 +1,83 @@
+name: ChatGPT PR4 final race fixes
+
+on:
+  push:
+    branches: [cms-usability-20260915]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: cms-usability-20260915
+          fetch-depth: 0
+      - name: Apply exact race fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f'{path}: expected {count} occurrence(s), found {actual}: {old!r}')
+              p.write_text(text.replace(old, new, count))
+
+          replace_exact(
+              'tests/cms-browser.py',
+              '''    @staticmethod
+    def revert_if_dirty(page: Page) -> None:
+        button = page.locator("[data-action=revert]")
+        if button.is_disabled():
+            return
+        button.click()
+        CMSBrowserQA.confirm_yes(page)
+        CMSBrowserQA.wait_canvas(page)
+''',
+              '''    @staticmethod
+    def revert_if_dirty(page: Page) -> None:
+        button = page.locator("[data-action=revert]")
+        if button.is_disabled():
+            return
+        previous = page.locator("#editor iframe.gjs-frame").element_handle()
+        try:
+            button.click()
+            CMSBrowserQA.confirm_yes(page)
+            if previous is not None:
+                page.wait_for_function('frame => !frame.isConnected', arg=previous, timeout=20000)
+            CMSBrowserQA.wait_canvas(page)
+        finally:
+            if previous is not None:
+                previous.dispose()
+''',
+          )
+          replace_exact(
+              'tests/revision_browser.py',
+              '''            goto(page, "/verkstad/")
+            button = page.locator("[data-fika-button]")
+''',
+              '''            goto(page, "/verkstad/")
+            wait_until(
+                lambda: page.locator("[data-memory-card][data-index]").count() == 12,
+                description="spelens JavaScript-initiering",
+            )
+            button = page.locator("[data-fika-button]")
+''',
+          )
+          PY
+          rm .github/workflows/chatgpt-pr4-final-race-fix.yml
+          git diff --check
+          python -m py_compile tests/cms-browser.py tests/revision_browser.py
+      - name: Commit race fixes
+        run: |
+          git config user.name 'OpenAI ChatGPT'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test: wait for completed editor and game initialization'
+          git push origin HEAD:cms-usability-20260915
