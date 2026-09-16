@@ -1,0 +1,50 @@
+name: ChatGPT PR4 review GREEN3
+on:
+  push:
+    branches: [chatgpt/pr4-review-red-20260916]
+permissions:
+  contents: read
+jobs:
+  green3:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Apply previously verified patch plus browser-compatible ID generator
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, gzip, re, subprocess
+
+          workflow = Path('.github/workflows/chatgpt-pr4-review-red.yml').read_text()
+          match = re.search(r'^\s*PATCH_B64:\s*(\S+)\s*$', workflow, re.M)
+          if not match:
+              raise SystemExit('verified PATCH_B64 not found')
+          patch = gzip.decompress(base64.b64decode(match.group(1)))
+          subprocess.run(['git', 'apply'], input=patch, check=True)
+
+          path = Path('src/cms/client/view-state.mjs')
+          text = path.read_text()
+          old = "function userComponentId(){return `u-${crypto.randomUUID()}`;}"
+          new = "function userComponentId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return `u-${[...bytes].map(byte=>byte.toString(16).padStart(2,'0')).join('')}`;}"
+          if text.count(old) != 1:
+              raise SystemExit('randomUUID target not found exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+          git diff --check
+          for f in src/cms/api.mjs src/cms/assets.mjs src/cms/client/clone.mjs src/cms/client/editor.mjs src/cms/client/position.mjs src/cms/client/view-state.mjs src/cms/compatibility.mjs src/cms/resources.mjs src/cms/shared-content.mjs src/cms/store.mjs; do node --check "$f"; done
+          python -m py_compile tests/cms-modules.py
+      - run: npm run build
+      - name: Focused GREEN regressions
+        run: |
+          npx vitest run tests/cms-usability.test.mjs --maxWorkers=1
+          CMS_BROWSER=chromium CMS_MODULE_CASE='cms-usability-' npm run test:cms:modules
