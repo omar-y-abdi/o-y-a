@@ -1,4 +1,4 @@
-name: ChatGPT PR4 revert diagnostic
+name: ChatGPT PR4 Fika diagnostic
 on:
   push:
     branches:
@@ -6,12 +6,8 @@ on:
 permissions:
   contents: read
 jobs:
-  revert:
+  fika:
     runs-on: ubuntu-24.04
-    env:
-      CMS_BROWSER: webkit
-      CMS_REVIEW_CASE: independent-tabs-save-revert-reload
-      CMS_SKIP_HELPERS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -25,23 +21,37 @@ jobs:
           python-version: '3.13'
       - run: npm ci
       - run: python -m pip install -r requirements-test.txt
-      - run: python -m playwright install --with-deps webkit
+      - run: python -m playwright install --with-deps chromium
       - run: npm run build
-      - name: Apply candidate revert synchronization fix
+      - name: Apply candidate game-readiness synchronization
         run: |
           python - <<'PY'
           from pathlib import Path
-          path = Path('tests/cms-browser.py')
+          path = Path('tests/revision_browser.py')
           text = path.read_text()
-          old = '''    @staticmethod\n    def revert_if_dirty(page: Page) -> None:\n        button = page.locator("[data-action=revert]")\n        if button.is_disabled():\n            return\n        button.click()\n        CMSBrowserQA.confirm_yes(page)\n        CMSBrowserQA.wait_canvas(page)\n'''
-          new = '''    @staticmethod\n    def revert_if_dirty(page: Page) -> None:\n        button = page.locator("[data-action=revert]")\n        if button.is_disabled():\n            return\n        previous = page.locator("#editor iframe.gjs-frame").element_handle()\n        try:\n            button.click()\n            CMSBrowserQA.confirm_yes(page)\n            if previous is not None:\n                page.wait_for_function('frame => !frame.isConnected', arg=previous, timeout=20000)\n            CMSBrowserQA.wait_canvas(page)\n        finally:\n            if previous is not None:\n                previous.dispose()\n'''
-          if text.count(old) != 1: raise SystemExit('revert helper target not found exactly once')
+          old = '''            goto(page, "/verkstad/")\n            button = page.locator("[data-fika-button]")\n'''
+          new = '''            goto(page, "/verkstad/")\n            wait_until(\n                lambda: page.locator("[data-memory-card]").first.get_attribute("data-index") is not None,\n                description="spelmodul redo",\n            )\n            button = page.locator("[data-fika-button]")\n'''
+          if text.count(old) != 1: raise SystemExit('Fika readiness target not found exactly once')
           path.write_text(text.replace(old, new))
           PY
-          python -m py_compile tests/cms-browser.py
+          python -m py_compile tests/revision_browser.py
           git diff --check
-      - name: Run targeted WebKit revert regression three times
+      - name: Run public browser regression twice
         run: |
-          node scripts/test-cms-parallel.mjs tests/cms-review-browser.py
-          node scripts/test-cms-parallel.mjs tests/cms-review-browser.py
-          node scripts/test-cms-parallel.mjs tests/cms-review-browser.py
+          node scripts/serve.mjs --port 4173 > /tmp/preview.log 2>&1 &
+          preview=$!
+          trap 'kill "$preview" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time, urllib.request
+          for _ in range(60):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:4173/api/config', timeout=1) as response:
+                      assert response.status == 200
+                  break
+              except OSError:
+                  time.sleep(.1)
+          else:
+              raise SystemExit('preview server did not start')
+          PY
+          BASE_URL=http://127.0.0.1:4173 python tests/revision_browser.py
+          BASE_URL=http://127.0.0.1:4173 python tests/revision_browser.py
