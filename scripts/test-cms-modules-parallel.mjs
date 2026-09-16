@@ -5,7 +5,6 @@ import { spawn } from 'node:child_process';
 const CASES = [
   'R14-active-typing-newlines-composition-flush',
   'R18-canonical-content-reloads-without-divergent-editor-data',
-  'R20-preserve-rich-structure-and-simple-newlines',
   'R20-text-ranges-unicode-links-and-escaping',
   'R15-public-modules-ignore-author-preview-markers',
   'R21-transform-fit-mobile-and-png-export',
@@ -24,6 +23,7 @@ const CASES = [
   'cms-locked-preview-mobile-center',
   'cms-managed-svg-uses-shared-editor',
 ];
+const SERIAL_CASES = ['R20-preserve-rich-structure-and-simple-newlines'];
 const SMOKE = new Set([
   'R14-active-typing-newlines-composition-flush',
   'R12-clone-anchor-aria-svg-and-style',
@@ -34,6 +34,7 @@ const SMOKE = new Set([
 ]);
 const profile = process.env.CMS_MODULE_PROFILE || 'full';
 const cases = profile === 'smoke' ? CASES.filter(name => SMOKE.has(name)) : CASES;
+const serialCases = profile === 'smoke' ? [] : SERIAL_CASES;
 const workers = Math.max(1, Math.min(Number(process.env.CMS_MODULE_WORKERS || (process.env.CI ? 4 : 4)), cases.length));
 let python = process.env.PYTHON ?? 'python3';
 try { await access('.test-venv/bin/python'); if (!process.env.PYTHON) python = '.test-venv/bin/python'; } catch {}
@@ -66,5 +67,6 @@ function stop(signal) { for (const child of running) child.kill(signal); }
 process.once('SIGINT', () => stop('SIGINT'));
 process.once('SIGTERM', () => stop('SIGTERM'));
 await Promise.all(Array.from({ length: workers }, worker));
+for (const name of serialCases) await runCase(name);
 await runManagedSvgFidelity();
 if (failed) process.exitCode = 1;
