@@ -71,7 +71,7 @@ jobs:
       - run: python -m playwright install --with-deps ${{ matrix.browser }}
       - run: npm run build
       - run: npm run test:cms:modules
-      - run: node scripts/test-cms.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
+      - run: node scripts/test-cms-parallel.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
       - name: Retain compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

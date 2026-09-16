@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,8 +13,9 @@ import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 
 // A file-based restore into a SECOND real D1/R2 instance, not an in-memory
 // project clone. Hosted account snapshots still need the documented drill.
-test('operations: D1 plus retained R2 backup restores current and historical publications with the matching Worker',async()=>{
-  const source=await cmsRuntime(), target=await cmsRuntime(), directory=await mkdtemp(join(tmpdir(),'cms-drill-'));
+test('operations: D1 plus retained R2 backup restores current and historical publications with the matching Worker',{ timeout: 60000 },async()=>{
+  const [source,target]=await Promise.all([cmsRuntime(),cmsRuntime()]);
+  const directory=await mkdtemp(join(tmpdir(),'cms-drill-'));
   try {
     const bucket=await source.mf.getR2Bucket('CMS_MEDIA');
     const bytes=Buffer.from(rasterFixtures.png,'base64');

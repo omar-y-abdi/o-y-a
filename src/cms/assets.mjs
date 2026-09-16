@@ -1,9 +1,10 @@
 import { imageDimensionsFromData } from 'image-dimensions';
 import { authenticateAdmin } from './auth.mjs';
 import { HttpError } from './http.mjs';
-import { digest } from './store.mjs';
+import { digest, retainedResourceUsage } from './store.mjs';
 import { decodeRaster } from './raster-integrity.mjs';
 import { resourceReferences } from './resources.mjs';
+import { sanitizeManagedSvg } from './svg.mjs';
 
 export const MAX_ASSET_BYTES = 10 * 1024 * 1024;
 export const MAX_ACTIVE_FONTS = 64;
@@ -24,8 +25,14 @@ export function inspectAsset(bytes) {
   return { mime: MIME[image.type], extension: image.type === 'jpeg' ? 'jpg' : image.type, width: image.width, height: image.height };
 }
 
+function lifecycle(row) { return row.trashed_at ? 'trash' : row.archived_at ? 'archived' : 'active'; }
 function record(row) {
-  return { id: row.id, version: row.version, src: `/media/${row.object_key}`, name: row.name, mime: row.mime, bytes: row.bytes, width: row.width, height: row.height, alt: row.alt, createdAt: row.created_at, publishedAt: row.published_at, archived: Boolean(row.archived_at) };
+  const state = lifecycle(row);
+  return { id: row.id, version: row.version, src: `/media/${row.object_key}`, name: row.name, mime: row.mime, bytes: row.bytes, width: row.width, height: row.height, alt: row.alt, createdAt: row.created_at, publishedAt: row.published_at, state, archived: state === 'archived', trashed: state === 'trash', deleting: Boolean(row.deleting_at) };
+}
+function builtinRecord(asset, row = {}) {
+  const state = row.trashed_at ? 'trash' : row.archived_at ? 'archived' : 'active';
+  return { ...asset, name: row.name ?? asset.name, alt: row.alt ?? asset.alt ?? '', version: row.version ?? 0, state, archived: state === 'archived', trashed: state === 'trash', deleted: Boolean(row.deleted_at), managedAssetId: row.managed_asset_id ?? null };
 }
 
 export async function listAssets(db) {
@@ -34,23 +41,32 @@ export async function listAssets(db) {
 }
 
 export async function assetSelection(db, ids = [], { fonts = false } = {}) {
-  const rows = await db.prepare("SELECT * FROM cms_media WHERE id IN (SELECT value FROM json_each(?)) OR (? AND mime = 'font/woff2' AND archived_at IS NULL) ORDER BY created_at DESC, id DESC").bind(JSON.stringify(ids), Number(fonts)).all();
+  const rows = await db.prepare("SELECT * FROM cms_media WHERE id IN (SELECT value FROM json_each(?)) OR (? AND mime = 'font/woff2' AND archived_at IS NULL AND trashed_at IS NULL) ORDER BY created_at DESC, id DESC").bind(JSON.stringify(ids), Number(fonts)).all();
   return rows.results.map(record);
 }
 
-export async function assetPage(db, { cursor = null, query = '', archived = null, images = false } = {}) {
-  if (typeof query !== 'string' || query.length > 200 || ![null, true, false].includes(archived)) throw new HttpError(400, 'Sökningen är ogiltig.');
+export async function assetPage(db, { cursor = null, query = '', archived = null, state = null, images = false } = {}) {
+  if (state === null && archived !== null) state = archived ? 'archived' : 'active';
+  if (typeof query !== 'string' || query.length > 200 || ![null, 'active', 'archived', 'trash'].includes(state)) throw new HttpError(400, 'Sökningen är ogiltig.');
   let before = ['', ''];
   try { if (cursor) before = JSON.parse(cursor); } catch { throw new HttpError(400, 'Biblioteksmarkören är ogiltig.'); }
   if (!Array.isArray(before) || before.length !== 2 || before.some(value => typeof value !== 'string') || cursor && (!/^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(before[0]) || !UUID.test(before[1]))) throw new HttpError(400, 'Biblioteksmarkören är ogiltig.');
-  const filter = "(? = -1 OR (archived_at IS NOT NULL) = ?) AND (? = 0 OR mime LIKE 'image/%') AND (instr(lower(name),lower(?)) > 0 OR instr(lower(mime),lower(?)) > 0)";
-  const parameters = [archived === null ? -1 : Number(archived), Number(archived), Number(images), query, query];
+  const filter = "(? = '' OR CASE WHEN trashed_at IS NOT NULL THEN 'trash' WHEN archived_at IS NOT NULL THEN 'archived' ELSE 'active' END = ?) AND (? = 0 OR mime LIKE 'image/%') AND (instr(lower(name),lower(?)) > 0 OR instr(lower(mime),lower(?)) > 0)";
+  const parameters = [state ?? '', state ?? '', Number(images), query, query];
   const [rows, count] = await Promise.all([
     db.prepare(`SELECT * FROM cms_media WHERE ${filter} AND (? = '' OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT 61`).bind(...parameters, ...[before[0], before[0], before[0], before[1]]).all(),
     db.prepare(`SELECT count(*) AS total FROM cms_media WHERE ${filter}`).bind(...parameters).first(),
   ]);
   const items = rows.results.slice(0, 60);
   return { items: items.map(record), total: count.total, next: rows.results.length > 60 ? JSON.stringify([items.at(-1).created_at, items.at(-1).id]) : null };
+}
+
+export async function builtinAssetStates(db) {
+  const rows = await db.prepare('SELECT * FROM cms_builtin_resource_state').all();
+  return new Map(rows.results.map(row => [row.source_path, row]));
+}
+export function mergeBuiltinAssetStates(seedAssets, states) {
+  return seedAssets.map(asset => builtinRecord(asset, states.get(asset.src))).filter(asset => !asset.deleted);
 }
 
 export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
@@ -64,7 +80,7 @@ export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
     if (!existing.validation_version) await validateStoredMedia(env, existing);
     return record(existing);
   }
-  if (info.mime === 'font/woff2' && (await assetPage(env.CMS_DB, { query: 'font/woff2', archived: false })).total >= MAX_ACTIVE_FONTS) throw new HttpError(413, 'Biblioteket stöder 64 aktiva typsnitt. Arkivera ett oanvänt typsnitt innan du laddar upp fler.');
+  if (info.mime === 'font/woff2' && (await assetPage(env.CMS_DB, { query: 'font/woff2', state: 'active' })).total >= MAX_ACTIVE_FONTS) throw new HttpError(413, 'Biblioteket stöder 64 aktiva typsnitt. Arkivera ett oanvänt typsnitt innan du laddar upp fler.');
   if (info.mime.startsWith('image/')) await decodeRaster(env, bytes, info);
   const key = `${id}.${info.extension}`;
   const stored = await env.CMS_MEDIA.put(key, bytes, { onlyIf: { etagDoesNotMatch: '*' }, httpMetadata: { contentType: info.mime }, customMetadata: { sha256: hash } });
@@ -111,6 +127,173 @@ export async function updateAsset(db, id, input) {
     throw new HttpError(409, 'Filens uppgifter ändrades i en annan flik. Ditt formulär finns kvar.', { asset: record(current) });
   }
   return record(result);
+}
+
+
+function assertLifecycleInput(action, baseVersion) {
+  if (!['archive', 'restore', 'trash', 'delete'].includes(action)) throw new HttpError(422, 'Resursåtgärden är ogiltig.');
+  if (!Number.isSafeInteger(baseVersion) || baseVersion < 0) throw new HttpError(428, 'Hämta resursens aktuella uppgifter innan du ändrar den.');
+}
+function currentReferenceCount(project, src) { return resourceReferences(project).get(src) ?? 0; }
+
+async function restoreQueuedMedia(db, id) {
+  const queued = await db.prepare('SELECT * FROM cms_media_delete_queue WHERE id = ?').bind(id).first();
+  if (!queued) return false;
+  const row = JSON.parse(queued.snapshot);
+  const existing = await db.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+  if (existing) {
+    if (existing.object_key !== row.object_key || existing.sha256 !== row.sha256) throw new HttpError(503, 'Resursraderingen behöver återställas manuellt innan filen kan användas igen.');
+  } else {
+    await db.prepare('INSERT INTO cms_media (id,object_key,name,mime,bytes,width,height,alt,sha256,created_at,published_at,archived_at,version,validation_version,trashed_at,deleting_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(row.id,row.object_key,row.name,row.mime,row.bytes,row.width,row.height,row.alt,row.sha256,row.created_at,row.published_at,row.archived_at,row.version,row.validation_version,row.trashed_at,null).run();
+  }
+  await db.prepare('DELETE FROM cms_media_delete_queue WHERE id = ?').bind(id).run();
+  return true;
+}
+
+export async function assetUsage(env, asset, project) {
+  let src = asset.src;
+  if (!asset.builtin) {
+    if (!UUID.test(asset.id)) throw new HttpError(404, 'Filen finns inte.');
+    const row = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(asset.id).first();
+    if (!row) throw new HttpError(404, 'Filen finns inte.');
+    src = `/media/${row.object_key}`;
+  }
+  return { currentReferences: currentReferenceCount(project, src), historyReferences: await retainedResourceUsage(env.CMS_DB, src) };
+}
+
+export async function transitionAsset(env, { id, action, baseVersion, project }) {
+  assertLifecycleInput(action, baseVersion);
+  if (!UUID.test(id)) throw new HttpError(404, 'Filen finns inte.');
+  const current = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+  if (!current) {
+    const queued = await env.CMS_DB.prepare('SELECT * FROM cms_media_delete_queue WHERE id = ?').bind(id).first();
+    if (!queued) throw new HttpError(404, 'Filen finns inte.');
+    const object = await env.CMS_MEDIA.head?.(queued.object_key);
+    if (object) {
+      await restoreQueuedMedia(env.CMS_DB, id);
+      throw new HttpError(503, 'En tidigare resursradering avbröts och filen har återställts. Ladda om biblioteket.');
+    }
+    await env.CMS_DB.prepare('DELETE FROM cms_media_delete_queue WHERE id = ?').bind(id).run();
+    return { deleted: true, id, usage: { currentReferences: 0, historyReferences: 0 } };
+  }
+  const src = `/media/${current.object_key}`;
+  const refs = currentReferenceCount(project, src);
+  if (['trash', 'delete'].includes(action) && refs) throw new HttpError(409, `Resursen används fortfarande ${refs} gånger i aktuellt utkast.`);
+  if (action === 'delete') {
+    if (!current.trashed_at) throw new HttpError(409, 'Flytta resursen till papperskorgen före permanent radering.');
+    if (current.version !== baseVersion) throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: record(current) });
+    const historical = await retainedResourceUsage(env.CMS_DB, src);
+    if (historical) throw new HttpError(409, `Resursen används fortfarande ${historical} gånger i sparad historik.`);
+    const now = new Date().toISOString();
+    let queued, removed;
+    try {
+      [queued, removed] = await env.CMS_DB.batch([
+        env.CMS_DB.prepare('INSERT INTO cms_media_delete_queue (id,object_key,snapshot,created_at) SELECT id,object_key,?,? FROM cms_media WHERE id=? AND version=? AND trashed_at IS NOT NULL').bind(JSON.stringify(current),now,id,baseVersion),
+        env.CMS_DB.prepare('DELETE FROM cms_media WHERE id=? AND version=? AND trashed_at IS NOT NULL').bind(id,baseVersion),
+      ]);
+    } catch {
+      throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.');
+    }
+    if (queued.meta.changes !== 1 || removed.meta.changes !== 1) throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.');
+    try { await env.CMS_MEDIA.delete(current.object_key); }
+    catch (error) {
+      try { await restoreQueuedMedia(env.CMS_DB, id); }
+      catch { throw new HttpError(503, 'Filen kunde inte raderas och återställningen behöver slutföras innan du försöker igen.'); }
+      throw error;
+    }
+    await env.CMS_DB.prepare('DELETE FROM cms_media_delete_queue WHERE id = ?').bind(id).run();
+    return { deleted: true, id, usage: { currentReferences: 0, historyReferences: 0 } };
+  }
+  const now = new Date().toISOString();
+  const values = action === 'archive' ? [now, null] : action === 'restore' ? [null, null] : [null, now];
+  const updated = await env.CMS_DB.prepare('UPDATE cms_media SET archived_at = ?, trashed_at = ?, deleting_at = NULL, version = version + 1 WHERE id = ? AND version = ? RETURNING *').bind(values[0], values[1], id, baseVersion).first();
+  if (!updated) {
+    const latest = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+    if (!latest) throw new HttpError(404, 'Filen finns inte.');
+    throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: record(latest) });
+  }
+  return { asset: record(updated), usage: { currentReferences: refs, historyReferences: await retainedResourceUsage(env.CMS_DB, src) } };
+}
+
+export async function transitionBuiltinAsset(db, builtin, { action, baseVersion, project }) {
+  assertLifecycleInput(action, baseVersion);
+  const current = await db.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+  const version = current?.version ?? 0;
+  if (version !== baseVersion) throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: builtinRecord(builtin, current ?? {}) });
+  const refs = currentReferenceCount(project, builtin.src);
+  if (['trash', 'delete'].includes(action) && refs) throw new HttpError(409, `Resursen används fortfarande ${refs} gånger i aktuellt utkast.`);
+  if (action === 'delete') {
+    if (!current?.trashed_at) throw new HttpError(409, 'Flytta resursen till papperskorgen före permanent radering.');
+    const historical = await retainedResourceUsage(db, builtin.src);
+    if (historical) throw new HttpError(409, `Resursen används fortfarande ${historical} gånger i sparad historik.`);
+  }
+  const now = new Date().toISOString();
+  const archived = action === 'archive' ? now : null;
+  const trashed = action === 'trash' ? now : null;
+  const deleted = action === 'delete' ? now : null;
+  const result = !current
+    ? await db.prepare('INSERT OR IGNORE INTO cms_builtin_resource_state(source_path,version,name,alt,archived_at,trashed_at,deleted_at,updated_at) VALUES(?,1,NULL,NULL,?,?,?,?)').bind(builtin.src, archived, trashed, deleted, now).run()
+    : await db.prepare('UPDATE cms_builtin_resource_state SET archived_at=?, trashed_at=?, deleted_at=?, version=version+1, updated_at=? WHERE source_path=? AND version=?').bind(archived, trashed, deleted, now, builtin.src, baseVersion).run();
+  if (!result.meta.changes) {
+    const latest = await db.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+    throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: builtinRecord(builtin, latest ?? {}) });
+  }
+  const row = await db.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+  return action === 'delete' ? { deleted: true, id: builtin.id } : { asset: builtinRecord(builtin, row), usage: { currentReferences: refs, historyReferences: await retainedResourceUsage(db, builtin.src) } };
+}
+
+export async function updateBuiltinAsset(db, builtin, input) {
+  if (!input || Object.keys(input).some(key => !['baseVersion', 'name', 'alt'].includes(key)) || !Number.isSafeInteger(input.baseVersion) || input.baseVersion < 0 || input.name !== undefined && (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 200) || input.alt !== undefined && (typeof input.alt !== 'string' || input.alt.length > 1000)) throw new HttpError(422, 'Resursens uppgifter är ogiltiga.');
+  const current = await db.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+  const version = current?.version ?? 0;
+  if (version !== input.baseVersion) throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: builtinRecord(builtin, current ?? {}) });
+  const now = new Date().toISOString();
+  const result = !current
+    ? await db.prepare('INSERT OR IGNORE INTO cms_builtin_resource_state(source_path,version,name,alt,updated_at) VALUES(?,1,?,?,?)').bind(builtin.src, input.name?.trim() ?? null, input.alt ?? null, now).run()
+    : await db.prepare('UPDATE cms_builtin_resource_state SET name=COALESCE(?,name),alt=COALESCE(?,alt),version=version+1,updated_at=? WHERE source_path=? AND version=?').bind(input.name?.trim() ?? null, input.alt ?? null, now, builtin.src, input.baseVersion).run();
+  if (!result.meta.changes) {
+    const latest = await db.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+    throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: builtinRecord(builtin, latest ?? {}) });
+  }
+  return builtinRecord(builtin, await db.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first());
+}
+
+
+export async function managedSvgSource(env, builtin) {
+  if (!builtin?.builtin || !builtin.editableSvg || !builtin.editableSrc) throw new HttpError(404, 'Resursen har ingen redigerbar SVG-källa.');
+  const row = await env.CMS_DB.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+  let svg = builtin.editableSvg;
+  if (row?.managed_asset_id) {
+    const stored = await env.CMS_MEDIA?.get(`managed-svg/${row.managed_asset_id}.svg`);
+    if (!stored) throw new HttpError(503, 'Den redigerade SVG-källan saknas i lagringen.');
+    svg = await stored.text();
+  }
+  return { svg: sanitizeManagedSvg(svg), version: row?.version ?? 0, asset: builtinRecord(builtin, row ?? {}) };
+}
+
+export async function saveManagedSvg(env, builtin, { baseVersion, svg }) {
+  if (!builtin?.builtin || !builtin.editableSvg || !builtin.editableSrc) throw new HttpError(404, 'Resursen har ingen redigerbar SVG-källa.');
+  if (!Number.isSafeInteger(baseVersion) || baseVersion < 0) throw new HttpError(428, 'Hämta SVG-källans aktuella version innan du sparar.');
+  const sanitized = sanitizeManagedSvg(svg);
+  const current = await env.CMS_DB.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+  const version = current?.version ?? 0;
+  if (version !== baseVersion) throw new HttpError(409, 'SVG-källan ändrades i en annan flik. Ladda om resursen.', { asset: builtinRecord(builtin, current ?? {}) });
+  const id = crypto.randomUUID();
+  const key = `managed-svg/${id}.svg`;
+  const bytes = new TextEncoder().encode(sanitized);
+  await env.CMS_MEDIA.put(key, bytes, { onlyIf: { etagDoesNotMatch: '*' }, httpMetadata: { contentType: 'image/svg+xml' }, customMetadata: { sha256: await digest(bytes), source: builtin.src } });
+  const now = new Date().toISOString();
+  let result;
+  if (current) result = await env.CMS_DB.prepare('UPDATE cms_builtin_resource_state SET managed_asset_id=?, version=version+1, updated_at=? WHERE source_path=? AND version=?').bind(id, now, builtin.src, baseVersion).run();
+  else result = await env.CMS_DB.prepare('INSERT OR IGNORE INTO cms_builtin_resource_state(source_path,version,managed_asset_id,updated_at) VALUES(?,1,?,?)').bind(builtin.src, id, now).run();
+  if (!result.meta.changes) {
+    await env.CMS_MEDIA.delete(key);
+    const latest = await env.CMS_DB.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+    throw new HttpError(409, 'SVG-källan ändrades i en annan flik. Ladda om resursen.', { asset: builtinRecord(builtin, latest ?? {}) });
+  }
+  const row = await env.CMS_DB.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path = ?').bind(builtin.src).first();
+  return { svg: sanitized, asset: builtinRecord(builtin, row) };
 }
 
 export async function assetResponse(request, env) {

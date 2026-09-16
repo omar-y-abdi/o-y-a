@@ -29,3 +29,13 @@ export function createDeck(cards, random = Math.random) {
     return deck.pop();
   };
 }
+
+export async function sharedCard(id, cards, fetcher = fetch) {
+  const local = getCard(id, cards);
+  if (local) return local;
+  if (typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(id)) return null;
+  try {
+    const response = await fetcher(`/data/cards/${id}.json`, { credentials: 'same-origin', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(8000) });
+    return response.ok ? response.json() : null;
+  } catch { return null; }
+}

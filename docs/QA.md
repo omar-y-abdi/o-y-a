@@ -7,14 +7,15 @@ This replaces the original ZIP delivery's rendered-document report. Current acce
 Install dependencies and browsers as described in the README, then:
 
 ```sh
-npm run check
-npm run quality
-npm run test:cms
+npm run verify:fast
+npm run verify:full
 ```
 
-`check` builds all public/admin assets, checks JavaScript syntax and runs Node tests. `quality` starts public and analytics fixture servers, verifies HTTP behavior and runs the public browser suite. It refuses occupied ports. Set `PUBLIC_TEST_PORT` and `ANALYTICS_TEST_PORT` when needed. Activate `.test-venv` first so `python` resolves to the installed Playwright environment.
+`verify:fast` is the normal edit-feedback loop. It builds once, lints, runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. `npm run test:slow` runs the backup drill alone with one worker; `npm test` and `verify:full` still include it.
 
-`test:cms` first checks actual editor/public modules in isolated DOM fixtures, then starts an isolated Miniflare Worker on an ephemeral loopback port with real D1/R2 and a signed RSA identity fixture, runs the original CMS browser/interactions scripts plus both review suites and disposes the runtime and cookie fixture. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself is verified separately in remote staging.
+`verify:full` is the release/CI gate. It reuses the completed build/check, starts the public and analytics fixtures, runs the public responsive matrix and all 240 production card exports with Playwright Test workers, runs the CMS browser suites in independent Worker runtimes, executes Firefox and WebKit compatibility in parallel, and finishes with a Wrangler dry-run. Set `PUBLIC_TEST_PORT` and `ANALYTICS_TEST_PORT` when needed. Activate `.test-venv` first so the remaining Python browser scenarios resolve to the installed Playwright environment.
+
+`test:cms` prepares the real editor/public module fixtures once, runs their cases in isolated parallel browser processes, then runs the authenticated CMS navigation suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself is verified separately in remote staging.
 
 Additional public regressions, with the public preview running:
 
@@ -23,7 +24,7 @@ BASE_URL=http://127.0.0.1:5273 python tests/revision_browser.py
 BASE_URL=http://127.0.0.1:5273 python tests/card_export.py
 ```
 
-Both navigate over real HTTP and load built modules. Contact cases intercept only the contact configuration, Turnstile script and contact API with explicit test responses; no real message is sent. The card suite checks every original card's text/layout and actual PNG output from the shared production renderer.
+Both navigate over real HTTP and load built modules. Contact cases intercept only the contact configuration, Turnstile script and contact API with explicit test responses; no real message is sent. The legacy Python card helper remains available for focused debugging. The exhaustive 240-card gate runs through `npm run test:card-export` on Playwright Test workers and validates text/layout plus actual PNG output from the shared production renderer.
 
 The PR #2 completion commands, engine matrix and exact restricted-environment limitations are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). Run `npm run test:cms:compat` for targeted Firefox/WebKit acceptance.
 

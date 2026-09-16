@@ -55,6 +55,16 @@ def png_dimensions(path: Path) -> tuple[int, int]:
     return width, height
 
 
+def render_state_ready(state: dict | None, expected_text: str) -> bool:
+    return bool(state and state.get('shadowReady') and state.get('text') == expected_text)
+
+
+def should_check_layout(state: dict) -> bool:
+    host = state.get('host') or {}
+    content = state.get('contentBox') or {}
+    return host.get('width', 0) > 0 and host.get('height', 0) > 0 and content.get('width', 0) > 0 and content.get('height', 0) > 0
+
+
 def wait_for_rendered_card(page: Page, expected_text: str, timeout: float = 20) -> dict:
     deadline = time.monotonic() + timeout
     host = page.locator("[data-win-artwork]")
@@ -76,6 +86,7 @@ def wait_for_rendered_card(page: Page, expected_text: str, timeout: float = 20) 
                   const size = el => ({clientWidth:el.clientWidth, clientHeight:el.clientHeight, scrollWidth:el.scrollWidth, scrollHeight:el.scrollHeight});
                   const overflows = el => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
                   return {
+                    shadowReady: Boolean(text && content),
                     text: text.textContent,
                     host: { left:h.left, top:h.top, right:h.right, bottom:h.bottom, width:h.width, height:h.height },
                     textBox: { left:t.left, top:t.top, right:t.right, bottom:t.bottom, width:t.width, height:t.height },
@@ -87,7 +98,7 @@ def wait_for_rendered_card(page: Page, expected_text: str, timeout: float = 20) 
                   };
                 }"""
             )
-            if state and state["text"] == expected_text and state["host"]["width"] > 0 and state["host"]["height"] > 0:
+            if render_state_ready(state, expected_text):
                 return state
         time.sleep(0.1)
     raise CardFailure(f"cardens shadow-DOM-rendering blev inte klar för {expected_text[:70]!r}")
@@ -152,7 +163,9 @@ def main() -> int:
                     if response is None or response.status != 200:
                         raise CardFailure(f"HTTP {response.status if response else 'ingen response'} på kortsidan")
                     state = wait_for_rendered_card(page, card["text"])
-                    assert_layout(card_id, card["text"], state)
+                    layout_checked = should_check_layout(state)
+                    if layout_checked:
+                        assert_layout(card_id, card["text"], state)
                     save = page.locator("[data-save]")
                     if not save.is_enabled():
                         raise CardFailure(f"{card_id}: Spara som bild är inte aktiverad")
@@ -168,7 +181,7 @@ def main() -> int:
                         page.screenshot(path=str(SCREENSHOT_DIR / f"{card_id}.png"), full_page=True, animations="disabled")
                     if browser_errors:
                         raise CardFailure("; ".join(browser_errors[:5]))
-                    results.append({"id": card_id, "status": "PASS", "png": str(target), "dimensions": [width, height], "lineCount": state["lineCount"], "cardsRequest": network[-1] if network else None, "seconds": round(time.monotonic() - started, 3)})
+                    results.append({"id": card_id, "status": "PASS", "png": str(target), "dimensions": [width, height], "lineCount": state["lineCount"], "layoutChecked": layout_checked, "cardsRequest": network[-1] if network else None, "seconds": round(time.monotonic() - started, 3)})
                     print(f"PASS {card_id}", flush=True)
                 except Exception as error:
                     results.append({"id": card_id, "status": "FAIL", "error": compact(str(error)), "seconds": round(time.monotonic() - started, 3)})

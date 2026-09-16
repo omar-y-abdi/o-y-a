@@ -181,8 +181,9 @@ with sync_playwright() as pw:
             expect(b.locator('#asset-name')).to_have_value('Renamed without reversing archive')
             shot(b,'asset-metadata-conflict')
             b.locator('#retry-asset').click()
-            expect(b.locator('[data-action=unarchive-asset]')).to_be_visible()
-            item=next(x for x in api(ctx,'state').json()['assets'] if x['id']==asset_id)
+            expect(b.locator('[data-action=restore-asset]')).to_be_visible()
+            archived=api(ctx,'assets?state=archived').json()['items']
+            item=next(x for x in archived if x['id']==asset_id)
             assert item['archived'] and item['name']=='Renamed without reversing archive' and item['alt']=='Concurrent alternative text'
         finally: ctx.close()
 
@@ -198,8 +199,23 @@ with sync_playwright() as pw:
             frame.get_by_text('Local clone target',exact=True).click(); page.locator('#select-parent').click(); page.locator('#duplicate-element').click()
             expect(frame.get_by_text('Local clone target',exact=True)).to_have_count(2)
             save(page); page.reload(); ready(page)
-            public=browser.new_page(); public.goto(BASE+'/review-clone/')
-            values=public.locator('section:has(h2)').filter(has=public.get_by_text('Local clone target',exact=True)).evaluate_all("""ss=>ss.map(s=>({id:s.id,heading:s.querySelector('h2').id,link:s.querySelector('a').getAttribute('href'),label:s.getAttribute('aria-labelledby'),clip:s.querySelector('clipPath').id,clipRef:s.querySelector('rect').getAttribute('clip-path'),padding:getComputedStyle(s).padding,color:getComputedStyle(s).color}))""")
+            saved_state=api(ctx,'state').json()
+            saved_page=next(x for x in saved_state['project']['pages'] if x['id']=='review-clone')
+            compact_css=saved_page['css'].replace(' ','')
+            assert 'padding:19px' in compact_css and 'color:rgb(201,32,17)' in compact_css, saved_page['css']
+            public=browser.new_page()
+            with public.expect_response(lambda response: '/cms-public/v' in response.url and response.url.endswith('/review-clone.css')) as css_info:
+                public.goto(BASE+'/review-clone/',wait_until='load')
+            css_response=css_info.value
+            assert css_response.ok, (css_response.status, css_response.url)
+            published_css=css_response.text().replace(' ','')
+            assert 'padding:19px' in published_css and 'color:rgb(201,32,17)' in published_css, published_css
+            sections=public.locator('section:has(h2)').filter(has=public.get_by_text('Local clone target',exact=True))
+            expect(sections).to_have_count(2)
+            for index in range(2):
+                expect(sections.nth(index)).to_have_css('padding','19px')
+                expect(sections.nth(index)).to_have_css('color','rgb(201, 32, 17)')
+            values=sections.evaluate_all("""ss=>ss.map(s=>({id:s.id,heading:s.querySelector('h2').id,link:s.querySelector('a').getAttribute('href'),label:s.getAttribute('aria-labelledby'),clip:s.querySelector('clipPath').id,clipRef:s.querySelector('rect').getAttribute('clip-path'),padding:getComputedStyle(s).padding,color:getComputedStyle(s).color}))""")
             assert len(values)==2 and values[0]['id']!=values[1]['id'],values
             for value in values:
                 assert value['link']=='#'+value['heading'] and value['label']==value['heading'],value

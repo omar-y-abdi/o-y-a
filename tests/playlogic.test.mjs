@@ -1,7 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { createDeck } from '../src/client/cards.mjs';
+import { createDeck, sharedCard } from '../src/client/cards.mjs';
 import { readFileSync } from 'node:fs';
 const CARDS=JSON.parse(readFileSync('public/data/cards.json','utf8'));
 test('each category exhausts its full shuffled deck before repeating', () => {
@@ -23,4 +23,15 @@ test('fika uses milliseconds and preserves exact target', async () => {
   const { fikaResult }=await import('../src/client/playlogic.mjs');
   assert.equal(fikaResult(5000).seconds,'5,00');
   assert.notEqual(fikaResult(1000).comment,fikaResult(10000).comment);
+});
+
+test('shared card lookup keeps archived direct links addressable without querying when card is local', async () => {
+  const archived={id:'archived-card',flavor:'kind',text:'Still addressable',state:'archived'};
+  let calls=0;
+  assert.equal(await sharedCard(archived.id,[archived],async()=>{calls++;throw new Error('unexpected fetch')}),archived);
+  assert.equal(calls,0);
+  const remote=await sharedCard('archived-remote',[],async url=>{calls++;assert.equal(url,'/data/cards/archived-remote.json');return Response.json(archived);});
+  assert.deepEqual(remote,archived);
+  assert.equal(calls,1);
+  assert.equal(await sharedCard('../unsafe',[],async()=>{throw new Error('unexpected fetch')}),null);
 });

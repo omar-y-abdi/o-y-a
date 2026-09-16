@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { mergeProjects } from '../src/cms/client/merge.mjs';
 const base = () => ({ schemaVersion: 1, pages: [{ id: 'home', html: 'old', css: 'old', project: { old: true } }, { id: 'about', html: 'about' }], cards: [{ id: 'win', text: 'old' }], theme: { blue: '#123456', fontFamily: 'Arial' }, runtime: { hello: 'Hej' } });

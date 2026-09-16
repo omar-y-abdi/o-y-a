@@ -74,7 +74,7 @@ function checkAttribute(name, value, tag) {
   const lower = name.toLowerCase();
   if (typeof value !== 'string' || value.length > 20000 || /^on/i.test(lower) || /^data-gjs/i.test(lower)
     || (!ATTRS.has(lower) && !/^aria-[a-z-]+$/.test(lower) && !/^data-[a-z0-9-]+$/.test(lower))) invalid(`Attributet ${name} är inte tillåtet.`);
-  if (lower === 'id' && /^cms-(?:preview|win)-/.test(value) || lower.startsWith('data-cms-') && lower !== 'data-cms-node') invalid('Interna preview-markörer får inte användas i redigerbart innehåll.');
+  if (lower === 'id' && /^cms-(?:preview|win)-/.test(value) || lower.startsWith('data-cms-') && !['data-cms-node','data-cms-shared'].includes(lower)) invalid('Interna preview-markörer får inte användas i redigerbart innehåll.');
   if (lower === 'xmlns' && value !== 'http://www.w3.org/2000/svg') invalid('Okänd SVG-namnrymd.');
   if (lower === 'style') validateCss(value, 'declarationList');
   if (['src', 'poster'].includes(lower) && !resourceUrl(value)) invalid('Bilder måste väljas från webbplatsens egna resurser.');
@@ -88,6 +88,7 @@ function checkAttribute(name, value, tag) {
   if (lower === 'action' && value !== '/api/contact') invalid('Formuläret får inte byta mottagare.');
   if (lower === 'method' && value.toLowerCase() !== 'post') invalid('Formuläret måste använda POST.');
   if (lower === 'target' && !['_self', '_blank'].includes(value)) invalid('Länkens mål är ogiltigt.');
+  if (lower === 'data-cms-shared' && !/^[a-z][a-z0-9.-]{0,79}$/.test(value)) invalid('Gemensamt innehåll har en ogiltig nyckel.');
   if (lower === 'tabindex' && !['0', '-1'].includes(value)) invalid('Tabbordningen måste följa dokumentet.');
   if (['fill', 'stroke', 'clip-path'].includes(lower)) validateCss(`${lower}:${value}`, 'declarationList');
 }

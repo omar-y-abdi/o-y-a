@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { previewData } from '../src/client/previewdata.mjs';
 const data={schemaVersion:1,cards:[{id:'one',flavor:'kind',text:'A win',design:{html:'<p data-card-text></p>',css:''}}],runtime:{'welcome':'Preview text'}};

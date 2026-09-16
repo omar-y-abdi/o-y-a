@@ -26,3 +26,7 @@
 
 .special-heading p,.special-kicker,.asset-card-meta small,.history-row p,.history-row time,.asset-filters button,.studio-dialog p{color:#59634f}
 :root .backup-status{margin:0 12px 8px;font-size:10px;line-height:1.4;color:#4c5940}.backup-list{margin-top:24px}.backup-row{padding:18px 0;border-top:1px solid var(--studio-line)}.backup-row p{font-size:12px;overflow-wrap:anywhere}.backup-row .dialog-buttons{justify-content:flex-start;flex-wrap:wrap}.backup-row button{min-height:44px}
+/* CMS usability expansion */
+.lifecycle-tabs{margin-bottom:10px}.lifecycle-tabs button.is-selected,.asset-filters button.is-selected{background:#edf0ff;border-color:#234ce7;color:#1939b3}.win-selection-bar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 0 18px;border-bottom:1px solid #e1e7d8;margin-bottom:18px}.win-selection-bar strong{margin-right:4px;font-size:12px}.win-selection-bar select{min-height:32px;border:1px solid #dce3ce;background:#fffef9;border-radius:5px;padding:4px 8px}.win-card-wrap{position:relative;border:1px solid transparent;border-radius:10px;padding:6px}.win-card-wrap.is-selected{border-color:#234ce7;background:#edf0ff}.win-card-wrap .win-card{width:100%;height:100%}.win-select{display:flex;gap:6px;align-items:center;font-size:11px;padding:3px 5px 7px;color:#59634f}.bulk-heading-actions{display:flex;gap:8px;flex-wrap:wrap}.preview-stage{justify-content:center!important}
+
+.gjs-frame-wrapper--anim{transition:none!important}

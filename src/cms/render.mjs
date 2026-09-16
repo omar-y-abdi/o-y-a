@@ -40,6 +40,12 @@ export async function publicContent(request, env, built, csp) {
     if (!page || !theme) return new Response('Not found', { status: 404 });
     return new Response(themeCss(JSON.parse(theme.html)) + page.css, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' } });
   }
+  const exactCard = url.pathname.match(/^\/data\/cards\/([a-z0-9-]{1,80})\.json$/);
+  if (exactCard) {
+    const row = await readPublicPage(env.CMS_DB, `@card/${exactCard[1]}`);
+    if (!row?.html) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    return Response.json(JSON.parse(row.html), { headers: { 'Cache-Control': 'no-store', 'X-CMS-Version': String(row.version) } });
+  }
   if (['/data/cards.json', '/data/runtime.json'].includes(url.pathname)) {
     const data = await readPublicData(env.CMS_DB, url.pathname.includes('cards') ? 'cards' : 'runtime');
     return data ? Response.json(data.value, { headers: { 'Cache-Control': 'no-store', 'X-CMS-Version': String(data.version) } }) : null;

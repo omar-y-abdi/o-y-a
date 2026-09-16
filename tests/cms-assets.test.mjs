@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import { test, afterAll as after } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';

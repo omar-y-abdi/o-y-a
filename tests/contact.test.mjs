@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 const valid={name:'Ada Lovelace',email:'ada@example.net',message:'En idé',website:'',token:'verified-token',submission:'6c77eb01-9260-4e9c-8a72-262b520ee1b1'};

@@ -1,5 +1,5 @@
 import { authenticateAdmin } from './auth.mjs';
-import { assetResponse, assetPage, assetSelection, MAX_ASSET_BYTES, updateAsset, uploadAsset, validateReferencedMedia } from './assets.mjs';
+import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, saveManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
 import { publicationChunks, publicationMedia, publishSite, readHistory, readSite } from './store.mjs';
@@ -16,11 +16,12 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
     if (request.method === 'GET' || request.method === 'HEAD') {
       if (url.pathname === '/admin/api/state') {
-        const [state, media] = await Promise.all([readSite(env.CMS_DB), assetPage(env.CMS_DB)]);
+        const [state, media, builtinStates] = await Promise.all([readSite(env.CMS_DB), assetPage(env.CMS_DB, { state: 'active' }), builtinAssetStates(env.CMS_DB)]);
         const project = state?.project ?? initial;
         const selected = await assetSelection(env.CMS_DB, resourceIds(project), { fonts: true });
         const assets = [...new Map([...media.items, ...selected].map(asset => [asset.id, asset])).values()];
-        return json({ version: state?.version ?? 0, project, identity, definitions: seed.pages, blank: seed.blank, built, assets: resourceCatalog(seed, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' });
+        const builtins = mergeBuiltinAssetStates(seed.assets, builtinStates);
+        return json({ version: state?.version ?? 0, project, identity, definitions: seed.pages, blank: seed.blank, built, assets: resourceCatalog({ ...seed, assets: builtins }, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' });
       }
       if (url.pathname === '/admin/api/history') {
         const cursor = Number(url.searchParams.get('before') ?? Number.MAX_SAFE_INTEGER);
@@ -35,8 +36,13 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         return json(state);
       }
       if (url.pathname === '/admin/api/assets') {
-        const result = await assetPage(env.CMS_DB, { cursor: url.searchParams.get('cursor'), query: url.searchParams.get('q') ?? '', archived: url.searchParams.get('archived') === '1', images: url.searchParams.get('kind') === 'image' });
+        const state = url.searchParams.get('state');
+        const result = await assetPage(env.CMS_DB, { cursor: url.searchParams.get('cursor'), query: url.searchParams.get('q') ?? '', state: ['active','archived','trash'].includes(state) ? state : null, archived: state ? null : url.searchParams.get('archived') === '1', images: url.searchParams.get('kind') === 'image' });
         return json(result);
+      }
+      if (url.pathname === '/admin/api/managed-svg') {
+        const builtin = seed.assets.find(asset => asset.id === url.searchParams.get('id'));
+        return json(await managedSvgSource(env, builtin ? { ...builtin, builtin: true } : null));
       }
       throw new HttpError(404, 'Åtgärden finns inte.');
     }
@@ -48,6 +54,23 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       return json(await uploadAsset(env, { id: request.headers.get('X-CMS-Upload-Id') ?? '', name, alt, bytes: await readBytes(request, MAX_ASSET_BYTES) }), 201);
     }
     requireWriteRequest(request);
+    if (url.pathname === '/admin/api/managed-svg') {
+      const body = await readJson(request, 600 * 1024);
+      const builtin = seed.assets.find(asset => asset.id === body.id);
+      return json(await saveManagedSvg(env, builtin ? { ...builtin, builtin: true } : null, body));
+    }
+    if (['/admin/api/asset-metadata', '/admin/api/asset-usage', '/admin/api/asset-lifecycle'].includes(url.pathname)) {
+      const body = await readJson(request, 16 * 1024 * 1024);
+      const builtin = seed.assets.find(asset => asset.id === body.id);
+      if (url.pathname === '/admin/api/asset-metadata') {
+        const { id, ...patch } = body;
+        return json({ asset: builtin ? await updateBuiltinAsset(env.CMS_DB, builtin, patch) : await updateAsset(env.CMS_DB, id, patch) });
+      }
+      const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });
+      if (url.pathname === '/admin/api/asset-usage') return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }, project));
+      const input = { action: body.action, baseVersion: body.baseVersion, project };
+      return json(builtin ? await transitionBuiltinAsset(env.CMS_DB, builtin, input) : await transitionAsset(env, { id: body.id, ...input }));
+    }
     if (['/admin/api/replace-resource', '/admin/api/resource-usage'].includes(url.pathname)) {
       const body = await readJson(request, 16 * 1024 * 1024);
       const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });

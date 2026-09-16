@@ -1,15 +1,7 @@
 import grapesjs from 'grapesjs';
-import { fontFamilies, assetFontCss } from '../theme.mjs';
+import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
-
-const sectors = [
-  { name: 'Layout & storlek', open: true, buildProps: ['display', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'overflow', 'flex-direction', 'justify-content', 'align-items', 'gap'], properties: [{ property: 'display', type: 'select', options: ['block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'none'].map(id => ({ id, label: id })) }] },
-  { name: 'Typografi', open: true, buildProps: ['font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'text-align', 'color', 'text-decoration', 'text-transform'] },
-  { name: 'Avstånd', open: false, buildProps: ['margin', 'padding'] },
-  { name: 'Yta & kanter', open: false, buildProps: ['background-color', 'background', 'border', 'border-radius', 'box-shadow', 'opacity'] },
-  { name: 'Position', open: false, buildProps: ['position', 'top', 'right', 'bottom', 'left', 'z-index', 'transform'] },
-  { name: 'Rutnät & flex', open: false, properties: ['grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row', 'flex-wrap', 'flex-grow', 'flex-shrink', 'order', 'row-gap', 'column-gap'] },
-];
+import { normalStyleSectors, applyStyleMode, configureVisualComponent } from './editor-policy.mjs';
 
 export function createEditor({ page, cssPath, assets, onChange, onSelect, onReady, onAssetPick }) {
   let disposed = false;
@@ -41,7 +33,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     deviceManager: { devices: [{ id: 'desktop', name: 'Dator', width: '1440px', widthMedia: '' }, { id: 'mobile', name: 'Mobil', width: '390px', widthMedia: '760px' }] },
     layerManager: { appendTo: '#layers-panel' },
     traitManager: { appendTo: '#traits-panel' },
-    styleManager: { appendTo: '#styles-panel', sectors },
+    styleManager: { appendTo: '#styles-panel', sectors: normalStyleSectors },
     blockManager: { appendTo: '#blocks-panel', appendOnClick: true, blocks: [
       { id: 'section', label: 'Sektion', media: '▭', content: '<section style="padding:64px 40px;min-height:180px"><h2>Din nästa idé.</h2><p>Ge den lite plats.</p></section>' },
       { id: 'columns', label: 'Två kolumner', media: '▥', content: '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;padding:32px"><div style="min-height:100px"><h2>En tanke.</h2></div><div style="min-height:100px"><p>Och en till.</p></div></div>' },
@@ -54,17 +46,19 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     ] },
     assetManager: { assets: assets.filter(asset => asset.mime.startsWith('image/')).map(asset => ({ src: asset.src, name: asset.name, width: asset.width, height: asset.height })), upload: false, custom: true },
   });
-  const base = editor.DomComponents.getType('default');
   editor.on('block:click', () => { if (!editor.getSelected()) editor.select(editor.getWrapper().find('main')[0] ?? editor.getWrapper().components().at(0)); });
-  editor.DomComponents.addType('default', { model: { defaults: { ...base.model.prototype.defaults, resizable: true } } });
-  const fontProperty = editor.StyleManager.getProperty('typografi', 'font-family') ?? editor.StyleManager.getSectors().find(sector => sector.get('name') === 'Typografi')?.getProperty('font-family');
-  fontProperty?.set('options', [...Object.entries(fontFamilies).map(([label, id]) => ({ id, label })), ...assets.filter(asset => asset.mime === 'font/woff2').map(asset => ({ id: `cms-font-${asset.id}`, label: asset.name }))]);
-  editor.on('component:create', component => component.on('component:clone', clone => remapClone(component, clone, editor)));
+  const fontOptions = [...Object.entries(fontFamilies).map(([label, id]) => ({ id, label })), ...assets.filter(asset => asset.mime === 'font/woff2').map(asset => ({ id: `cms-font-${asset.id}`, label: asset.name }))];
+  const applyFontOptions = () => editor.StyleManager.getProperty('typografi', 'font-family')?.set('options', fontOptions);
+  const setStyleMode = mode => { applyStyleMode(editor, mode); if (mode === 'normal') applyFontOptions(); };
+  applyFontOptions();
+  editor.on('component:create', component => { configureVisualComponent(component); component.on('component:clone', clone => remapClone(component, clone, editor)); });
   // The same validated HTML/CSS powers editing, preview and publication.
   // Editor JSON is legacy import metadata, never a second content authority.
   editor.setStyle(page.css);
   // Importing components extracts inline styles; do not erase those afterward.
   editor.setComponents(page.html);
+  const configureTree = component => { configureVisualComponent(component); component.components?.().forEach(configureTree); };
+  editor.getWrapper().components().forEach(configureTree);
   editor.AssetManager.add(assets.filter(asset => asset.mime.startsWith('image/')).map(asset => ({ src: asset.src, name: asset.name, width: asset.width, height: asset.height })));
   editor.getWrapper().addAttributes({ id: 'top', class: page.bodyClass, 'data-page': page.path });
   if (page.bodyClass === 'page-win') editor.getWrapper().set('droppable', false);
@@ -109,6 +103,10 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     clearTimeout(timer);
     timer = setTimeout(flush, 250);
   });
+  editor.on('component:resize:end', ({ component }) => {
+    const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
+    if (['a', 'span'].includes(tag) && component.getStyle?.().width && !component.getStyle().display) component.addStyle({ display: 'inline-block' });
+  });
   editor.on('component:selected', component => onSelect(component, editor));
   editor.on('component:deselected', () => { if (!editor.getSelected()) onSelect(null, editor); });
   editor.on('asset:custom', props => {
@@ -120,6 +118,6 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
       flush();
     });
   });
-  return { editor, flush, snapshot, destroy() { flush(); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); editor.destroy(); } };
+  return { editor, flush, snapshot, setStyleMode, destroy() { flush(); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); editor.destroy(); } };
 }
 import { remapClone } from './clone.mjs';

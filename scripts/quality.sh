@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-npm run check
+if [[ "${SKIP_CHECK:-0}" != "1" ]]; then npm run check; fi
 python -m unittest discover -s tests -p test_revision_scroll.py
 mkdir -p artifacts
 public_port=${PUBLIC_TEST_PORT:-4173}
@@ -30,6 +30,4 @@ for port in map(int, sys.argv[1:]):
         raise SystemExit(f'Preview server did not start on {port}')
 PY
 python tests/http_checks.py --base-url "http://127.0.0.1:$public_port" --analytics-url "http://127.0.0.1:$analytics_port"
-python tests/browser.py --base-url "http://127.0.0.1:$public_port" --analytics-url "http://127.0.0.1:$analytics_port" --screenshots
-BASE_URL="http://127.0.0.1:$public_port" python tests/revision_browser.py
-BASE_URL="http://127.0.0.1:$public_port" python tests/card_export.py
+BASE_URL="http://127.0.0.1:$public_port" ANALYTICS_URL="http://127.0.0.1:$analytics_port" node scripts/run-quality-browser.mjs

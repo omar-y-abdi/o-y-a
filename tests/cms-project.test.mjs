@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { routes } from '../src/content/site.mjs';
@@ -39,4 +39,29 @@ test('global theme accepts known colors and fonts and rejects CSS injection', ()
   const project = structuredClone(seed);
   project.theme.fontFamily = 'Arial; background:url(https://evil.test)';
   assert.throws(() => validateProject(project, seed));
+});
+
+test('win lifecycle defaults legacy cards to active and requires an active card in every flavor', () => {
+  const normalized=validateProject(structuredClone(seed),seed);
+  assert.ok(normalized.cards.every(card=>card.state==='active'));
+  const project=structuredClone(seed);
+  for(const card of project.cards)if(card.flavor==='kind')card.state='archived';
+  assert.throws(()=>validateProject(project,seed),/kategori/i);
+});
+
+test('trusted shared footer defaults and publication rejects divergent or missing linked instances', () => {
+  const sharedSeed={...seed,sharedContent:{'footer.tagline':'Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.'}};
+  const project=structuredClone(sharedSeed);
+  const normalized=validateProject(project,sharedSeed);
+  assert.equal(normalized.sharedContent['footer.tagline'],sharedSeed.sharedContent['footer.tagline']);
+  const divergent=structuredClone(normalized);
+  divergent.pages[0].html=divergent.pages[0].html.replace('Lite hjärna. Lite hjärta.','Annan text.');
+  assert.throws(()=>validateProject(divergent,sharedSeed),/gemensam/i);
+  const unlinked=structuredClone(normalized);
+  unlinked.pages[0].html=unlinked.pages[0].html.replace(' data-cms-shared="footer.tagline"','');
+  assert.throws(()=>validateProject(unlinked,sharedSeed),/gemensam/i);
+});
+
+test('trusted source pages mark the footer tagline as one shared slot', () => {
+  for(const page of pages) assert.match(page.html,/data-cms-shared="footer.tagline"/);
 });

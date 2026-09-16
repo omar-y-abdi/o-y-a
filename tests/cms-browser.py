@@ -233,7 +233,7 @@ class CMSBrowserQA:
         page.locator('[data-library=assets]').click()
         if section == "wins":
             page.locator('#library-list [data-special=wins]').click()
-        target = '#win-search' if section == "wins" else '[data-action=toggle-archived]'
+        target = '#win-search' if section == "wins" else '[data-media-state=active]'
         page.locator(f'#special-stage {target}').wait_for(state="visible", timeout=20000)
 
     @staticmethod
@@ -243,7 +243,7 @@ class CMSBrowserQA:
         if previous is None:
             raise ScenarioFailure("Filens metadataformulär saknas")
         try:
-            with page.expect_response(lambda response: response.request.method == 'POST' and urlsplit(response.url).path.startswith('/admin/api/assets/')) as pending:
+            with page.expect_response(lambda response: response.request.method == 'POST' and urlsplit(response.url).path == '/admin/api/asset-metadata') as pending:
                 page.locator('[data-action=save-asset]').click()
             response = pending.value
             if response.status != 200:
@@ -963,6 +963,11 @@ class CMSBrowserQA:
                 if theme.input_value() != font_value:
                     raise ScenarioFailure("Webbplatsens stil valde inte uppladdat WOFF2")
 
+                # Webbplatsens stil is intentionally color/effects-only for a selected
+                # component. Return to the normal editor before verifying the
+                # per-element typography hook.
+                page.locator('[data-action="edit"]').click()
+                self.wait_canvas(page)
                 target = self.first_text_target(self.frame(page))
                 target.click()
                 page.locator("#styles-panel").wait_for(state="visible", timeout=10000)

@@ -1,4 +1,4 @@
-import test, { before, after } from 'node:test';
+import { test, beforeAll as before, afterAll as after } from 'vitest';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
@@ -16,6 +16,12 @@ let runtime;
 before(async()=>{ runtime=await cmsRuntime(); });
 after(async()=>runtime?.close());
 const bytes=value=>Buffer.byteLength(value);
+async function responseStatus(promise) {
+ const response=await promise;
+ try { return response.status; }
+ finally { await response.body?.cancel().catch(()=>{}); }
+}
+
 
 test('R4: definitive errors discard a rejected attempt; unknown outcomes replay immutable bytes',()=>{
  for(const status of [0,200,408,500,502,503,504,400,401,403,409,413,415,422,429]){
@@ -58,7 +64,7 @@ test('R6/R7: font and all global resource slots publish registered immutable obj
  const original=validateProject(structuredClone(initial),seed);const project=structuredClone(original);
  project.theme.fontFamily=`cms-font-${font.id}`;project.resources=Object.fromEntries(Object.keys(defaultResources).map(key=>[key,image.src]));
  const first=await publishSite(runtime.db,{project,baseVersion:0,requestId:crypto.randomUUID(),actor:'owner@example.test'});
- for(const asset of [font,image])assert.equal((await runtime.mf.dispatchFetch('https://omaryusuf.se'+asset.src)).status,200);
+ for(const asset of [font,image])assert.equal(await responseStatus(runtime.mf.dispatchFetch('https://omaryusuf.se'+asset.src)),200);
  const head=await (await runtime.mf.dispatchFetch('https://omaryusuf.se/')).text();
  assert.match(head,new RegExp('rel="apple-touch-icon" href="'+image.src+'"'));const style=await (await runtime.mf.dispatchFetch(`https://omaryusuf.se/cms-public/v${first.version}/home.css`)).text();assert.match(style,new RegExp('font-family:"cms-font-'+font.id+'"'));
  const slots=(await readPublicData(runtime.db,'resources')).value;
@@ -66,7 +72,7 @@ test('R6/R7: font and all global resource slots publish registered immutable obj
  assert.equal(slots.social.width,1200);assert.equal(slots.social.height,630);
  await publishSite(runtime.db,{project:original,baseVersion:first.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
  assert.equal((await readPublicData(runtime.db,'resources')).value.icon.src,defaultResources.icon);
- assert.equal((await runtime.mf.dispatchFetch('https://omaryusuf.se'+image.src)).status,200,'Historical media must remain available');
+ assert.equal(await responseStatus(runtime.mf.dispatchFetch('https://omaryusuf.se'+image.src)),200,'Historical media must remain available');
 });
 
 test('R5: UTF-8 rows and JSON bind chunks have independent enforced byte budgets',()=>{

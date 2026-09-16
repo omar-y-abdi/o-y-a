@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import { test, afterAll as after } from 'vitest';
 import assert from 'node:assert/strict';
 import { crc32 } from 'node:zlib';
 import { digest } from '../src/cms/store.mjs';

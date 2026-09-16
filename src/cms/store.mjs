@@ -44,6 +44,17 @@ export async function readPublicData(db, key) {
   return { version: value.version, value: data };
 }
 
+
+export async function retainedResourceUsage(db, src) {
+  const rows = await db.prepare('SELECT project FROM cms_revisions ORDER BY version').all();
+  let references = 0;
+  for (const row of rows.results) {
+    const project = JSON.parse(await decompress(row.project));
+    references += resourceReferences(project).get(src) ?? 0;
+  }
+  return references;
+}
+
 export async function readHistory(db, cursor = Number.MAX_SAFE_INTEGER) {
   const rows = await db.prepare('SELECT version, created_at AS createdAt, actor, summary FROM cms_revisions WHERE version < ? ORDER BY version DESC LIMIT 51').bind(cursor).all();
   return { items: rows.results.slice(0, 50), next: rows.results.length > 50 ? rows.results[49].version : null };
@@ -60,11 +71,13 @@ export const PUBLIC_BIND_LIMIT = 1800000;
 export function publicationChunks(project, resources = resourceSlots) {
   const fonts = fontCss(project);
   const manifest = project.pages.map(metadata);
-  const publicCards = project.cards.map(card => ({ id: card.id, flavor: card.flavor, text: card.text, ...(card.design ? { design: { html: card.design.html, css: fontCss({ theme: {}, pages: [], cards: [card] }) + card.design.css } } : {}) }));
+  const publicCard = card => ({ id: card.id, flavor: card.flavor, text: card.text, ...(card.design ? { design: { html: card.design.html, css: fontCss({ theme: {}, pages: [], cards: [card] }) + card.design.css } } : {}) });
+  const addressableCards = project.cards.filter(card => (card.state ?? 'active') !== 'trash').map(publicCard);
+  const activeIds = project.cards.filter(card => (card.state ?? 'active') === 'active').map(card => card.id);
   const rendered = [
     ...project.pages.map(page => ({ path: page.path, html: page.html, css: fonts + page.css, meta: { ...metadata(page), resources } })),
-    ...publicCards.map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(card), css: '', meta: {} })),
-    ...[['cards', { schemaVersion: 1, ids: publicCards.map(card => card.id) }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: {} })),
+    ...addressableCards.map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(card), css: '', meta: {} })),
+    ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: {} })),
   ];
   const chunks = [[]];
   let chunkBytes = 2, totalBytes = 0;
