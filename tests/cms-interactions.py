@@ -102,7 +102,7 @@ with sync_playwright() as p:
             page.locator('[data-action=archive-asset]').click()
             Q.confirm_yes(page)
             page.locator('[data-action=restore-asset]').wait_for(state='visible', timeout=10000)
-            page.locator('[data-special=media]').click()
+            page.locator('#library-list [data-special=media]').click()
             page.locator('[data-media-state=archived]').wait_for(state='visible', timeout=10000)
             page.locator('[data-media-state=archived]').click()
             page.get_by_role('button', name='Liten bild, trygg plats').click()
