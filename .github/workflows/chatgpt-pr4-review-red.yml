@@ -1,0 +1,39 @@
+name: ChatGPT PR4 review RED
+on:
+  push:
+    branches: [chatgpt/pr4-review-red-20260916]
+permissions:
+  contents: read
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: npm run build
+      - name: Apply regression tests only
+        env:
+          PATCH_B64: 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
+        run: |
+          printf '%s' "$PATCH_B64" | base64 -d | gzip -d | git apply
+          git diff --check
+      - name: Confirm new tests are RED on current product code
+        run: |
+          set +e
+          npx vitest run tests/cms-usability.test.mjs --maxWorkers=1
+          VITEST=$?
+          CMS_BROWSER=chromium CMS_MODULE_CASE='cms-usability-' npm run test:cms:modules
+          MODULES=$?
+          set -e
+          echo "vitest_status=$VITEST module_status=$MODULES"
+          test "$VITEST" -ne 0
+          test "$MODULES" -ne 0
