@@ -12,7 +12,7 @@ test('resize allowlist includes visual layout components but protects functional
   assert.equal(isResizableComponent(component({tag:'p',type:'text'})),true);
   assert.equal(isResizableComponent(component({tag:'a',type:'link',attrs:{href:'/kontakt/'}})),true);
   assert.equal(isResizableComponent(component({tag:'img',type:'image'})),true);
-  assert.equal(isResizableComponent(component({tag:'g'})),true);
+  assert.equal(isResizableComponent(component({tag:'g'})),false);
   assert.equal(isResizableComponent(component({tag:'path'})),false);
   assert.equal(isResizableComponent(component({tag:'button',attrs:{'data-print':''}})),false);
   assert.equal(isResizableComponent(component({tag:'input'})),false);
