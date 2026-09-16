@@ -53,7 +53,7 @@ jobs:
               'tests/cms-modules.py',
               "change(){handle.flush()}",
               "change(){handle.flush(true)}",
-              count=2,
+              count=3,
           )
           PY
           rm .github/workflows/chatgpt-pr4-surgical-fix.yml
