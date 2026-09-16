@@ -2,6 +2,7 @@ import grapesjs from 'grapesjs';
 import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
 import { normalStyleSectors, applyStyleMode, configureVisualComponent } from './editor-policy.mjs';
+import { ensureComponentIdentity } from './view-state.mjs';
 
 export function createEditor({ page, cssPath, assets, onChange, onSelect, onReady, onAssetPick }) {
   let disposed = false;
@@ -58,7 +59,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     if (mode === 'normal') applyFontOptions();
   };
   applyFontOptions();
-  editor.on('component:create', component => { configureVisualComponent(component); component.on('component:clone', clone => remapClone(component, clone, editor)); });
+  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component); component.on('component:clone', clone => remapClone(component, clone, editor)); });
   // The same validated HTML/CSS powers editing, preview and publication.
   // Editor JSON is legacy import metadata, never a second content authority.
   editor.setStyle(page.css);

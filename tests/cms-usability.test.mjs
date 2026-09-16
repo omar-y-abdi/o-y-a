@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 import { transitionAsset, transitionBuiltinAsset, updateBuiltinAsset } from '../src/cms/assets.mjs';
+import { publishSite, readPublicData, readSite } from '../src/cms/store.mjs';
+import { initial } from '../.generated/cms-seed.mjs';
 
 let runtime, cookie;
 before(async () => { runtime = await cmsRuntime(); cookie = 'CF_Authorization=' + await runtime.token(); });
@@ -67,7 +69,7 @@ test('media lifecycle is CAS-safe and supports archive restore trash and delete'
   assert.equal(await (await runtime.mf.getR2Bucket('CMS_MEDIA')).head(asset.src.slice(7)),null);
 });
 
-test('permanent media deletion removes live D1 metadata before R2 and restores it if R2 deletion fails', async () => {
+test('permanent media deletion keeps an owned tombstone when R2 deletion fails', async () => {
   const asset=await upload('Delete ordering.png');
   const state=await (await get('state')).json();
   const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:state.project});
@@ -78,21 +80,110 @@ test('permanent media deletion removes live D1 metadata before R2 and restores i
     transitionAsset({
       CMS_DB:runtime.db,
       CMS_MEDIA:{delete:async()=>{
-        observed={
-          live:await runtime.db.prepare('SELECT id FROM cms_media WHERE id=?').bind(asset.id).first(),
-          queued:await runtime.db.prepare('SELECT id FROM cms_media_delete_queue WHERE id=?').bind(asset.id).first(),
-        };
+        observed=await runtime.db.prepare('SELECT * FROM cms_media WHERE id=?').bind(asset.id).first();
         throw new Error('simulated R2 failure');
       }},
     },{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:state.project}),
     /simulated R2 failure/,
   );
-  assert.equal(observed.live,null);
-  assert.equal(observed.queued.id,asset.id);
-  const restored=await runtime.db.prepare('SELECT * FROM cms_media WHERE id=?').bind(asset.id).first();
-  assert.equal(restored.version,trashedAsset.version);
-  assert.ok(restored.trashed_at);
-  assert.equal(await runtime.db.prepare('SELECT id FROM cms_media_delete_queue WHERE id=?').bind(asset.id).first(),null);
+  assert.equal(observed.id,asset.id);
+  assert.ok(observed.deleting_at);
+  const reserved=await runtime.db.prepare('SELECT * FROM cms_media WHERE id=?').bind(asset.id).first();
+  assert.equal(reserved.deleting_at,observed.deleting_at);
+  assert.ok(reserved.trashed_at);
+});
+
+test('duplicate permanent deletes cannot resurrect metadata while the first R2 delete is in flight', async () => {
+  const asset=await upload('Concurrent delete.png');
+  const state=await (await get('state')).json();
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:state.project});
+  assert.equal(trashed.status,200,await trashed.clone().text());
+  const trashedAsset=(await trashed.json()).asset;
+  const bucket=await runtime.mf.getR2Bucket('CMS_MEDIA');
+  let enter,release;
+  const entered=new Promise(resolve=>{enter=resolve});
+  const gate=new Promise(resolve=>{release=resolve});
+  let first=true;
+  const blockedBucket={delete:async key=>{if(first){first=false;enter();await gate;}return bucket.delete(key);}};
+  const firstDelete=transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:blockedBucket},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:state.project});
+  await entered;
+  const secondDelete=transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:bucket},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:state.project});
+  let second,secondError;
+  try { second=await secondDelete; } catch (error) { secondError=error; } finally { release(); }
+  const firstResult=await firstDelete;
+  assert.equal(secondError,undefined);
+  assert.equal(second.deleted,true);
+  assert.equal(firstResult.deleted,true);
+  assert.equal(await runtime.db.prepare('SELECT id FROM cms_media WHERE id=?').bind(asset.id).first(),null);
+  assert.equal(await bucket.head(asset.src.slice(7)),null);
+});
+
+test('publication cannot commit a media reference after deletion reserved the asset', async () => {
+  const asset=await upload('Save delete race.png');
+  const state=await (await get('state')).json();
+  const clean=structuredClone(state.project);
+  const used=structuredClone(clean);
+  used.pages[0].html=used.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Race"></main>`);
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:clean});
+  assert.equal(trashed.status,200,await trashed.clone().text());
+  const trashedAsset=(await trashed.json()).asset;
+  let enter,release;
+  const entered=new Promise(resolve=>{enter=resolve});
+  const gate=new Promise(resolve=>{release=resolve});
+  let blocked=true;
+  const saveDb={
+    prepare:sql=>runtime.db.prepare(sql),
+    batch:async statements=>{if(blocked){blocked=false;enter();await gate;}return runtime.db.batch(statements);},
+  };
+  const save=publishSite(saveDb,{project:used,baseVersion:state.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
+  await entered;
+  const deleted=await transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:await runtime.mf.getR2Bucket('CMS_MEDIA')},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:clean});
+  assert.equal(deleted.deleted,true);
+  release();
+  let saveError;
+  try { await save; } catch (error) { saveError=error; }
+  const latest=await readSite(runtime.db);
+  if(latest?.project.pages[0].html.includes(asset.src)) await publishSite(runtime.db,{project:clean,baseVersion:latest.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
+  assert.equal(saveError?.status,409);
+});
+
+test('deletion reservation loses if publication commits a new retained reference first', async () => {
+  const asset=await upload('Delete save race.png');
+  const state=await (await get('state')).json();
+  const clean=structuredClone(state.project);
+  const used=structuredClone(clean);
+  used.pages[0].html=used.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Race"></main>`);
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:clean});
+  assert.equal(trashed.status,200,await trashed.clone().text());
+  const trashedAsset=(await trashed.json()).asset;
+  let injected=false;
+  const injectPublication=async()=>{
+    if(injected)return;
+    injected=true;
+    await publishSite(runtime.db,{project:used,baseVersion:state.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
+  };
+  const raceDb={
+    prepare(sql){
+      const statement=runtime.db.prepare(sql);
+      if(!sql.startsWith('UPDATE cms_media SET deleting_at'))return statement;
+      return {
+        bind(...values){
+          const bound=statement.bind(...values);
+          return {first:async()=>{await injectPublication();return bound.first();},run:async()=>{await injectPublication();return bound.run();}};
+        },
+      };
+    },
+    batch:async statements=>{await injectPublication();return runtime.db.batch(statements);},
+  };
+  let error;
+  try {
+    await transitionAsset({CMS_DB:raceDb,CMS_MEDIA:await runtime.mf.getR2Bucket('CMS_MEDIA')},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:clean});
+  } catch (caught) { error=caught; }
+  const latest=await readSite(runtime.db);
+  if(latest?.project.pages[0].html.includes(asset.src)) await publishSite(runtime.db,{project:clean,baseVersion:latest.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
+  assert.equal(error?.status,409);
+  assert.ok(await runtime.db.prepare('SELECT id FROM cms_media WHERE id=?').bind(asset.id).first());
+  assert.ok(await (await runtime.mf.getR2Bucket('CMS_MEDIA')).head(asset.src.slice(7)));
 });
 
 test('current and retained history references block destructive media deletion', async () => {
@@ -102,11 +193,11 @@ test('current and retained history references block destructive media deletion',
   used.pages[0].html=used.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Used"></main>`);
   const blocked=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:used});
   assert.equal(blocked.status,409);
-  const save=await post('save',{project:used,baseVersion:0,requestId:crypto.randomUUID()});
+  const save=await post('save',{project:used,baseVersion:state.version,requestId:crypto.randomUUID()});
   assert.equal(save.status,200,await save.clone().text());
   const clean=structuredClone((await (await get('state')).json()).project);
   clean.pages[0].html=clean.pages[0].html.replace(`<img src="${asset.src}" alt="Used">`,'');
-  const save2=await post('save',{project:clean,baseVersion:1,requestId:crypto.randomUUID()});
+  const save2=await post('save',{project:clean,baseVersion:state.version+1,requestId:crypto.randomUUID()});
   assert.equal(save2.status,200,await save2.clone().text());
   const usage=await (await post('asset-usage',{id:asset.id,project:clean})).json();
   assert.equal(usage.currentReferences,0); assert.ok(usage.historyReferences>=1);
@@ -130,8 +221,41 @@ test('built-in resources persist lifecycle and metadata state', async () => {
   assert.equal(metadata.status,200,await metadata.clone().text());
   const metadataResult=await metadata.json();
   assert.equal(metadataResult.asset.name,'Delningsbild redigerad');
+  assert.equal(metadataResult.asset.alt,'Ny alttext');
+  const metadataReload=await (await get('state')).json();
+  assert.equal(metadataReload.assets.find(asset=>asset.id===builtin.id).alt,'Ny alttext');
+  const published=await post('save',{project:metadataReload.project,baseVersion:metadataReload.version,requestId:crypto.randomUUID()});
+  assert.equal(published.status,200,await published.clone().text());
+  const publicResources=await readPublicData(runtime.db,'resources');
+  assert.equal(publicResources.value.social.alt,'Ny alttext');
   const blocked=await post('asset-lifecycle',{id:builtin.id,action:'trash',baseVersion:metadataResult.asset.version,project:state.project});
   assert.equal(blocked.status,409);
+});
+
+test('pre-shared-content retained revisions normalize through state preview revision and restore-save', async () => {
+  const legacyRuntime=await cmsRuntime();
+  try {
+    const legacyCookie='CF_Authorization='+await legacyRuntime.token();
+    const legacy=structuredClone(initial);
+    delete legacy.sharedContent;
+    legacy.pages=legacy.pages.map(page=>({...page,html:page.html.replace(/ data-cms-shared="footer\.tagline"/g,'')}));
+    await publishSite(legacyRuntime.db,{project:legacy,baseVersion:0,requestId:crypto.randomUUID(),actor:'owner@example.test'});
+    const api=(path,options={})=>legacyRuntime.mf.dispatchFetch(legacyRuntime.url+'/admin/api/'+path,{...options,headers:{Cookie:legacyCookie,...options.headers}});
+    const stateResponse=await api('state');
+    assert.equal(stateResponse.status,200,await stateResponse.clone().text());
+    const state=await stateResponse.json();
+    assert.ok(state.project.sharedContent['footer.tagline']);
+    assert.ok(state.project.pages.every(page=>page.html.includes('data-cms-shared="footer.tagline"')));
+    const preview=await api('preview',{method:'POST',headers:{Origin:legacyRuntime.url,'Content-Type':'application/json','X-CMS-Request':'1'},body:JSON.stringify({project:state.project,pageId:state.project.pages[0].id})});
+    assert.equal(preview.status,200,await preview.clone().text());
+    const revisionResponse=await api('revision/1');
+    assert.equal(revisionResponse.status,200,await revisionResponse.clone().text());
+    const revision=await revisionResponse.json();
+    assert.ok(revision.project.sharedContent['footer.tagline']);
+    assert.ok(revision.project.pages.every(page=>page.html.includes('data-cms-shared="footer.tagline"')));
+    const saved=await api('save',{method:'POST',headers:{Origin:legacyRuntime.url,'Content-Type':'application/json','X-CMS-Request':'1'},body:JSON.stringify({project:revision.project,baseVersion:1,requestId:crypto.randomUUID()})});
+    assert.equal(saved.status,200,await saved.clone().text());
+  } finally { await legacyRuntime.close(); }
 });
 
 test('published deck exposes active cards only while exact archived IDs remain addressable', async () => {

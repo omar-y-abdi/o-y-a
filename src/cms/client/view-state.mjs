@@ -5,6 +5,17 @@ export function centerOffset(stageWidth,_frameWidth,zoom=100){
   // compensate only for the stage midpoint lost to scaling.
   return stageWidth*(1-scale)/2;
 }
+function userComponentId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return `u-${[...bytes].map(byte=>byte.toString(16).padStart(2,'0')).join('')}`;}
+export function ensureComponentIdentity(component,{fresh=false}={}){
+  if(!component)return null;
+  const attrs=component.getAttributes?.()??{},type=component.get?.('type'),tag=component.get?.('tagName');
+  if(!fresh&&attrs['data-cms-node'])return {kind:'cms',value:attrs['data-cms-node']};
+  if(!fresh&&attrs.id)return {kind:'id',value:attrs.id};
+  if(!tag||type==='textnode'||type==='wrapper')return componentKey(component);
+  const value=userComponentId();
+  component.addAttributes?.({'data-cms-node':value});
+  return {kind:'cms',value};
+}
 export function componentKey(component){
   if(!component)return null;
   const attrs=component.getAttributes?.()??{};

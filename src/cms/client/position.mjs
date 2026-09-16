@@ -1,4 +1,4 @@
-const LAYOUT_TAGS=new Set(['div','section','article','aside','main','header','footer','nav','p','h1','h2','h3','h4','h5','h6','ul','ol','li','figure','figcaption','blockquote','pre','span','a','button','img','svg','g']);
+const LAYOUT_TAGS=new Set(['div','section','article','aside','main','header','footer','nav','p','h1','h2','h3','h4','h5','h6','ul','ol','li','figure','figcaption','blockquote','pre','span','a','button','img','svg']);
 const CONTROL_TAGS=new Set(['input','select','textarea','option','form','label','fieldset']);
 const LOW_LEVEL_SVG=new Set(['path','circle','ellipse','rect','line','polyline','polygon','defs','lineargradient','radialgradient','stop','clippath']);
 function tagOf(component){return String(component?.get?.('tagName')??'div').toLowerCase();}

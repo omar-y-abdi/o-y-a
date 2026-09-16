@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-label="En gul figur som ler tillbaka">
+  <defs>
+    <radialGradient id="face" cx="30%" cy="21%" r="100%">
+      <stop offset="0" stop-color="#ffef8c"/>
+      <stop offset=".23" stop-color="#ffe159"/>
+      <stop offset=".62" stop-color="#f5c129"/>
+      <stop offset=".84" stop-color="#d6990c"/>
+      <stop offset="1" stop-color="#b37700"/>
+    </radialGradient>
+    <clipPath id="face-clip"><circle cx="96" cy="96" r="79"/></clipPath>
+    <radialGradient id="highlight"><stop offset="0" stop-color="#fff8b3" stop-opacity=".65"/><stop offset=".65" stop-color="#fff8b3" stop-opacity=".65"/><stop offset="1" stop-color="#fff8b3" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="192" height="192" fill="#234ce7"/>
+  <g id="face-group">
+    <circle cx="101" cy="104" r="79" fill="#1b3bb6"/>
+    <circle cx="96" cy="96" r="79" fill="url(#face)"/>
+    <ellipse cx="92" cy="171" rx="63" ry="12" fill="#deb330" clip-path="url(#face-clip)"/>
+    <ellipse cx="58" cy="43" rx="19" ry="10" fill="url(#highlight)" transform="rotate(-36 58 43)"/>
+    <g id="eyes" fill="#292b1b">
+      <ellipse cx="71.5" cy="88" rx="10.3" ry="19"/>
+      <ellipse cx="123.6" cy="88" rx="10.3" ry="19"/>
+    </g>
+    <g id="eye-shine" fill="#fff9e0">
+      <ellipse cx="67.7" cy="79" rx="2.6" ry="4.2"/>
+      <ellipse cx="119.8" cy="79" rx="2.6" ry="4.2"/>
+    </g>
+    <g id="cheeks" fill="#ed9753" opacity=".55">
+      <ellipse cx="51" cy="114.2" rx="13.4" ry="7.1"/>
+      <ellipse cx="145.8" cy="114.2" rx="13.4" ry="7.1"/>
+    </g>
+    <path id="smile" d="M72 128 C80 139 91 143 104 141 C115 140 122 134 125 124" fill="none" stroke="#382f15" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

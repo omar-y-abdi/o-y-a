@@ -110,7 +110,7 @@ async function validateStoredMedia(env, row) {
 export async function validateReferencedMedia(env, project) {
   const keys = [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7));
   if (!keys.length) return;
-  const rows = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(keys)).all();
+  const rows = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL').bind(JSON.stringify(keys)).all();
   if (rows.results.length !== keys.length) throw new HttpError(422, 'En vald fil saknas. Ladda upp filen innan du sparar.');
   // Revalidate legacy uploads lazily; a broken old file cannot be newly promoted.
   // Its old published revision/URL is retained for explicit historical recovery.
@@ -120,7 +120,7 @@ export async function validateReferencedMedia(env, project) {
 export async function updateAsset(db, id, input) {
   if (!UUID.test(id) || !input || Object.keys(input).some(key => !['baseVersion', 'name', 'alt', 'archived'].includes(key)) || input.name !== undefined && (typeof input.name !== 'string' || !input.name.trim() || input.name.length > 200 || /[\u0000-\u001f]/.test(input.name)) || input.alt !== undefined && (typeof input.alt !== 'string' || input.alt.length > 1000) || input.archived !== undefined && typeof input.archived !== 'boolean') throw new HttpError(422, 'Filens uppgifter är ogiltiga.');
   if (!Number.isSafeInteger(input.baseVersion) || input.baseVersion < 0) throw new HttpError(428, 'Hämta filens aktuella uppgifter innan du ändrar dem.');
-  const result = await db.prepare('UPDATE cms_media SET name = COALESCE(?, name), alt = COALESCE(?, alt), archived_at = CASE WHEN ? THEN ? ELSE archived_at END, version = version + 1 WHERE id = ? AND version = ? RETURNING *').bind(input.name?.trim() ?? null, input.alt ?? null, Number(input.archived !== undefined), input.archived ? new Date().toISOString() : null, id, input.baseVersion).first();
+  const result = await db.prepare('UPDATE cms_media SET name = COALESCE(?, name), alt = COALESCE(?, alt), archived_at = CASE WHEN ? THEN ? ELSE archived_at END, version = version + 1 WHERE id = ? AND version = ? AND deleting_at IS NULL RETURNING *').bind(input.name?.trim() ?? null, input.alt ?? null, Number(input.archived !== undefined), input.archived ? new Date().toISOString() : null, id, input.baseVersion).first();
   if (!result) {
     const current = await db.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
     if (!current) throw new HttpError(404, 'Filen finns inte.');
@@ -136,19 +136,35 @@ function assertLifecycleInput(action, baseVersion) {
 }
 function currentReferenceCount(project, src) { return resourceReferences(project).get(src) ?? 0; }
 
-async function restoreQueuedMedia(db, id) {
+async function adoptQueuedDelete(db, id) {
   const queued = await db.prepare('SELECT * FROM cms_media_delete_queue WHERE id = ?').bind(id).first();
-  if (!queued) return false;
-  const row = JSON.parse(queued.snapshot);
-  const existing = await db.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
-  if (existing) {
-    if (existing.object_key !== row.object_key || existing.sha256 !== row.sha256) throw new HttpError(503, 'Resursraderingen behöver återställas manuellt innan filen kan användas igen.');
-  } else {
-    await db.prepare('INSERT INTO cms_media (id,object_key,name,mime,bytes,width,height,alt,sha256,created_at,published_at,archived_at,version,validation_version,trashed_at,deleting_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(row.id,row.object_key,row.name,row.mime,row.bytes,row.width,row.height,row.alt,row.sha256,row.created_at,row.published_at,row.archived_at,row.version,row.validation_version,row.trashed_at,null).run();
+  if (!queued) return null;
+  const snapshot = JSON.parse(queued.snapshot);
+  let current = await db.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+  if (current && (current.object_key !== snapshot.object_key || current.sha256 !== snapshot.sha256)) throw new HttpError(503, 'Resursraderingen behöver slutföras manuellt innan filen kan användas igen.');
+  if (!current?.deleting_at) {
+    const token = `${new Date().toISOString()}#${crypto.randomUUID()}`;
+    if (current) {
+      current = await db.prepare('UPDATE cms_media SET deleting_at = ?, version = version + 1 WHERE id = ? AND version = ? AND trashed_at IS NOT NULL AND deleting_at IS NULL RETURNING *').bind(token, id, current.version).first();
+    } else {
+      await db.prepare('INSERT OR IGNORE INTO cms_media (id,object_key,name,mime,bytes,width,height,alt,sha256,created_at,published_at,archived_at,version,validation_version,trashed_at,deleting_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(snapshot.id,snapshot.object_key,snapshot.name,snapshot.mime,snapshot.bytes,snapshot.width,snapshot.height,snapshot.alt,snapshot.sha256,snapshot.created_at,snapshot.published_at,snapshot.archived_at,snapshot.version+1,snapshot.validation_version,snapshot.trashed_at,token).run();
+      current = await db.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+    }
   }
+  if (!current?.deleting_at) throw new HttpError(503, 'Resursraderingen behöver slutföras manuellt innan filen kan användas igen.');
   await db.prepare('DELETE FROM cms_media_delete_queue WHERE id = ?').bind(id).run();
-  return true;
+  return current;
+}
+
+async function completeReservedDelete(env, row) {
+  await env.CMS_MEDIA.delete(row.object_key);
+  const removed = await env.CMS_DB.prepare('DELETE FROM cms_media WHERE id = ? AND deleting_at = ?').bind(row.id, row.deleting_at).run();
+  if (!removed.meta.changes) {
+    const latest = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(row.id).first();
+    if (latest && latest.deleting_at !== row.deleting_at) throw new HttpError(503, 'Resursraderingen ändrades medan filen togs bort. Ladda om biblioteket.');
+  }
+  return { deleted: true, id: row.id, usage: { currentReferences: 0, historyReferences: 0 } };
 }
 
 export async function assetUsage(env, asset, project) {
@@ -165,17 +181,15 @@ export async function assetUsage(env, asset, project) {
 export async function transitionAsset(env, { id, action, baseVersion, project }) {
   assertLifecycleInput(action, baseVersion);
   if (!UUID.test(id)) throw new HttpError(404, 'Filen finns inte.');
-  const current = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+  let current = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
   if (!current) {
-    const queued = await env.CMS_DB.prepare('SELECT * FROM cms_media_delete_queue WHERE id = ?').bind(id).first();
-    if (!queued) throw new HttpError(404, 'Filen finns inte.');
-    const object = await env.CMS_MEDIA.head?.(queued.object_key);
-    if (object) {
-      await restoreQueuedMedia(env.CMS_DB, id);
-      throw new HttpError(503, 'En tidigare resursradering avbröts och filen har återställts. Ladda om biblioteket.');
-    }
-    await env.CMS_DB.prepare('DELETE FROM cms_media_delete_queue WHERE id = ?').bind(id).run();
-    return { deleted: true, id, usage: { currentReferences: 0, historyReferences: 0 } };
+    const adopted = await adoptQueuedDelete(env.CMS_DB, id);
+    if (!adopted) throw new HttpError(404, 'Filen finns inte.');
+    return completeReservedDelete(env, adopted);
+  }
+  if (current.deleting_at) {
+    if (action !== 'delete') throw new HttpError(409, 'Resursen håller redan på att raderas. Ladda om biblioteket.', { asset: record(current) });
+    return completeReservedDelete(env, current);
   }
   const src = `/media/${current.object_key}`;
   const refs = currentReferenceCount(project, src);
@@ -183,31 +197,22 @@ export async function transitionAsset(env, { id, action, baseVersion, project })
   if (action === 'delete') {
     if (!current.trashed_at) throw new HttpError(409, 'Flytta resursen till papperskorgen före permanent radering.');
     if (current.version !== baseVersion) throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: record(current) });
+    const observedHead = await env.CMS_DB.prepare('SELECT version FROM cms_head WHERE id = 1').first();
     const historical = await retainedResourceUsage(env.CMS_DB, src);
     if (historical) throw new HttpError(409, `Resursen används fortfarande ${historical} gånger i sparad historik.`);
-    const now = new Date().toISOString();
-    let queued, removed;
-    try {
-      [queued, removed] = await env.CMS_DB.batch([
-        env.CMS_DB.prepare('INSERT INTO cms_media_delete_queue (id,object_key,snapshot,created_at) SELECT id,object_key,?,? FROM cms_media WHERE id=? AND version=? AND trashed_at IS NOT NULL').bind(JSON.stringify(current),now,id,baseVersion),
-        env.CMS_DB.prepare('DELETE FROM cms_media WHERE id=? AND version=? AND trashed_at IS NOT NULL').bind(id,baseVersion),
-      ]);
-    } catch {
-      throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.');
+    const token = `${new Date().toISOString()}#${crypto.randomUUID()}`;
+    const reserved = await env.CMS_DB.prepare('UPDATE cms_media SET deleting_at = ?, version = version + 1 WHERE id = ? AND version = ? AND trashed_at IS NOT NULL AND deleting_at IS NULL AND (SELECT version FROM cms_head WHERE id = 1) = ? RETURNING *').bind(token, id, baseVersion, observedHead?.version ?? -1).first();
+    if (!reserved) {
+      const latest = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+      if (latest?.deleting_at) return completeReservedDelete(env, latest);
+      if (!latest) throw new HttpError(404, 'Filen finns inte.');
+      throw new HttpError(409, 'Resursen eller webbplatsen ändrades i en annan flik. Ladda om biblioteket.', { asset: record(latest) });
     }
-    if (queued.meta.changes !== 1 || removed.meta.changes !== 1) throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.');
-    try { await env.CMS_MEDIA.delete(current.object_key); }
-    catch (error) {
-      try { await restoreQueuedMedia(env.CMS_DB, id); }
-      catch { throw new HttpError(503, 'Filen kunde inte raderas och återställningen behöver slutföras innan du försöker igen.'); }
-      throw error;
-    }
-    await env.CMS_DB.prepare('DELETE FROM cms_media_delete_queue WHERE id = ?').bind(id).run();
-    return { deleted: true, id, usage: { currentReferences: 0, historyReferences: 0 } };
+    return completeReservedDelete(env, reserved);
   }
   const now = new Date().toISOString();
   const values = action === 'archive' ? [now, null] : action === 'restore' ? [null, null] : [null, now];
-  const updated = await env.CMS_DB.prepare('UPDATE cms_media SET archived_at = ?, trashed_at = ?, deleting_at = NULL, version = version + 1 WHERE id = ? AND version = ? RETURNING *').bind(values[0], values[1], id, baseVersion).first();
+  const updated = await env.CMS_DB.prepare('UPDATE cms_media SET archived_at = ?, trashed_at = ?, version = version + 1 WHERE id = ? AND version = ? AND deleting_at IS NULL RETURNING *').bind(values[0], values[1], id, baseVersion).first();
   if (!updated) {
     const latest = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
     if (!latest) throw new HttpError(404, 'Filen finns inte.');

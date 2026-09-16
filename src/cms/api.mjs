@@ -2,6 +2,7 @@ import { authenticateAdmin } from './auth.mjs';
 import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, saveManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
+import { normalizeStoredProject } from './shared-content.mjs';
 import { publicationChunks, publicationMedia, publishSite, readHistory, readSite } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
@@ -9,6 +10,7 @@ import { replaceResource, resourceReferences, resourceCatalog, resolveResources 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 
 export async function handleAdmin(request, env, { seed, initial, built }) {
+  const storedProject = project => normalizeStoredProject(project, seed, initial);
   try {
     const identity = await authenticateAdmin(request, env);
     const url = new URL(request.url);
@@ -17,7 +19,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     if (request.method === 'GET' || request.method === 'HEAD') {
       if (url.pathname === '/admin/api/state') {
         const [state, media, builtinStates] = await Promise.all([readSite(env.CMS_DB), assetPage(env.CMS_DB, { state: 'active' }), builtinAssetStates(env.CMS_DB)]);
-        const project = state?.project ?? initial;
+        const project = state ? storedProject(state.project) : initial;
         const selected = await assetSelection(env.CMS_DB, resourceIds(project), { fonts: true });
         const assets = [...new Map([...media.items, ...selected].map(asset => [asset.id, asset])).values()];
         const builtins = mergeBuiltinAssetStates(seed.assets, builtinStates);
@@ -33,7 +35,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         if (revision[1] === '0') return json({ version: 0, createdAt: null, project: initial });
         const state = await readSite(env.CMS_DB, Number(revision[1]));
         if (!state) throw new HttpError(404, 'Versionen finns inte.');
-        return json(state);
+        return json({ ...state, project: storedProject(state.project) });
       }
       if (url.pathname === '/admin/api/assets') {
         const state = url.searchParams.get('state');
@@ -103,7 +105,8 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     if (url.pathname === '/admin/api/validate' || url.pathname === '/admin/api/preview') {
       const body = await readJson(request, 8 * 1024 * 1024);
-      const baseline = (await readSite(env.CMS_DB))?.project ?? initial;
+      const stored = await readSite(env.CMS_DB);
+      const baseline = stored ? storedProject(stored.project) : initial;
       const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project);
       await publicationMedia(env.CMS_DB, project);
@@ -119,7 +122,8 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     if (url.pathname === '/admin/api/save') {
       const body = await readJson(request, 8 * 1024 * 1024);
-      const baseline = (await readSite(env.CMS_DB))?.project ?? initial;
+      const stored = await readSite(env.CMS_DB);
+      const baseline = stored ? storedProject(stored.project) : initial;
       const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email }));

@@ -116,17 +116,31 @@ export function resolvedResources(project, assets = []) {
   return Object.fromEntries(Object.entries(resources).map(([slot, src]) => {
     const asset = assets.find(asset => asset.src === src) ?? Object.values(resourceSlots).find(asset => asset.src === src);
     if (!asset) throw new HttpError(422, `Bilden för ${resourceSlots[slot].name} saknas i biblioteket.`);
-    return [slot, { src, alt: asset.alt || resourceSlots[slot].alt, mime: asset.mime, width: asset.width, height: asset.height }];
+    return [slot, { src, alt: asset.alt ?? resourceSlots[slot].alt, mime: asset.mime, width: asset.width, height: asset.height }];
   }));
 }
 
 export function resourceCatalog(seed, assets, project) {
-  const slots = resolvedResources(project, assets);
+  const slots = resolvedResources(project, [...seed.assets, ...assets]);
   return [...seed.assets.map(asset => ({ ...asset, ...(asset.slot ? slots[asset.slot] : {}) })), ...assets];
+}
+
+async function builtinResolutionAssets(db) {
+  let rows;
+  try { rows = await db.prepare('SELECT source_path, name, alt FROM cms_builtin_resource_state').all(); }
+  catch (error) { if (/no such table: cms_builtin_resource_state/i.test(String(error?.message ?? error))) return []; throw error; }
+  const states = new Map(rows.results.map(row => [row.source_path, row]));
+  return Object.values(resourceSlots).map(asset => {
+    const state = states.get(asset.src);
+    return { ...asset, name: state?.name ?? asset.name, alt: state?.alt ?? asset.alt ?? '' };
+  });
 }
 
 export async function resolveResources(db, project) {
   const keys = Object.values(validateResources(project.resources)).filter(src => src.startsWith('/media/')).map(src => src.slice(7));
-  const rows = keys.length ? await db.prepare('SELECT object_key, mime, width, height, alt FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(keys)).all() : { results: [] };
-  return resolvedResources(project, rows.results.map(row => ({ ...row, src: '/media/' + row.object_key })));
+  const [rows, builtins] = await Promise.all([
+    keys.length ? db.prepare('SELECT object_key, mime, width, height, alt FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL').bind(JSON.stringify(keys)).all() : Promise.resolve({ results: [] }),
+    builtinResolutionAssets(db),
+  ]);
+  return resolvedResources(project, [...builtins, ...rows.results.map(row => ({ ...row, src: '/media/' + row.object_key }))]);
 }

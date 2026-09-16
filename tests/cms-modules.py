@@ -395,7 +395,7 @@ with sync_playwright() as pw:
             editor(page, data)
             result = page.evaluate("""()=>{
               const ed=handle.editor, root=ed.getWrapper();
-              const text=root.find('#text')[0], link=root.find('#link')[0], image=root.find('#image')[0], button=root.find('#functional')[0], group=root.find('#group')[0], shape=root.find('#shape')[0];
+              const text=root.find('#text')[0], link=root.find('#link')[0], image=root.find('#image')[0], button=root.find('#functional')[0], vector=root.find('#vector')[0], group=root.find('#group')[0], shape=root.find('#shape')[0];
               const parent=text.parent(), index=text.index();
               cmsTest.nudgeComponent(text,1,0);
               cmsTest.nudgeComponent(text,0,1,10);
@@ -404,9 +404,9 @@ with sync_playwright() as pw:
               const sectors=ed.StyleManager.getSectors({array:true}).map(s=>({id:s.getId(),props:s.getProperties().map(p=>p.getName?.()??p.get('property'))}));
               handle.setStyleMode('normal');
               const normalProps=ed.StyleManager.getSectors({array:true}).flatMap(s=>s.getProperties().map(p=>p.getName?.()??p.get('property')));
-              return {resize:{text:text.get('resizable'),link:link.get('resizable'),image:image.get('resizable'),button:button.get('resizable'),group:group.get('resizable'),shape:shape.get('resizable')},toolbar:text.get('toolbar'),moved,sectors,normalProps};
+              return {resize:{text:text.get('resizable'),link:link.get('resizable'),image:image.get('resizable'),button:button.get('resizable'),vector:vector.get('resizable'),group:group.get('resizable'),shape:shape.get('resizable')},toolbar:text.get('toolbar'),moved,sectors,normalProps};
             }""")
-            assert result['resize'] == {'text': True, 'link': True, 'image': True, 'button': False, 'group': True, 'shape': False}, result
+            assert result['resize'] == {'text': True, 'link': True, 'image': True, 'button': False, 'vector': True, 'group': False, 'shape': False}, result
             assert result['toolbar'] == [], result
             assert result['moved']['parentSame'] and result['moved']['indexSame'], result
             assert result['moved']['translate'] == '1px 10px', result
@@ -453,6 +453,39 @@ with sync_playwright() as pw:
             return result
         finally: page.close()
 
+    def usability_selection_identity_survives_structural_history():
+        page = make_page()
+        try:
+            data={**PAGE,'html':'<main><div id="first">First</div><div id="second">Second</div></main>','project':None}
+            editor(page,data)
+            result=page.evaluate("""async()=>{
+              const ed=handle.editor, main=ed.getWrapper().find('main')[0];
+              const added=main.components().add({tagName:'p',components:'New block'});
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+              const key=added.getAttributes()['data-cms-node'];
+              const original=handle.snapshot(true).html;
+              added.move(main,{at:0});
+              const reordered=handle.snapshot(true).html;
+              ed.select(added);
+              const undoView=cmsTest.captureEditorView(ed);
+              ed.setComponents(original);
+              cmsTest.restoreEditorView(ed,undoView);
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+              const undoSelected=ed.getSelected()?.getAttributes?.()['data-cms-node'];
+              const redoView=cmsTest.captureEditorView(ed);
+              ed.setComponents(reordered);
+              cmsTest.restoreEditorView(ed,redoView);
+              await new Promise(resolve=>requestAnimationFrame(resolve));
+              const redoSelected=ed.getSelected()?.getAttributes?.()['data-cms-node'];
+              return {key,undoSelected,redoSelected,original,reordered};
+            }""")
+            assert result['key'] and result['key'].startswith('u-'), result
+            assert result['undoSelected'] == result['key'], result
+            assert result['redoSelected'] == result['key'], result
+            assert result['key'] in result['original'] and result['key'] in result['reordered'], result
+            return {'stable_user_identity':result['key'],'undo_redo_selection_preserved':True}
+        finally: page.close()
+
     def client_shared_content_sync():
         page = make_page()
         try:
@@ -496,9 +529,9 @@ with sync_playwright() as pw:
               cheek.addAttributes({fill:'#234ce7'});
               return {before,html:handle.snapshot(true)?.html??''};
             }""")
-            assert result['before'] == {'fill':'#ffda44','shapeResizable':False,'groupResizable':True}, result
+            assert result['before'] == {'fill':'#ffda44','shapeResizable':False,'groupResizable':False}, result
             assert 'fill="#234ce7"' in result['html'], result
-            return {'same_editor':True,'safe_shape_protected':True,'group_resizable':True}
+            return {'same_editor':True,'safe_shape_protected':True,'group_resize_handle_hidden':True}
         finally: page.close()
 
     def managed_svg_matches_existing_raster_baseline():
@@ -541,6 +574,7 @@ with sync_playwright() as pw:
     run('merge-export-inherited-theme-and-current-width', export_context)
     run('cms-usability-resize-nudge-and-style-mode', usability_editor_primitives)
     run('cms-usability-view-state-and-mobile-center', usability_view_state_and_mobile_center)
+    run('cms-usability-selection-identity-structural-history', usability_selection_identity_survives_structural_history)
     run('cms-client-shared-content-sync', client_shared_content_sync)
     run('cms-locked-preview-mobile-center', locked_preview_mobile_center)
     run('cms-managed-svg-uses-shared-editor', managed_svg_uses_same_editor_canvas)
