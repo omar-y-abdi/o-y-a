@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       CMS_BROWSER: webkit
-      CMS_MODULE_CASE: R20-preserve-rich-structure-and-simple-newlines
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -24,23 +23,18 @@ jobs:
       - run: python -m pip install -r requirements-test.txt
       - run: python -m playwright install --with-deps webkit
       - run: npm run build
-      - run: node scripts/prepare-cms-modules.mjs
-      - name: Instrument R20 state
+      - name: Apply candidate synchronization fix
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('tests/cms-modules.py')
           text = path.read_text()
-          needle = '''            assert page.evaluate("snapshots.at(-1).html.includes('changed')")'''
-          debug = '''            print('R20_DEBUG', page.evaluate("""()=>({input:document.querySelector('#element-text')?.value,model:handle.editor.getWrapper().find('p')[0]?.getInnerHTML(),dom:handle.editor.Canvas.getDocument().querySelector('p')?.innerHTML,dirty:handle.editor.getDirtyCount(),snapshots:snapshots.slice(-4).map(x=>x.html)})"""), flush=True)\n''' + needle
-          if needle not in text: raise SystemExit('target assertion not found')
-          path.write_text(text.replace(needle, debug, 1))
+          old = '''            assert page.evaluate("snapshots.at(-1).html.includes('changed')")'''
+          new = '''            page.wait_for_function("snapshots.at(-1)?.html.includes('changed')")'''
+          if old not in text: raise SystemExit('target assertion not found')
+          path.write_text(text.replace(old, new, 1))
           PY
-      - name: Run R20 repeatedly
+      - name: Run full WebKit module suite twice
         run: |
-          failed=0
-          for i in 1 2 3 4 5; do
-            echo "=== R20 attempt $i ==="
-            python tests/cms-modules.py || failed=1
-          done
-          exit "$failed"
+          npm run test:cms:modules
+          npm run test:cms:modules
