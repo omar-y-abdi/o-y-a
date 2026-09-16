@@ -169,10 +169,16 @@ with sync_playwright() as pw:
     def metadata_conflict():
         ctx=context()
         try:
-            a=admin(ctx); a.locator('#file-input').set_input_files(str(ROOT/'public/mail/omar-smile.png'))
+            a=admin(ctx)
+            uploaded=Q.upload_file(a, ROOT/'public/mail/omar-smile.png')
+            asset_id=uploaded['id']
             expect(a.locator('#asset-name')).to_be_visible()
-            src=a.locator('#special-stage img').get_attribute('src'); asset_id=src.split('/')[-1].split('.')[0]
-            b=admin(ctx); b.locator('[data-library=assets]').click(); b.locator(f'[data-asset-id="{asset_id}"]').click()
+            b=admin(ctx)
+            Q.open_assets(b)
+            row=b.locator(f'#special-stage [data-asset-id="{asset_id}"]')
+            row.wait_for(state='visible', timeout=20000)
+            row.click()
+            expect(b.locator('#asset-name')).to_be_visible(timeout=20000)
             a.locator('[data-action=archive-asset]').click(); a.locator('[data-confirm=yes]').click()
             b.locator('#asset-name').fill('Renamed without reversing archive')
             b.locator('#asset-alt').fill('Concurrent alternative text')
