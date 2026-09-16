@@ -1,4 +1,4 @@
-name: ChatGPT review bundle bridge
+name: ChatGPT review verification
 
 on:
   push:
@@ -9,22 +9,138 @@ permissions:
   contents: read
 
 jobs:
-  bundle:
-    runs-on: ubuntu-latest
+  probes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Build complete repository bundle
-        run: |
-          git fetch --all --tags --prune
-          git bundle create repo.bundle --all
-          git bundle verify repo.bundle
-          git show-ref > refs.txt
-      - uses: actions/upload-artifact@v4
+          ref: a05117b2c7b3f5f7b76a6664be5ffd9cdbcdfa61
+      - uses: actions/setup-node@v4
         with:
-          name: repo-bundle
-          path: |
-            repo.bundle
-            refs.txt
-          retention-days: 1
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run adversarial review probes
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { seed, initial } from './.generated/cms-seed.mjs';
+          import { validateProject } from './src/cms/project.mjs';
+          import { validateSharedInstances } from './src/cms/shared-content.mjs';
+          import { transitionAsset, transitionBuiltinAsset } from './src/cms/assets.mjs';
+          import { cmsRuntime } from './tests/helpers/cms-runtime.mjs';
+          import { rasterFixtures } from './tests/helpers/raster-fixtures.mjs';
+
+          // Probe 1: current validator rejects the pre-feature project shape.
+          {
+            const legacy = structuredClone(initial);
+            delete legacy.sharedContent;
+            for (const page of legacy.pages) page.html = page.html.replaceAll(' data-cms-shared="footer.tagline"', '');
+            let error;
+            try { validateProject(legacy, seed); } catch (caught) { error = caught; }
+            assert.equal(error?.status, 422);
+            assert.match(error.message, /gemensamma innehållet|gemensamt innehåll/i);
+            console.log('PROBE legacy-shared-migration: REPRODUCED ->', error.message);
+          }
+
+          // Probe 2: aggregate shared-marker count can hide a missing page instance.
+          {
+            const shared = { 'footer.tagline': 'Same' };
+            const pages = [
+              { html: '<p data-cms-shared="footer.tagline">Same</p><p data-cms-shared="footer.tagline">Same</p>' },
+              { html: '<p>No shared slot</p>' },
+            ];
+            validateSharedInstances(pages, shared, { publication: true, requiredEverywhere: ['footer.tagline'] });
+            console.log('PROBE shared-per-page-count: REPRODUCED -> validator accepted 2+0 distribution');
+          }
+
+          async function session() {
+            const rt = await cmsRuntime();
+            const cookie = 'CF_Authorization=' + await rt.token();
+            const get = path => rt.mf.dispatchFetch(rt.url + '/admin/api/' + path, { headers: { Cookie: cookie } });
+            const post = (path, body) => rt.mf.dispatchFetch(rt.url + '/admin/api/' + path, {
+              method: 'POST', headers: { Cookie: cookie, Origin: rt.url, 'Content-Type': 'application/json', 'X-CMS-Request': '1' }, body: JSON.stringify(body),
+            });
+            const upload = async name => {
+              const id = crypto.randomUUID();
+              const bytes = Buffer.from(rasterFixtures.png, 'base64');
+              const response = await rt.mf.dispatchFetch(rt.url + '/admin/api/upload', {
+                method: 'POST', headers: { Cookie: cookie, Origin: rt.url, 'X-CMS-Request': '1', 'Content-Type': 'application/octet-stream', 'X-CMS-Upload-Id': id, 'X-CMS-Filename': encodeURIComponent(name) }, body: bytes,
+              });
+              assert.equal(response.status, 201, await response.clone().text());
+              return response.json();
+            };
+            return { rt, get, post, upload };
+          }
+
+          // Probe 3: a trashed row can be reintroduced by a stale project and published.
+          {
+            const { rt, get, post, upload } = await session();
+            try {
+              const asset = await upload('trashed-stale-save.png');
+              const state = await (await get('state')).json();
+              const bucket = await rt.mf.getR2Bucket('CMS_MEDIA');
+              const trashed = await transitionAsset({ CMS_DB: rt.db, CMS_MEDIA: bucket }, { id: asset.id, action: 'trash', baseVersion: asset.version, project: state.project });
+              assert.equal(trashed.asset.state, 'trash');
+              const stale = structuredClone(state.project);
+              stale.pages[0].html = stale.pages[0].html.replace('</main>', `<img src="${asset.src}" alt="stale"></main>`);
+              const save = await post('save', { project: stale, baseVersion: state.version, requestId: crypto.randomUUID() });
+              assert.equal(save.status, 200, await save.clone().text());
+              const row = await rt.db.prepare('SELECT trashed_at,published_at FROM cms_media WHERE id=?').bind(asset.id).first();
+              assert.ok(row.trashed_at && row.published_at);
+              console.log('PROBE trashed-stale-save: REPRODUCED -> trashed media was published');
+            } finally { await rt.close(); }
+          }
+
+          // Probe 4: concurrent request can restore the D1 row while first request deletes R2.
+          {
+            const { rt, get, upload } = await session();
+            try {
+              const asset = await upload('delete-race.png');
+              const state = await (await get('state')).json();
+              const bucket = await rt.mf.getR2Bucket('CMS_MEDIA');
+              const trashed = await transitionAsset({ CMS_DB: rt.db, CMS_MEDIA: bucket }, { id: asset.id, action: 'trash', baseVersion: asset.version, project: state.project });
+              let startedResolve, releaseResolve;
+              const started = new Promise(resolve => { startedResolve = resolve; });
+              const release = new Promise(resolve => { releaseResolve = resolve; });
+              const media = {
+                head: key => bucket.head(key),
+                delete: async key => { startedResolve(); await release; return bucket.delete(key); },
+              };
+              const first = transitionAsset({ CMS_DB: rt.db, CMS_MEDIA: media }, { id: asset.id, action: 'delete', baseVersion: trashed.asset.version, project: state.project });
+              await started;
+              await assert.rejects(
+                transitionAsset({ CMS_DB: rt.db, CMS_MEDIA: media }, { id: asset.id, action: 'restore', baseVersion: trashed.asset.version, project: state.project }),
+                error => error?.status === 503,
+              );
+              releaseResolve();
+              const deleted = await first;
+              assert.equal(deleted.deleted, true);
+              const row = await rt.db.prepare('SELECT id FROM cms_media WHERE id=?').bind(asset.id).first();
+              const object = await bucket.head(asset.src.slice(7));
+              assert.equal(row?.id, asset.id);
+              assert.equal(object, null);
+              console.log('PROBE media-delete-race: REPRODUCED -> D1 row restored while R2 object is gone');
+            } finally { await rt.close(); }
+          }
+
+          // Probe 5: built-in permanent deletion can be reversed by normal restore.
+          {
+            const { rt } = await session();
+            try {
+              const builtin = { id: 'review-built-in', src: '/review-built-in.png', name: 'Review', alt: '', mime: 'image/png' };
+              const project = { pages: [], cards: [], theme: { fontFamily: 'Arial' }, resources: {} };
+              const trashed = await transitionBuiltinAsset(rt.db, builtin, { action: 'trash', baseVersion: 0, project });
+              const deleted = await transitionBuiltinAsset(rt.db, builtin, { action: 'delete', baseVersion: trashed.asset.version, project });
+              assert.equal(deleted.deleted, true);
+              const tombstone = await rt.db.prepare('SELECT * FROM cms_builtin_resource_state WHERE source_path=?').bind(builtin.src).first();
+              assert.ok(tombstone.deleted_at);
+              const restored = await transitionBuiltinAsset(rt.db, builtin, { action: 'restore', baseVersion: tombstone.version, project });
+              assert.equal(restored.asset.deleted, false);
+              console.log('PROBE builtin-delete-resurrection: REPRODUCED -> restore cleared deleted_at');
+            } finally { await rt.close(); }
+          }
+          NODE
