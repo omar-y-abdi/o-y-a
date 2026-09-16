@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import traceback
 from playwright.sync_api import sync_playwright, expect
 from render_support import load as render_load
@@ -71,6 +72,20 @@ with sync_playwright() as playwright:
 
     def events(page):
         return page.evaluate('window.__oyEvents') if args.render_only else page._oy_events
+
+    def event_names(page):
+        return [event.get('event') for event in events(page)]
+
+    def wait_events(page, expected, timeout=3000):
+        deadline=time.monotonic()+timeout/1000
+        while time.monotonic()<deadline:
+            actual=event_names(page)
+            if actual==expected: return actual
+            if len(actual)>len(expected): break
+            page.wait_for_timeout(20)
+        actual=event_names(page)
+        assert actual==expected, f'analytics events: expected {expected}, got {actual}'
+        return actual
 
     def no_errors(page):
         assert not page._oy_errors, page._oy_errors
@@ -312,16 +327,20 @@ with sync_playwright() as playwright:
                 expect(page.locator('[data-consent-banner]')).to_be_visible()
                 screenshot(page,'consent-banner-390',full=False)
                 page.locator('[data-consent-banner] [data-consent="allow"]').click()
-                page.wait_for_timeout(50)
-                assert len(events(page))==1
-                page.locator('[data-print]').click();page.wait_for_timeout(50)
-                assert len(events(page))==2
-                page.locator('[data-receipt-close]').click();page.locator('[data-print]').click();page.wait_for_timeout(50)
-                assert len(events(page))==2
+                wait_events(page,['page_view'])
+                receipt=page.locator('[data-receipt]')
+                page.locator('[data-print]').click()
+                expect(receipt).to_be_visible()
+                wait_events(page,['page_view','joy'])
+                page.locator('[data-receipt-close]').click()
+                expect(receipt).to_be_hidden()
+                page.locator('[data-print]').click()
+                expect(receipt).to_be_visible()
+                assert event_names(page)==['page_view','joy']
                 page.locator('[data-privacy-open]').first.click()
                 page.locator('dialog [data-consent="deny"]').click()
                 for i in range(12):page.locator(f'[data-bubble="{i}"]').click()
-                assert len(events(page))==2
+                assert event_names(page)==['page_view','joy']
                 no_errors(page)
                 return 'No pre-consent event; page_view and joy once; no bubble event after revocation.'
             finally: context.close()
@@ -330,12 +349,12 @@ with sync_playwright() as playwright:
         def revoke_failed_cookie():
             context,page=visit('/',analytics=True,cookie='oy_privacy=v1.allow',blocked_cookie=True)
             try:
-                page.wait_for_timeout(50)
-                assert len(events(page))==1
+                wait_events(page,['page_view'])
                 page.locator('[data-privacy-open]').first.click()
                 page.locator('dialog [data-consent="deny"]').click()
-                page.locator('[data-print]').click();page.wait_for_timeout(50)
-                assert len(events(page))==1, 'A refused cookie write must never allow tracking after explicit revocation'
+                page.locator('[data-print]').click()
+                expect(page.locator('[data-receipt]')).to_be_visible()
+                assert event_names(page)==['page_view'], 'A refused cookie write must never allow tracking after explicit revocation'
                 no_errors(page)
             finally: context.close()
         check('Revocation stops tracking even when overwriting an old allow cookie fails',revoke_failed_cookie)
@@ -352,7 +371,8 @@ with sync_playwright() as playwright:
                         page.locator('[data-privacy-open]').first.click()
                         assert page.locator('dialog [data-consent="allow"]').is_disabled()
                         page.keyboard.press('Escape')
-                    page.locator('[data-print]').click();page.wait_for_timeout(50)
+                    page.locator('[data-print]').click()
+                    expect(page.locator('[data-receipt]')).to_be_visible()
                     assert events(page)==[]
                     no_errors(page)
                 finally: context.close()
