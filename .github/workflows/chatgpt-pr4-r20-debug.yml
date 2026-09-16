@@ -1,4 +1,4 @@
-name: ChatGPT PR4 Fika diagnostic
+name: ChatGPT PR4 current-head bundle
 on:
   push:
     branches:
@@ -6,52 +6,21 @@ on:
 permissions:
   contents: read
 jobs:
-  fika:
+  bundle:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: cms-usability-20260915
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 24
-          cache: npm
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with:
-          python-version: '3.13'
-      - run: npm ci
-      - run: python -m pip install -r requirements-test.txt
-      - run: python -m playwright install --with-deps chromium
-      - run: npm run build
-      - name: Apply candidate game-readiness synchronization
+          fetch-depth: 0
+      - name: Create verified repository bundle
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('tests/revision_browser.py')
-          text = path.read_text()
-          old = '''            goto(page, "/verkstad/")\n            button = page.locator("[data-fika-button]")\n'''
-          new = '''            goto(page, "/verkstad/")\n            wait_until(\n                lambda: page.locator("[data-memory-card]").first.get_attribute("data-index") is not None,\n                description="spelmodul redo",\n            )\n            button = page.locator("[data-fika-button]")\n'''
-          if text.count(old) != 1: raise SystemExit('Fika readiness target not found exactly once')
-          path.write_text(text.replace(old, new))
-          PY
-          python -m py_compile tests/revision_browser.py
-          git diff --check
-      - name: Run public browser regression twice
-        run: |
-          node scripts/serve.mjs --port 4173 > /tmp/preview.log 2>&1 &
-          preview=$!
-          trap 'kill "$preview" 2>/dev/null || true' EXIT
-          python - <<'PY'
-          import time, urllib.request
-          for _ in range(60):
-              try:
-                  with urllib.request.urlopen('http://127.0.0.1:4173/api/config', timeout=1) as response:
-                      assert response.status == 200
-                  break
-              except OSError:
-                  time.sleep(.1)
-          else:
-              raise SystemExit('preview server did not start')
-          PY
-          BASE_URL=http://127.0.0.1:4173 python tests/revision_browser.py
-          BASE_URL=http://127.0.0.1:4173 python tests/revision_browser.py
+          git fetch --all --tags --prune
+          git bundle create repo.bundle --all
+          git bundle verify repo.bundle
+          git rev-parse cms-usability-20260915
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: chatgpt-pr4-current-bundle
+          path: repo.bundle
+          retention-days: 1
