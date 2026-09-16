@@ -1,0 +1,26 @@
+name: ChatGPT PR4 review dependencies
+on:
+  push:
+    branches:
+      - chatgpt/pr4-review-workspace-20260916b
+permissions:
+  contents: read
+jobs:
+  deps:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 546710a171daeee8796a1a5af8a617f93036951a
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: tar -cf node_modules.tar node_modules
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: chatgpt-pr4-node-modules
+          path: node_modules.tar
+          compression-level: 0
+          retention-days: 1
