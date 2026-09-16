@@ -29,47 +29,13 @@ jobs:
                   raise SystemExit(f'{path}: expected {count} occurrence(s), found {actual}: {old!r}')
               p.write_text(text.replace(old, new, count))
 
-          replace_exact(
-              'tests/cms-browser.py',
-              '''    @staticmethod
-    def revert_if_dirty(page: Page) -> None:
-        button = page.locator("[data-action=revert]")
-        if button.is_disabled():
-            return
-        button.click()
-        CMSBrowserQA.confirm_yes(page)
-        CMSBrowserQA.wait_canvas(page)
-''',
-              '''    @staticmethod
-    def revert_if_dirty(page: Page) -> None:
-        button = page.locator("[data-action=revert]")
-        if button.is_disabled():
-            return
-        previous = page.locator("#editor iframe.gjs-frame").element_handle()
-        try:
-            button.click()
-            CMSBrowserQA.confirm_yes(page)
-            if previous is not None:
-                page.wait_for_function('frame => !frame.isConnected', arg=previous, timeout=20000)
-            CMSBrowserQA.wait_canvas(page)
-        finally:
-            if previous is not None:
-                previous.dispose()
-''',
-          )
-          replace_exact(
-              'tests/revision_browser.py',
-              '''            goto(page, "/verkstad/")
-            button = page.locator("[data-fika-button]")
-''',
-              '''            goto(page, "/verkstad/")
-            wait_until(
-                lambda: page.locator("[data-memory-card][data-index]").count() == 12,
-                description="spelens JavaScript-initiering",
-            )
-            button = page.locator("[data-fika-button]")
-''',
-          )
+          old_revert = "    @staticmethod\n    def revert_if_dirty(page: Page) -> None:\n        button = page.locator(\"[data-action=revert]\")\n        if button.is_disabled():\n            return\n        button.click()\n        CMSBrowserQA.confirm_yes(page)\n        CMSBrowserQA.wait_canvas(page)\n"
+          new_revert = "    @staticmethod\n    def revert_if_dirty(page: Page) -> None:\n        button = page.locator(\"[data-action=revert]\")\n        if button.is_disabled():\n            return\n        previous = page.locator(\"#editor iframe.gjs-frame\").element_handle()\n        try:\n            button.click()\n            CMSBrowserQA.confirm_yes(page)\n            if previous is not None:\n                page.wait_for_function('frame => !frame.isConnected', arg=previous, timeout=20000)\n            CMSBrowserQA.wait_canvas(page)\n        finally:\n            if previous is not None:\n                previous.dispose()\n"
+          replace_exact('tests/cms-browser.py', old_revert, new_revert)
+
+          old_fika = "            goto(page, \"/verkstad/\")\n            button = page.locator(\"[data-fika-button]\")\n"
+          new_fika = "            goto(page, \"/verkstad/\")\n            wait_until(\n                lambda: page.locator(\"[data-memory-card][data-index]\").count() == 12,\n                description=\"spelens JavaScript-initiering\",\n            )\n            button = page.locator(\"[data-fika-button]\")\n"
+          replace_exact('tests/revision_browser.py', old_fika, new_fika)
           PY
           rm .github/workflows/chatgpt-pr4-final-race-fix.yml
           git diff --check
