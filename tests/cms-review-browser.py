@@ -15,6 +15,7 @@ from playwright.sync_api import sync_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('cms_review_qa', ROOT/'tests/cms-browser.py')
 qa = importlib.util.module_from_spec(spec); sys.modules[spec.name] = qa; spec.loader.exec_module(qa)
+Q = qa.CMSBrowserQA
 BASE = qa.BASE_URL
 assert qa.loopback_base(BASE), 'Only an isolated local Worker is allowed'
 ENGINE = os.environ.get('CMS_BROWSER', 'chromium')
