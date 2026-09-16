@@ -168,7 +168,7 @@ with sync_playwright() as playwright:
             context,page=visit('/verkstad/?kort=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E')
             try:
                 assert page.locator('[data-receipt]').is_hidden()
-                assert page.locator('[data-toast]').inner_text().startswith('Det kortet finns inte')
+                expect(page.locator('[data-toast]')).to_have_text('Det kortet finns inte. Tryck fram ett nytt i stället.')
                 assert page.locator('img').count()==0
                 no_errors(page)
             finally: context.close()

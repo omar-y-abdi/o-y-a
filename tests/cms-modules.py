@@ -106,7 +106,7 @@ with sync_playwright() as pw:
             content = {**PAGE, 'html': '<main><h1>Hello <span id="accent-word" class="accent">world</span>.</h1><p>Simple<br>line</p></main>', 'css': '.accent{color:rgb(201,32,17)}', 'project': None}
             frame = editor(page, content)
             page.evaluate("window.accentModel=handle.editor.getWrapper().find('#accent-word')[0];accentModel.addStyle({'font-size':'31px'})")
-            page.evaluate('''()=>{const ed=handle.editor;const c=ed.getWrapper().find('h1')[0];cmsTest.componentInspector(c,ed,{assets:[],change(){handle.flush()},onError(message){throw Error(message)},pickImage(){}})}''')
+            page.evaluate('''()=>{const ed=handle.editor;const c=ed.getWrapper().find('h1')[0];cmsTest.componentInspector(c,ed,{assets:[],change(){handle.flush(true)},onError(message){throw Error(message)},pickImage(){}})}''')
             expect(page.locator('#element-text')).to_be_visible()
             assert frame.locator('#accent-word').evaluate('el=>getComputedStyle(el).fontSize') == '31px'
             page.locator('#element-text').fill('Hello world.!')
@@ -121,7 +121,7 @@ with sync_playwright() as pw:
             assert frame.locator('.accent').evaluate('el=>getComputedStyle(el).color') == 'rgb(201, 32, 17)'
             assert page.evaluate("snapshots.at(-1).html.includes('class=\"accent\"')")
             heading.press('Escape')
-            page.evaluate('''()=>{const ed=handle.editor;cmsTest.componentInspector(ed.getWrapper().find('p')[0],ed,{assets:[],change(){handle.flush()},onError(message){throw Error(message)},pickImage(){}})}''')
+            page.evaluate('''()=>{const ed=handle.editor;cmsTest.componentInspector(ed.getWrapper().find('p')[0],ed,{assets:[],change(){handle.flush(true)},onError(message){throw Error(message)},pickImage(){}})}''')
             page.locator('#element-text').fill('Simple\nchanged')
             page.evaluate('handle.flush()')
             assert page.evaluate("snapshots.at(-1).html.includes('changed')")
@@ -248,7 +248,7 @@ with sync_playwright() as pw:
             frame=editor(page,content)
             page.evaluate("""()=>{const ed=handle.editor;ed.select(ed.getWrapper().find('#copy-target')[0]);handle.setStyleMode('normal')}""")
             page.wait_for_timeout(100)
-            page.evaluate("""()=>{const ed=handle.editor;const section=ed.getWrapper().find('#copy-section')[0];ed.select(section);handle.setStyleMode('normal');cmsTest.componentInspector(section,ed,{assets:[],change(){handle.flush()},onError(message){throw Error(message)},pickImage(){}})}""")
+            page.evaluate("""()=>{const ed=handle.editor;const section=ed.getWrapper().find('#copy-section')[0];ed.select(section);handle.setStyleMode('normal');cmsTest.componentInspector(section,ed,{assets:[],change(){handle.flush(true)},onError(message){throw Error(message)},pickImage(){}})}""")
             page.wait_for_timeout(100)
             page.locator('#duplicate-element').click()
             page.wait_for_timeout(100)

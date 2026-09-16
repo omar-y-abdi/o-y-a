@@ -74,9 +74,9 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     if (disposed || loading || !force && !typing && editor.getDirtyCount() === 0) return null;
     return { html: liveHtml(editor, textView), css: editor.getCss(), project: null };
   }
-  function flush() {
+  function flush(force = false) {
     clearTimeout(timer);
-    const value = snapshot();
+    const value = snapshot(force);
     if (value) {
       const serialized = JSON.stringify(value);
       if (serialized !== previousSnapshot) { previousSnapshot = serialized; onChange(value); }

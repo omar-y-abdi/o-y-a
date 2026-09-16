@@ -136,7 +136,7 @@ function inspect(component, editor) {
     $('#selection-hint').textContent = `${component.getName()} · färg, yta och effekter.`;
   } else {
     active?.setStyleMode('normal');
-    componentInspector(component, editor, { assets, pickImage, change: () => active?.flush(), onError: message => toast(message, true), extra: current.type === 'win' ? winFields(card()) : current.type === 'svg' ? '<section class="inspector-section"><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>' : '' });
+    componentInspector(component, editor, { assets, pickImage, change: () => active?.flush(true), onError: message => toast(message, true), extra: current.type === 'win' ? winFields(card()) : current.type === 'svg' ? '<section class="inspector-section"><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>' : '' });
     if (current.type === 'win') winInputEvents();
     $('#selection-hint').textContent = `${component.getName()} · redigera, finjustera eller ändra struktur via Lager.`;
   }

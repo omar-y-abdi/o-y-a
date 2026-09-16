@@ -171,7 +171,7 @@ with sync_playwright() as pw:
         ctx=context()
         try:
             a=admin(ctx)
-            uploaded=Q.upload_file(a, ROOT/'public/mail/omar-smile.png')
+            uploaded=qa.CMSBrowserQA.upload_file(a, ROOT/'public/mail/omar-smile.png')
             asset_id=uploaded['id']
             expect(a.locator('#asset-name')).to_be_visible()
             b=admin(ctx)
