@@ -680,6 +680,10 @@ def check_fika(browser: Browser, results: list[dict]) -> None:
         context, page, errors, _requests = make_page(browser, 1440)
         try:
             goto(page, "/verkstad/")
+            wait_until(
+                lambda: page.locator("[data-memory-card][data-index]").count() == 12,
+                description="spelens JavaScript-initiering",
+            )
             button = page.locator("[data-fika-button]")
             button.focus()
             page.keyboard.press("Enter")

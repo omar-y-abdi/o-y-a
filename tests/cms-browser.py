@@ -352,9 +352,16 @@ class CMSBrowserQA:
         button = page.locator("[data-action=revert]")
         if button.is_disabled():
             return
-        button.click()
-        CMSBrowserQA.confirm_yes(page)
-        CMSBrowserQA.wait_canvas(page)
+        previous = page.locator("#editor iframe.gjs-frame").element_handle()
+        try:
+            button.click()
+            CMSBrowserQA.confirm_yes(page)
+            if previous is not None:
+                page.wait_for_function('frame => !frame.isConnected', arg=previous, timeout=20000)
+            CMSBrowserQA.wait_canvas(page)
+        finally:
+            if previous is not None:
+                previous.dispose()
 
     @staticmethod
     def screenshot(page: Page, name: str) -> None:
