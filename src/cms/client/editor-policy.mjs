@@ -23,9 +23,10 @@ export const svgStyleSectors = [
   { id: 'cms-svg-stroke', name: 'Kontur', open: true, buildProps: ['stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset'] },
 ];
 
-export function configureVisualComponent(component) {
+export function configureVisualComponent(component, { managedSvg = false } = {}) {
+  const tag = String(component.get?.('tagName') ?? '').toLowerCase();
   component.set({
-    resizable: String(component.get?.('tagName')??'').toLowerCase()==='g' ? svgGroupResizeOptions(component) : isResizableComponent(component),
+    resizable: managedSvg && tag === 'svg' ? false : tag === 'g' ? svgGroupResizeOptions(component) : isResizableComponent(component),
     // Canvas move can reparent/reorder. Structural movement belongs in Layers;
     // precise visual movement is exposed by the inspector nudge controls.
     toolbar: [],
