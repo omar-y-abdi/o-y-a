@@ -8,6 +8,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   let disposed = false;
   let loading = true;
   let timer, textView = null, typing = false, previousSnapshot = '';
+  const managedSvg = page.bodyClass === 'cms-svg-editor';
   const inspector = document.querySelector('#styles-panel');
   const blocksPanel = document.querySelector('#blocks-panel');
   const labelFields = () => { inspector.querySelectorAll('.gjs-sm-property').forEach(property => {
@@ -59,13 +60,13 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     if (mode === 'normal') applyFontOptions();
   };
   applyFontOptions();
-  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component); component.on('component:clone', clone => remapClone(component, clone, editor)); });
+  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg }); component.on('component:clone', clone => remapClone(component, clone, editor)); });
   // The same validated HTML/CSS powers editing, preview and publication.
   // Editor JSON is legacy import metadata, never a second content authority.
   editor.setStyle(page.css);
   // Importing components extracts inline styles; do not erase those afterward.
   editor.setComponents(page.html);
-  const configureTree = component => { configureVisualComponent(component); component.components?.().forEach(configureTree); };
+  const configureTree = component => { configureVisualComponent(component, { managedSvg }); component.components?.().forEach(configureTree); };
   editor.getWrapper().components().forEach(configureTree);
   editor.AssetManager.add(assets.filter(asset => asset.mime.startsWith('image/')).map(asset => ({ src: asset.src, name: asset.name, width: asset.width, height: asset.height })));
   editor.getWrapper().addAttributes({ id: 'top', class: page.bodyClass, 'data-page': page.path });
