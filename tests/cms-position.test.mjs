@@ -12,13 +12,17 @@ function component(tagName) {
   };
 }
 
-test('managed SVG root does not expose CSS-only resize while SVG groups keep persistent resize', () => {
-  const root = component('svg');
-  configureVisualComponent(root);
-  assert.equal(root.configured().resizable, false);
+test('managed SVG root blocks lossy resize without changing normal SVG resize behavior', () => {
+  const normalRoot = component('svg');
+  configureVisualComponent(normalRoot);
+  assert.equal(normalRoot.configured().resizable, true);
+
+  const managedRoot = component('svg');
+  configureVisualComponent(managedRoot, { managedSvg: true });
+  assert.equal(managedRoot.configured().resizable, false);
 
   const group = component('g');
-  configureVisualComponent(group);
+  configureVisualComponent(group, { managedSvg: true });
   assert.equal(typeof group.configured().resizable, 'object');
   assert.equal(typeof group.configured().resizable.updateTarget, 'function');
 });
