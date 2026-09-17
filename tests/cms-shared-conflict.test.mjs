@@ -28,7 +28,11 @@ test('divergent legacy shared content is recoverable by choosing one stored vari
       ...page,
       html: page.html.replace(/ data-cms-shared="footer\.tagline"/g, ''),
     }));
-    legacy.pages[0].html = legacy.pages[0].html.replace(originalTagline, divergentTagline);
+    legacy.pages[0].html = legacy.pages[0].html.replace(
+      /Lite hjärna\. Lite hjärta\.<br[^>]*>Ganska mycket nyfikenhet\./,
+      divergentTagline,
+    );
+    assert.ok(legacy.pages[0].html.includes(divergentTagline), 'fixture must contain a divergent footer variant');
 
     await publishSite(runtime.db, {
       project: legacy,
