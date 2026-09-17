@@ -12,6 +12,17 @@ function setAttr(node,name,value){
 }
 function walk(node,visit){visit(node);for(const child of node.childNodes??[])walk(child,visit);}
 function findNode(root,name,value){let found=null;walk(root,node=>{if(!found&&attr(node,name)===value)found=node;});return found;}
+function setInner(node,value){
+  const fragment=parseFragment(value);
+  node.childNodes=fragment.childNodes??[];
+  for(const child of node.childNodes)child.parentNode=node;
+}
+function sharedLabel(value){
+  const root=parseFragment(value); let text='';
+  walk(root,node=>{if(node.nodeName==='#text')text+=node.value; else if(node.tagName==='br')text+=' ';});
+  text=text.replace(/\s+/g,' ').trim();
+  return text.length>160?`${text.slice(0,157)}…`:text||'Tom text';
+}
 export function normalizeSharedValue(value){
   if(typeof value!=='string'||value.length>10000)fail('Gemensamt innehåll är ogiltigt.');
   const wrapped=validateHtml(`<span>${value}</span>`);
@@ -32,7 +43,9 @@ export function normalizeStoredProject(input,seed={},initial={}){
   if(!input||input.sharedContent!==undefined&&input.sharedContent!==null)return input;
   const required=Object.keys(seed.sharedContent??{});
   if(!required.length)return input;
-  const project=structuredClone(input), values={};
+  const project=structuredClone(input);
+  const variants=new Map(required.map(key=>[key,new Map()]));
+  const trees=[];
   for(const page of project.pages??[]){
     const template=(initial.pages??[]).find(item=>item.id===page.id)||(initial.pages??[]).find(item=>item.id===page.sourceId)||seed.blank;
     if(!template?.html)fail('Den sparade versionen saknar en kompatibel sidmall.');
@@ -44,12 +57,31 @@ export function normalizeStoredProject(input,seed={},initial={}){
       if(!target)fail(`Den sparade versionen saknar en kompatibel gemensam innehållsplats: ${key}.`);
       setAttr(target,'data-cms-shared',key);
       const value=normalizeSharedValue(serialize(target));
-      if(Object.hasOwn(values,key)&&values[key]!==value)fail(`Den sparade versionen har olika innehåll för ${key} mellan sidor.`);
-      values[key]=value;
+      const options=variants.get(key), pages=options.get(value)??[];
+      pages.push(page.name||page.path||page.id);
+      options.set(value,pages);
+    }
+    trees.push({page,legacy});
+  }
+  const values={}, conflicts=[];
+  for(const key of required){
+    const options=[...variants.get(key).entries()];
+    if(!options.length)fail(`Den sparade versionen saknar gemensamt innehåll för ${key}.`);
+    const preferred=seed.sharedContent?.[key]===undefined?null:normalizeSharedValue(seed.sharedContent[key]);
+    const value=options.find(([candidate])=>candidate===preferred)?.[0]??options[0][0];
+    values[key]=value;
+    if(options.length>1)conflicts.push({key,options:options.map(([candidate,pages])=>({value:candidate,label:sharedLabel(candidate),pages}))});
+  }
+  for(const {page,legacy} of trees){
+    for(const key of required){
+      const target=findNode(legacy,'data-cms-shared',key);
+      if(!target)fail(`Den sparade versionen saknar en kompatibel gemensam innehållsplats: ${key}.`);
+      setInner(target,values[key]);
     }
     page.html=serialize(legacy);
   }
   project.sharedContent=normalizeSharedContent(values,seed);
+  if(conflicts.length)project.sharedContentConflicts=conflicts;
   return project;
 }
 export function validateSharedInstances(pages,sharedContent,{publication=true,requiredEverywhere=[]}={}){
