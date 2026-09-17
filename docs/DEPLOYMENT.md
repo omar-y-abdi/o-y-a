@@ -2,6 +2,24 @@
 
 Production deployment is a separate step **after merge**. This branch provisions and verifies only staging. GitHub Actions performs checks and retains browser evidence; it has no deployment job or production secrets.
 
+## Cloudflare Workers Builds
+
+For the connected production repository, keep the Workers Builds commands aligned with the schema-dependent Worker code:
+
+- Build command: `npm run build`
+- Deploy command: `npm run deploy:cloudflare`
+
+Do **not** use plain `npx wrangler deploy` as the production deploy command. `npm run deploy:cloudflare` first applies every pending remote migration for the `CMS_DB` binding and only publishes the Worker after the schema is current. This prevents a newly deployed CMS from querying columns or tables that have not yet been created in D1.
+
+If a Worker has already been deployed against an older D1 schema, recover the current deployment by applying the pending migrations and redeploying:
+
+```sh
+npx wrangler d1 migrations apply CMS_DB --remote --config wrangler.jsonc
+npx wrangler deploy --config wrangler.jsonc
+```
+
+R2 has no SQL schema migration step. A CMS boot failure caused by missing D1 columns/tables is not repaired by replacing or reconnecting the R2 bucket.
+
 ## Existing staging
 
 - Worker: `omar-portfolio-cms-staging`
