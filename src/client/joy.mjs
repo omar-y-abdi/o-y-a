@@ -225,6 +225,11 @@ export function initJoy({ toast, track }) {
       bubbleStatus.textContent = (remaining ? t(remaining === 1 ? 'runtime.joy.bubble.remaining.one' : 'runtime.joy.bubble.remaining.many', { remaining }) : '') + bubbleComment(popTimes,remaining);
       if (remaining === 0) { celebrate(button);track('bubble_complete'); }
     });
+    button.addEventListener('keydown', event => {
+      if (event.key !== ' ' && event.code !== 'Space') return;
+      event.preventDefault();
+      button.click();
+    });
   });
   document.querySelector('[data-bubble-reset]').addEventListener('click', () => {
     popped = new Set();popTimes=[];clearParticles();
