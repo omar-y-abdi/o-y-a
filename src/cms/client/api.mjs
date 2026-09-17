@@ -34,7 +34,7 @@ async function repairSharedContent(state) {
     return `<fieldset class="inspector-section"><legend>${escape(title)}</legend>${options}</fieldset>`;
   }).join('');
 
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     dialog(`<span class="dialog-eyebrow">GEMENSAM TEXT BEHÖVER ETT VAL</span><h2>Sidfoten skiljer sig mellan sidor.</h2><p>Den sparade versionen innehåller flera varianter av samma gemensamma text. Välj vilken variant som ska gälla överallt. Valet sparas som en ny version; den gamla versionen finns kvar i historiken.</p><form data-shared-content-repair>${groups}<p data-shared-content-error role="alert"></p><div class="dialog-buttons"><button type="submit" class="small-button primary">Använd vald text på alla sidor</button></div></form>`);
     const form = modal.querySelector('[data-shared-content-repair]');
     const errorNode = modal.querySelector('[data-shared-content-error]');
@@ -70,8 +70,8 @@ async function repairSharedContent(state) {
         submit.textContent = 'Använd vald text på alla sidor';
         errorNode.textContent = error.message;
       }
-    }, { once: true });
-  }).catch(error => { if (modal.open) modal.close(); throw error; });
+    });
+  });
 }
 
 export async function api(path, data) {
