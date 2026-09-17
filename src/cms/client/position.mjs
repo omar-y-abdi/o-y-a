@@ -5,7 +5,7 @@ function tagOf(component){return String(component?.get?.('tagName')??'div').toLo
 function functional(component){const attrs=component?.getAttributes?.()??{};return Object.keys(attrs).some(name=>name.startsWith('data-')&&!name.startsWith('data-cms-'));}
 export function isResizableComponent(component){
   const tag=tagOf(component),type=component?.get?.('type');
-  if(tag==='svg'||CONTROL_TAGS.has(tag)||LOW_LEVEL_SVG.has(tag)||functional(component))return false;
+  if(CONTROL_TAGS.has(tag)||LOW_LEVEL_SVG.has(tag)||functional(component))return false;
   return type==='image'||type==='text'||type==='link'||LAYOUT_TAGS.has(tag);
 }
 export function svgGroupResizeOptions(component){
