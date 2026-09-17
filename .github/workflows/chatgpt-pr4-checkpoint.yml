@@ -1,0 +1,52 @@
+name: ChatGPT PR4 checkpoint publisher
+
+on:
+  push:
+    branches:
+      - chatgpt/pr4-review-workspace-20260916b
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Publish verified checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          temp_branch='chatgpt/pr4-review-workspace-20260916b'
+          target_branch='cms-usability-20260915'
+          expected_parent='546710a171daeee8796a1a5af8a617f93036951a'
+          expected_tree='baf9941cfbb069f6eda01e71db8e55deb23b3567'
+
+          git fetch origin "$target_branch" "$temp_branch"
+          : > /tmp/checkpoint.b64
+          for part in 00 01 02 03; do
+            git show "origin/$temp_branch:tmp/chatgpt-pr4-checkpoint/patch.$part" >> /tmp/checkpoint.b64
+          done
+          tr -d '\r\n' < /tmp/checkpoint.b64 | base64 --decode | gunzip > /tmp/checkpoint.patch
+
+          git checkout -B "$target_branch" "origin/$target_branch"
+          actual_parent="$(git rev-parse HEAD)"
+          test "$actual_parent" = "$expected_parent" || {
+            echo "Refusing to publish: expected $expected_parent, found $actual_parent" >&2
+            exit 1
+          }
+
+          git config user.name 'Omar Yusuf Abdi'
+          git config user.email 's2305975@student.hb.se'
+          git am /tmp/checkpoint.patch
+
+          actual_tree="$(git rev-parse HEAD^{tree})"
+          test "$actual_tree" = "$expected_tree" || {
+            echo "Refusing to publish: expected tree $expected_tree, found $actual_tree" >&2
+            exit 1
+          }
+          git diff --exit-code
+          git push origin "HEAD:$target_branch"
+          echo "Published $(git rev-parse HEAD) with verified tree $actual_tree"
