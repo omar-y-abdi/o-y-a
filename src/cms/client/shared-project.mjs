@@ -25,6 +25,15 @@ function propagate(html, key, value) {
   return template.innerHTML;
 }
 
+export function applySharedContentClient(project, key, value) {
+  const { sharedContentConflicts: _conflicts, ...clean } = project;
+  return {
+    ...clean,
+    pages: project.pages.map(page => ({ ...page, html: propagate(page.html, key, value) })),
+    sharedContent: { ...(project.sharedContent ?? {}), [key]: value },
+  };
+}
+
 export function synchronizeSharedPageClient(project, pageId, nextPage) {
   let pages = project.pages.map(page => page.id === pageId ? nextPage : page);
   const sharedContent = { ...(project.sharedContent ?? {}) };
