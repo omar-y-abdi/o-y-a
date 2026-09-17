@@ -214,6 +214,7 @@ with sync_playwright() as playwright:
                 sound=page.locator('[data-sound-toggle]')
                 expect(sound).to_have_attribute('aria-pressed','false')
                 assert 'av' in sound.inner_text()
+                expect(page.locator('[data-bubble="0"]')).to_be_enabled()
                 for i in range(12):
                     bubble=page.locator(f'[data-bubble="{i}"]')
                     bubble.focus(); page.keyboard.press('Space')
