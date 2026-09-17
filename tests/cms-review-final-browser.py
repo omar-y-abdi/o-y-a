@@ -195,6 +195,46 @@ with sync_playwright() as pw:
             public.screenshot(path=str(OUT/'font-replaced-and-restored.png')); public.close()
         finally: ctx.close()
 
+
+    def managed_svg_dirty_lifecycle():
+        ctx, page = setup()
+        try:
+            state = api(ctx, 'state').json()
+            asset = next(item for item in state['assets'] if item.get('editableSrc') and item.get('slot') == 'emailStatic')
+            qa.CMSBrowserQA.open_assets(page)
+            page.locator(f'#special-stage [data-asset-id="{asset["id"]}"]').click()
+            expect(page.locator('[data-action=edit-svg-asset]')).to_be_visible(timeout=10000)
+            page.locator('[data-action=edit-svg-asset]').click(); ready(page)
+            group = frame(page).locator('svg g').first
+            expect(group).to_be_visible(timeout=10000); group.click()
+            page.locator('[data-nudge=right]').click()
+            expect(page.locator('[data-action=save]')).to_be_enabled()
+            expect(page.locator('#save-status')).to_contain_text('SVG-utkast')
+            expect(page.locator('#backup-status')).to_contain_text('sparat för denna flik', timeout=10000)
+            svg_records = [row for row in records(page) if row.get('managedSvg')]
+            assert svg_records and svg_records[-1]['managedSvg']['id'] == asset['id'], svg_records
+            assert 'translate(' in svg_records[-1]['managedSvg']['svg']
+            assert 'data-cms-node' not in svg_records[-1]['managedSvg']['svg']
+            prevented = page.evaluate("""()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented}""")
+            assert prevented, 'dirty managed SVG did not participate in beforeunload protection'
+
+            page.locator('[data-library=pages]').click()
+            expect(page.locator('#studio-dialog')).to_be_visible()
+            expect(page.locator('#dialog-content')).to_contain_text('Lämna SVG-utkastet?')
+            page.locator('[data-confirm=no]').click()
+            expect(page.locator('#studio-dialog')).to_be_hidden()
+            expect(page.locator('#canvas-label')).to_contain_text('SVG')
+            expect(page.locator('[data-action=save]')).to_be_enabled()
+
+            page.locator('[data-library=pages]').click()
+            expect(page.locator('#studio-dialog')).to_be_visible()
+            page.locator('[data-confirm=yes]').click()
+            expect(page.locator('#studio-dialog')).to_be_hidden()
+            page.locator('[data-page-id]').first.wait_for(state='visible', timeout=10000)
+            page.wait_for_timeout(700)
+            assert not any(row.get('managedSvg') for row in records(page) if not row.get('deleted')), records(page)
+        finally: ctx.close()
+
     def quota_export():
         fail_writes = """(()=>{const original=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(stores,mode,...args){if(mode==='readwrite')throw new DOMException('Test quota','QuotaExceededError');return original.call(this,stores,mode,...args)}})()"""
         ctx, page = setup(init=fail_writes)
@@ -209,7 +249,7 @@ with sync_playwright() as pw:
             page.screenshot(path=str(OUT/'storage-quota-visible.png'))
         finally: ctx.close()
 
-    for name, case in [('active-input-backup-reload-publish', active_text), ('rich-inspector-structure-reload-public', rich_inspector), ('preview-srcdoc-script-readiness', locked_preview), ('custom-card-visible-transform-export', card_preview_export), ('distinct-font-replacement-and-history', font_replacement), ('storage-quota-visible-export', quota_export)]:
+    for name, case in [('active-input-backup-reload-publish', active_text), ('rich-inspector-structure-reload-public', rich_inspector), ('preview-srcdoc-script-readiness', locked_preview), ('custom-card-visible-transform-export', card_preview_export), ('distinct-font-replacement-and-history', font_replacement), ('managed-svg-dirty-navigation-unload-recovery', managed_svg_dirty_lifecycle), ('storage-quota-visible-export', quota_export)]:
         report.run(name, case)
     browser.close()
 raise SystemExit(report.summary())

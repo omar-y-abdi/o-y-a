@@ -17,6 +17,12 @@ export const websiteStyleSectors = [
   { id: 'cms-color-effects', name: 'Djup & effekter', open: false, buildProps: ['box-shadow', 'text-shadow', 'filter'] },
 ];
 
+
+export const svgStyleSectors = [
+  { id: 'cms-svg-fill', name: 'Fyllning', open: true, buildProps: ['fill', 'fill-opacity', 'fill-rule', 'opacity'] },
+  { id: 'cms-svg-stroke', name: 'Kontur', open: true, buildProps: ['stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset'] },
+];
+
 export function configureVisualComponent(component) {
   component.set({
     resizable: String(component.get?.('tagName')??'').toLowerCase()==='g' ? svgGroupResizeOptions(component) : isResizableComponent(component),
@@ -29,7 +35,7 @@ export function configureVisualComponent(component) {
 
 export function applyStyleMode(editor, mode = 'normal') {
   const manager = editor.StyleManager;
-  const definitions = mode === 'website' ? websiteStyleSectors : normalStyleSectors;
+  const definitions = mode === 'website' ? websiteStyleSectors : mode === 'svg' ? svgStyleSectors : normalStyleSectors;
   for (const sector of [...manager.getSectors({ array: true })]) manager.removeSector(sector.getId?.() ?? sector.get('id'));
   definitions.forEach((sector, at) => manager.addSector(sector.id, { ...sector }, { at }));
   return definitions;

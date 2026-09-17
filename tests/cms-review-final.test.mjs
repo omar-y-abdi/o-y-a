@@ -1,4 +1,4 @@
-import { test, beforeAll as before, afterAll as after } from 'vitest';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseFragment, serialize } from 'parse5';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';

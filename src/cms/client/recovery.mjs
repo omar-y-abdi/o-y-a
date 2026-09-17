@@ -90,11 +90,12 @@ export class RecoveryStore {
   }
 }
 
-export function draftBackup(project, baseVersion, pendingSave = null) {
-  return { format: 'oy-portfolio-draft', schemaVersion: 1, origin: location.origin, exportedAt: new Date().toISOString(), project, baseVersion, pendingSave };
+export function draftBackup(project, baseVersion, pendingSave = null, managedSvg = null) {
+  return { format: 'oy-portfolio-draft', schemaVersion: 2, origin: location.origin, exportedAt: new Date().toISOString(), project, baseVersion, pendingSave, managedSvg };
 }
 
 export function readDraftBackup(value) {
-  if (!value || value.format && value.format !== 'oy-portfolio-draft' || value.schemaVersion && value.schemaVersion !== 1 || !value.project || !Number.isSafeInteger(value.baseVersion) || value.baseVersion < 0) throw new Error('Filen är inte ett giltigt Portfolio Studio-utkast.');
+  if (!value || value.format && value.format !== 'oy-portfolio-draft' || value.schemaVersion && ![1, 2].includes(value.schemaVersion) || !value.project || !Number.isSafeInteger(value.baseVersion) || value.baseVersion < 0) throw new Error('Filen är inte ett giltigt Portfolio Studio-utkast.');
+  if (value.managedSvg && (typeof value.managedSvg.id !== 'string' || !Number.isSafeInteger(value.managedSvg.version) || value.managedSvg.version < 0 || typeof value.managedSvg.svg !== 'string' || value.managedSvg.svg.length > 512_000)) throw new Error('Reservkopians SVG-utkast är ogiltigt.');
   return value;
 }

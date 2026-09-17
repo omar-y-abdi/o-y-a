@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import { startBlobDownload } from '../src/client/joy.mjs';
 
 describe('card download', () => {
@@ -11,22 +12,22 @@ describe('card download', () => {
       remove() { events.push('remove'); },
     };
     const documentRef = {
-      createElement(tag) { expect(tag).toBe('a'); events.push('create'); return link; },
-      body: { append(node) { expect(node).toBe(link); events.push('append'); } },
+      createElement(tag) { assert.equal(tag, 'a'); events.push('create'); return link; },
+      body: { append(node) { assert.equal(node, link); events.push('append'); } },
     };
     const urlApi = {
-      createObjectURL(blob) { expect(blob).toBe('blob'); events.push('url'); return 'blob:test'; },
-      revokeObjectURL(url) { expect(url).toBe('blob:test'); events.push('revoke'); },
+      createObjectURL(blob) { assert.equal(blob, 'blob'); events.push('url'); return 'blob:test'; },
+      revokeObjectURL(url) { assert.equal(url, 'blob:test'); events.push('revoke'); },
     };
     let scheduled;
     const schedule = fn => { scheduled = fn; events.push('schedule'); };
 
     startBlobDownload('blob', 'card.png', { documentRef, urlApi, schedule });
 
-    expect(link.href).toBe('blob:test');
-    expect(link.download).toBe('card.png');
-    expect(events).toEqual(['url', 'create', 'append', 'click', 'remove', 'schedule']);
+    assert.equal(link.href, 'blob:test');
+    assert.equal(link.download, 'card.png');
+    assert.deepEqual(events, ['url', 'create', 'append', 'click', 'remove', 'schedule']);
     scheduled();
-    expect(events).toEqual(['url', 'create', 'append', 'click', 'remove', 'schedule', 'revoke']);
+    assert.deepEqual(events, ['url', 'create', 'append', 'click', 'remove', 'schedule', 'revoke']);
   });
 });

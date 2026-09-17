@@ -1,4 +1,4 @@
-import { test, afterAll as after } from 'vitest';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
@@ -80,4 +80,14 @@ test('trashed fonts do not consume the active 64-font quota', async () => {
   const asset = await uploadAsset(env, { id, bytes, name: 'Active.woff2', alt: '' });
   assert.equal(asset.mime, 'font/woff2');
   assert.equal(asset.state, 'active');
+});
+
+test('active and archived media pages keep lifecycle index query plans', async () => {
+  for (const filter of ['trashed_at IS NULL AND archived_at IS NULL', 'trashed_at IS NULL AND archived_at IS NOT NULL']) {
+    const plan = await env.CMS_DB.prepare(`EXPLAIN QUERY PLAN SELECT * FROM cms_media WHERE ${filter} AND (? = 0 OR mime LIKE 'image/%') AND (instr(lower(name),lower(?)) > 0 OR instr(lower(mime),lower(?)) > 0) AND (? = '' OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT 61`)
+      .bind(0, '', '', '', '', '', '').all();
+    const details = plan.results.map(row => row.detail);
+    assert.ok(details.some(detail => detail.includes('cms_media_lifecycle')), details.join('\n'));
+    assert.ok(details.every(detail => !detail.startsWith('SCAN cms_media')), details.join('\n'));
+  }
 });

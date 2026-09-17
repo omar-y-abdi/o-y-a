@@ -6,7 +6,7 @@ const ELEMENTS = new Set(['svg','g','path','circle','ellipse','rect','line','pol
 const ATTRS = new Set([
   'xmlns','viewBox','width','height','x','y','x1','x2','y1','y2','cx','cy','r','rx','ry','d','points',
   'fill','fill-opacity','fill-rule','stroke','stroke-width','stroke-opacity','stroke-linecap','stroke-linejoin','stroke-miterlimit','stroke-dasharray','stroke-dashoffset',
-  'opacity','transform','id','class','offset','stop-color','stop-opacity','gradientUnits','gradientTransform','fx','fy','spreadMethod','clip-path','clip-rule','preserveAspectRatio','role','aria-hidden','aria-label',
+  'opacity','transform','id','class','data-cms-translate','offset','stop-color','stop-opacity','gradientUnits','gradientTransform','fx','fy','spreadMethod','clip-path','clip-rule','preserveAspectRatio','role','aria-hidden','aria-label',
 ]);
 const LOCAL_URL = /^url\(#[A-Za-z_][A-Za-z0-9_.:-]*\)$/;
 const ID = /^[A-Za-z_][A-Za-z0-9_.:-]*$/;
@@ -25,6 +25,7 @@ function validateAttribute(name,value) {
   if(name.toLowerCase().startsWith('on')||name==='style'||name==='href'||name==='xlink:href'||!ATTRS.has(name)) fail();
   if(name==='id'&&!ID.test(value)) fail('SVG-filen innehåller ett ogiltigt id.');
   if(name==='viewBox') validateViewBox(value);
+  if(name==='data-cms-translate'&&!/^-?(?:\d+(?:\.\d+)?|\.\d+)\s+-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(String(value).trim())) fail('SVG-filen innehåller en ogiltig positionsmarkör.');
   if(['width','height'].includes(name)&&value&&!NUMBER.test(value)) fail('SVG-filen har en ogiltig storlek.');
   if(name==='xmlns'&&value===SVG_NS)return;
   if(!safeReference(String(value))) fail();

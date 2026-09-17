@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isResizableComponent, nudgeComponent, resetComponentPosition, svgGroupResizeOptions } from '../src/cms/client/position.mjs';
 import { componentKey, findComponentByKey, centerOffset, captureInspectorScroll, restoreInspectorScroll } from '../src/cms/client/view-state.mjs';

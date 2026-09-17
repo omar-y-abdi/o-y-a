@@ -1,5 +1,5 @@
 import { authenticateAdmin } from './auth.mjs';
-import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, saveManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validatePackageResources, validateReferencedMedia } from './assets.mjs';
+import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, completeManagedSvg, finalizeManagedSvg, managedSvgOperation, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, prepareManagedSvg, stageManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateManagedSvg, validatePackageResources, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
 import { normalizeStoredProject } from './shared-content.mjs';
@@ -57,9 +57,28 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     requireWriteRequest(request);
     if (url.pathname === '/admin/api/managed-svg') {
-      const body = await readJson(request, 600 * 1024);
-      const builtin = seed.assets.find(asset => asset.id === body.id);
-      return json(await saveManagedSvg(env, builtin ? { ...builtin, builtin: true } : null, body));
+      const body = await readJson(request, 16 * 1024 * 1024);
+      const source = seed.assets.find(asset => asset.id === body.id);
+      const builtin = source ? { ...source, builtin: true } : null;
+      if (body.action === 'validate') return json(validateManagedSvg(builtin, body.svg));
+      if (body.action === 'stage') return json(await stageManagedSvg(env, builtin, body));
+      if (body.action === 'prepare') return json(await prepareManagedSvg(env, builtin, body));
+      if (body.action === 'complete') return json(await completeManagedSvg(env, builtin, body.operationId));
+      if (body.action === 'finalize') {
+        const operation = await managedSvgOperation(env, builtin, body.operationId);
+        if (!operation.derivative_media_id || !['prepared','committed','completed'].includes(operation.state)) throw new HttpError(409, 'SVG-sparningen saknar ett färdigt PNG-derivat.');
+        const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });
+        const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), operation.derivative_media_id].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
+        const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
+        const assets = resourceCatalog(builtinSeed, selectedAssets, project);
+        const previous = assets.find(asset => asset.id === body.id), next = assets.find(asset => asset.id === operation.derivative_media_id && !asset.builtin && !asset.trashed);
+        if (!previous || !next) throw new HttpError(404, 'SVG-källan eller PNG-derivatet saknas.');
+        const replacement = replaceResource(project, previous, next, url.origin);
+        const committed = await finalizeManagedSvg(env, builtin, body.operationId);
+        const latestStates = await builtinAssetStates(env.CMS_DB);
+        return json({ ...replacement, ...committed, assets: resourceCatalog({ ...seed, assets: mergeBuiltinAssetStates(seed.assets, latestStates) }, selectedAssets, replacement.project) });
+      }
+      throw new HttpError(422, 'SVG-sparningens fas är ogiltig.');
     }
     if (['/admin/api/asset-metadata', '/admin/api/asset-usage', '/admin/api/asset-lifecycle'].includes(url.pathname)) {
       const body = await readJson(request, 16 * 1024 * 1024);

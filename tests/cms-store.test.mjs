@@ -1,4 +1,4 @@
-import { test, afterAll as after } from 'vitest';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { publishSite, readSite, readPublicPage, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';

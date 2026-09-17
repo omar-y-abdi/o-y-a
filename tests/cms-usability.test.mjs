@@ -1,4 +1,4 @@
-import { test, afterAll as after, beforeAll as before } from 'vitest';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
@@ -254,7 +254,7 @@ test('published deck exposes active cards only while exact archived IDs remain a
   assert.equal((await runtime.mf.dispatchFetch(runtime.url+`/data/cards/${trashed.id}.json`)).status,404);
 });
 
-test('managed SVG source is owner-only, sanitized, immutable in R2 and CAS-safe', async () => {
+test('managed SVG save is staged, derivative-backed, reconciled and CAS-safe', async () => {
   const state=await (await get('state')).json();
   const icon=state.assets.find(asset=>asset.builtin&&asset.slot==='icon');
   assert.equal(icon.editableSrc,'/favicon.svg');
@@ -263,15 +263,68 @@ test('managed SVG source is owner-only, sanitized, immutable in R2 and CAS-safe'
   const original=await opened.json();
   assert.match(original.svg,/^<svg/); assert.equal(original.version,icon.version);
   const changed=original.svg.replace('#ffda44','#00aa88');
-  const saved=await post('managed-svg',{id:icon.id,baseVersion:original.version,svg:changed});
-  assert.equal(saved.status,200,await saved.clone().text());
-  const result=await saved.json(); assert.equal(result.asset.version,original.version+1); assert.match(result.svg,/#00aa88/);
-  assert.ok(result.asset.managedAssetId);
-  const object=await (await runtime.mf.getR2Bucket('CMS_MEDIA')).get(`managed-svg/${result.asset.managedAssetId}.svg`);
+  const operationId=crypto.randomUUID();
+  const staged=await post('managed-svg',{action:'stage',id:icon.id,operationId,baseVersion:original.version,svg:changed});
+  assert.equal(staged.status,200,await staged.clone().text());
+  const stagedResult=await staged.json();
+  assert.equal(stagedResult.operation.state,'staged');
+  assert.match(stagedResult.svg,/#00aa88/);
+  const beforeFinalize=await (await get('managed-svg?id='+encodeURIComponent(icon.id))).json();
+  assert.equal(beforeFinalize.version,original.version);
+  assert.equal(beforeFinalize.asset.managedAssetId,original.asset.managedAssetId);
+  const object=await (await runtime.mf.getR2Bucket('CMS_MEDIA')).get(`managed-svg/${stagedResult.operation.managedAssetId}.svg`);
   assert.ok(object); assert.match(await object.text(),/#00aa88/);
-  const stale=await post('managed-svg',{id:icon.id,baseVersion:original.version,svg:changed});
+
+  const derivative=await upload('Managed derivative.png');
+  const prepared=await post('managed-svg',{action:'prepare',id:icon.id,operationId,derivativeId:derivative.id});
+  assert.equal(prepared.status,200,await prepared.clone().text());
+  assert.equal((await prepared.json()).operation.state,'prepared');
+  const stillCanonical=await (await get('managed-svg?id='+encodeURIComponent(icon.id))).json();
+  assert.equal(stillCanonical.version,original.version);
+
+  const finalized=await post('managed-svg',{action:'finalize',id:icon.id,operationId,project:state.project});
+  assert.equal(finalized.status,200,await finalized.clone().text());
+  const result=await finalized.json();
+  assert.equal(result.operation.state,'committed');
+  assert.equal(result.asset.version,original.version+1);
+  assert.equal(result.asset.managedAssetId,stagedResult.operation.managedAssetId);
+  assert.equal(result.project.resources.icon,derivative.src);
+  const pending=await (await get('managed-svg?id='+encodeURIComponent(icon.id))).json();
+  assert.equal(pending.operation.id,operationId);
+  assert.equal(pending.operation.state,'committed');
+
+  const completed=await post('managed-svg',{action:'complete',id:icon.id,operationId});
+  assert.equal(completed.status,200,await completed.clone().text());
+  assert.equal((await completed.json()).operation.state,'completed');
+  const reopened=await (await get('managed-svg?id='+encodeURIComponent(icon.id))).json();
+  assert.equal(reopened.operation,null);
+  assert.match(reopened.svg,/#00aa88/);
+
+  const stale=await post('managed-svg',{action:'stage',id:icon.id,operationId:crypto.randomUUID(),baseVersion:original.version,svg:changed});
   assert.equal(stale.status,409);
-  const unsafe=await post('managed-svg',{id:icon.id,baseVersion:result.asset.version,svg:'<svg viewBox="0 0 10 10"><script>alert(1)</script></svg>'});
+  const unsafe=await post('managed-svg',{action:'stage',id:icon.id,operationId:crypto.randomUUID(),baseVersion:result.asset.version,svg:'<svg viewBox="0 0 10 10"><script>alert(1)</script></svg>'});
   assert.equal(unsafe.status,422);
   assert.equal((await runtime.mf.dispatchFetch(runtime.url+`/media/${result.asset.managedAssetId}.svg`)).status,404);
+});
+
+test('managed SVG canonical state does not advance when prepare/finalize cannot complete', async () => {
+  const state=await (await get('state')).json();
+  const icon=state.assets.find(asset=>asset.builtin&&asset.slot==='emailStatic');
+  const original=await (await get('managed-svg?id='+encodeURIComponent(icon.id))).json();
+  const operationId=crypto.randomUUID();
+  const staged=await post('managed-svg',{action:'stage',id:icon.id,operationId,baseVersion:original.version,svg:original.svg.replace('#ffda44','#112233')});
+  assert.equal(staged.status,200,await staged.clone().text());
+  const invalidPrepare=await post('managed-svg',{action:'prepare',id:icon.id,operationId,derivativeId:crypto.randomUUID()});
+  assert.equal(invalidPrepare.status,404);
+  assert.equal((await (await get('managed-svg?id='+encodeURIComponent(icon.id))).json()).version,original.version);
+
+  const derivative=await upload('Prepared but stale.png');
+  assert.equal((await post('managed-svg',{action:'prepare',id:icon.id,operationId,derivativeId:derivative.id})).status,200);
+  const metadata=await post('asset-metadata',{id:icon.id,baseVersion:original.version,name:'Concurrent SVG label'});
+  assert.equal(metadata.status,200,await metadata.clone().text());
+  const staleFinalize=await post('managed-svg',{action:'finalize',id:icon.id,operationId,project:state.project});
+  assert.equal(staleFinalize.status,409);
+  const canonical=await (await get('managed-svg?id='+encodeURIComponent(icon.id))).json();
+  assert.equal(canonical.asset.name,'Concurrent SVG label');
+  assert.equal(canonical.asset.managedAssetId,original.asset.managedAssetId);
 });

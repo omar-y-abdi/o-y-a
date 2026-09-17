@@ -12,6 +12,8 @@ import { renderThemeCss as themeCss, assetFontCss } from '../theme-core.mjs';
 import { applyWinAction, exportWinPackage, filterWins, planWinImport, WIN_BATCH_ACTIONS } from './win-bulk.mjs';
 import { synchronizeSharedPageClient } from './shared-project.mjs';
 import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorView, restoreInspectorScroll } from './view-state.mjs';
+import { materializeManagedSvg } from './managed-svg-source.mjs';
+import { saveManagedSvgOperation } from './managed-svg-save.mjs';
 
 let draft, identity, definitions, blank, assets = [], built;
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
@@ -23,13 +25,15 @@ const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(as
 const page = () => draft.project.pages.find(item => item.id === lastPage) ?? draft.project.pages[0];
 const card = () => draft.project.cards.find(item => item.id === current.id);
 
+function hasUnsavedWork() { return Boolean(draft?.dirty || draft?.pendingSave || svgDraft?.dirty); }
+
 function status() {
   if (!draft) return;
-  $('[data-action=save]').disabled = saving || !draft.dirty && !draft.pendingSave;
+  $('[data-action=save]').disabled = saving || !hasUnsavedWork();
   $('[data-action=revert]').disabled = saving || !draft.dirty;
-  $('[data-action=undo]').disabled = saving || !draft.undoStack.length;
-  $('[data-action=redo]').disabled = saving || !draft.redoStack.length;
-  $('#save-status').textContent = saving ? 'Sparar och publicerar…' : draft.dirty ? 'Utkast · inte publicerat' : draft.version ? `Alla ändringar sparade · v${draft.version}` : 'Originalversion · redo att redigera';
+  $('[data-action=undo]').disabled = saving || current.type === 'svg' || !draft.undoStack.length;
+  $('[data-action=redo]').disabled = saving || current.type === 'svg' || !draft.redoStack.length;
+  $('#save-status').textContent = saving ? 'Sparar…' : svgDraft?.dirty ? (svgDraft.operation?.state === 'committed' ? 'SVG-sparning · behöver slutföras' : 'SVG-utkast · inte sparat') : draft.dirty ? 'Utkast · inte publicerat' : draft.version ? `Alla ändringar sparade · v${draft.version}` : 'Originalversion · redo att redigera';
   $('[data-action=edit]').setAttribute('aria-pressed', String(!locked));
   $('[data-action=lock]').setAttribute('aria-pressed', String(locked));
   $('[data-action=edit]').classList.toggle('is-active', !locked);
@@ -39,6 +43,30 @@ function status() {
 
 function remember() {
   backups?.schedule();
+}
+
+function managedSvgBackup() {
+  if (!svgDraft?.dirty) return null;
+  let svg = svgDraft.html;
+  if (current.type === 'svg' && active) {
+    try { svg = materializeManagedSvg(svgDraft.html, active.editor); } catch { /* The live draft remains protected by unload/navigation guards. */ }
+  }
+  return { id: svgDraft.id, version: svgDraft.version, svg, operation: svgDraft.operation ? structuredClone(svgDraft.operation) : null };
+}
+
+function backupSnapshot() {
+  return { project: draft.project, version: draft.version, pendingSave: draft.pendingSave, dirty: draft.dirty, managedSvg: managedSvgBackup() };
+}
+
+async function confirmManagedSvgNavigation() {
+  if (current.type !== 'svg') return true;
+  active?.flush();
+  if (!svgDraft?.dirty) return true;
+  const accepted = await confirmAction({ title: 'Lämna SVG-utkastet?', message: 'SVG-ändringarna är inte färdigsparade. Fortsätt här eller lämna och kasta just dessa SVG-ändringar.', action: 'Lämna utan SVG-ändring', danger: true });
+  if (!accepted) return false;
+  svgDraft = null;
+  status(); remember();
+  return true;
 }
 
 function change(project, group = '') { draft.change(project, group); status(); remember(); }
@@ -135,8 +163,8 @@ function inspect(component, editor) {
     componentColorInspector(component, { change: () => active?.flush() });
     $('#selection-hint').textContent = `${component.getName()} · färg, yta och effekter.`;
   } else {
-    active?.setStyleMode('normal');
-    componentInspector(component, editor, { assets, pickImage, change: () => active?.flush(true), onError: message => toast(message, true), extra: current.type === 'win' ? winFields(card()) : current.type === 'svg' ? '<section class="inspector-section"><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>' : '' });
+    active?.setStyleMode(current.type === 'svg' ? 'svg' : 'normal');
+    componentInspector(component, editor, { assets, pickImage, change: () => active?.flush(true), onError: message => toast(message, true), extra: current.type === 'win' ? winFields(card()) : current.type === 'svg' ? '<section class="inspector-section"><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>' : '', advancedStyle: current.type !== 'svg' });
     if (current.type === 'win') winInputEvents();
     $('#selection-hint').textContent = `${component.getName()} · redigera, finjustera eller ändra struktur via Lager.`;
   }
@@ -300,39 +328,62 @@ async function rasterizeSvg(svg, width, height, name) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-async function openSvgAsset(id) {
-  clearEditor();
+async function openSvgAsset(id, recovery = null) {
   const asset = assets.find(item => item.id === id && item.editableSrc); if (!asset) return showAsset(id);
   const source = await api('managed-svg?id=' + encodeURIComponent(id));
+  let html = source.svg, operation = source.operation ? { ...source.operation, svg: source.svg } : null, version = source.version, dirty = Boolean(operation);
+  if (recovery) {
+    const committedRecovery = recovery.operation?.state === 'committed' && source.operation?.id === recovery.operation.id;
+    if (!committedRecovery && recovery.version !== source.version) throw new Error('Reservkopians SVG bygger på en äldre källversion. Kopian behålls så att inget skrivs över.');
+    const verified = await api('managed-svg', { action: 'validate', id, svg: recovery.svg });
+    html = verified.svg; operation = recovery.operation ? { ...recovery.operation, svg: verified.svg } : operation; version = committedRecovery ? source.version : recovery.version; dirty = true;
+  }
+  clearEditor();
+  cacheAssets([source.asset]);
   current = { type: 'svg', id }; library = 'assets'; themeMode = false; locked = false; reviewVersion = null;
-  svgDraft = { id, version: source.version, html: source.svg, dirty: false, asset };
+  svgDraft = { id, version, html, css: '', dirty, asset: source.asset, operation };
   $('#special-stage').hidden = true; $('#editor').hidden = false; $('#preview-stage').hidden = true; $('#loading-state').hidden = false;
-  $('#canvas-label').textContent = `SVG · ${asset.name}`; $('#canvas-path').textContent = asset.editableSrc; setInspectorTab(); renderSidebar();
-  active = createEditor({ page: { html: source.svg, css: '', project: null, path: asset.editableSrc, bodyClass: 'cms-svg-editor' }, cssPath: built.styles.home, assets,
-    onChange: values => { svgDraft.html = values.html; svgDraft.dirty = true; }, onSelect: inspect, onAssetPick: null,
+  $('#canvas-label').textContent = `SVG · ${source.asset.name}`; $('#canvas-path').textContent = source.asset.editableSrc; setInspectorTab(); renderSidebar();
+  active = createEditor({ page: { html, css: '', project: null, path: source.asset.editableSrc, bodyClass: 'cms-svg-editor' }, cssPath: built.styles.home, assets,
+    onChange: values => { if (!svgDraft) return; svgDraft.html = values.html; svgDraft.css = values.css; svgDraft.dirty = true; status(); remember(); }, onSelect: inspect, onAssetPick: null,
     onReady: editor => {
       $('#loading-state').hidden = true; setDevice('desktop', false); fit();
       const root = editor.getWrapper().find('svg')[0]; if (root) editor.select(root); else inspect(null, editor);
       $('#custom-inspector').insertAdjacentHTML('afterbegin', '<section class="inspector-section"><h2>SVG-källa</h2><p class="inspector-help">Formerna redigeras som SVG. Spara skapar en ny oföränderlig källa och ett PNG-derivat för befintliga konsumenter.</p><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>');
     },
   });
-  status();
+  status(); remember();
 }
 
-async function saveManagedSvgDraft() {
-  if (!svgDraft || current.type !== 'svg') return;
+async function saveManagedSvgDraft({ returnToAsset = true } = {}) {
+  if (!svgDraft || current.type !== 'svg' || !svgDraft.dirty) return;
   active?.flush();
-  const saved = await api('managed-svg', { id: svgDraft.id, baseVersion: svgDraft.version, svg: svgDraft.html });
-  svgDraft.version = saved.asset.version; svgDraft.html = saved.svg; svgDraft.dirty = false;
-  cacheAssets([saved.asset]);
-  const file = await rasterizeSvg(saved.svg, svgDraft.asset.width || 192, svgDraft.asset.height || 192, svgDraft.asset.name);
-  const derivative = await upload(file, crypto.randomUUID()); cacheAssets([derivative]);
-  const before = draft.project;
-  const result = await api('replace-resource', { project: before, fromId: svgDraft.id, toId: derivative.id });
-  if (!unchangedSince(before)) throw new Error('SVG-källan sparades, men utkastet ändrades samtidigt. Öppna resursen och tillämpa den igen.');
-  change(result.project, 'svg-resource'); cacheAssets(result.assets); cacheAssets([saved.asset, derivative]);
-  toast('SVG-källan och PNG-derivatet är sparade i utkastet. Save publicerar ändringen.');
-  return showAsset(svgDraft.id);
+  const source = materializeManagedSvg(svgDraft.html, active.editor);
+  saving = true; status();
+  try {
+    const result = await saveManagedSvgOperation({
+      source,
+      baseVersion: svgDraft.version,
+      operation: svgDraft.operation,
+      project: () => draft.project,
+      unchanged: unchangedSince,
+      onOperation: operation => { if (svgDraft) { svgDraft.operation = operation; svgDraft.dirty = true; status(); remember(); } },
+      stage: input => api('managed-svg', { action: 'stage', id: svgDraft.id, ...input }),
+      rasterize: svg => rasterizeSvg(svg, svgDraft.asset.width || 192, svgDraft.asset.height || 192, svgDraft.asset.name),
+      upload: (file, derivativeId) => upload(file, derivativeId),
+      prepare: input => api('managed-svg', { action: 'prepare', id: svgDraft.id, ...input }),
+      finalize: input => api('managed-svg', { action: 'finalize', id: svgDraft.id, ...input }),
+      apply: (project, finalized) => { if (project !== draft.project) change(project, 'svg-resource'); cacheAssets(finalized.assets ?? []); cacheAssets([finalized.asset]); },
+      complete: input => api('managed-svg', { action: 'complete', id: svgDraft.id, ...input }),
+      clean: finalized => {
+        svgDraft.version = finalized.asset.version; svgDraft.html = finalized.svg; svgDraft.css = ''; svgDraft.asset = finalized.asset; svgDraft.operation = null; svgDraft.dirty = false;
+        cacheAssets([finalized.asset]); status(); remember();
+      },
+    });
+    toast('SVG-källan och PNG-derivatet är sparade i utkastet. Save publicerar ändringen.');
+    if (returnToAsset) return showAsset(result.asset.id);
+    return result;
+  } finally { saving = false; status(); remember(); }
 }
 
 function updateTheme(key, value) { change({ ...draft.project, theme: { ...draft.project.theme, [key]: value } }, 'theme'); applyTheme(); }
@@ -383,7 +434,9 @@ async function preview(project = null, id = lastPage, label = '') {
 
 async function save() {
   active?.flush();
-  if (saving || !draft.dirty && !draft.pendingSave) return;
+  if (saving) return;
+  if (current.type === 'svg' && svgDraft?.dirty) await saveManagedSvgDraft({ returnToAsset: false });
+  if (!draft.dirty && !draft.pendingSave) return;
   saving = true; status();
   try {
     const intent = draft.project;
@@ -546,6 +599,7 @@ async function submitAsset(item, patch) {
 async function perform(action) {
   if (!draft && action !== 'close-dialog') return;
   if (action === 'close-dialog') return $('#studio-dialog').close();
+  if (['history','restore','undo','redo','theme','runtime','add-page','new-win','back-to-asset','revert','reconcile'].includes(action) && !await confirmManagedSvgNavigation()) return;
   if (action === 'save') return save();
   if (action === 'revert') return revert();
   if (action === 'reconcile') return reconcile();
@@ -604,13 +658,13 @@ document.addEventListener('click', event => {
   const button = event.target.closest('button,a[data-action]'); if (!button) return;
   Promise.resolve().then(async () => {
     if (button.dataset.action) return perform(button.dataset.action);
-    if (button.dataset.pageId) return openPage(button.dataset.pageId);
-    if (button.dataset.library) { library = button.dataset.library; $('#library-search').value = ''; renderSidebar(); if (library === 'assets') return showSpecial('media'); if (current.type !== 'page') return openPage(lastPage); }
+    if (button.dataset.pageId) { if (!await confirmManagedSvgNavigation()) return; return openPage(button.dataset.pageId); }
+    if (button.dataset.library) { if (!await confirmManagedSvgNavigation()) return; library = button.dataset.library; $('#library-search').value = ''; renderSidebar(); if (library === 'assets') return showSpecial('media'); if (current.type !== 'page') return openPage(lastPage); }
     if (button.dataset.device) return setDevice(button.dataset.device);
     if (button.dataset.inspector) return setInspectorTab(button.dataset.inspector);
-    if (button.dataset.special) return showSpecial(button.dataset.special);
-    if (button.dataset.assetId) return showAsset(button.dataset.assetId);
-    if (button.dataset.winId) return openWin(button.dataset.winId);
+    if (button.dataset.special) { if (!await confirmManagedSvgNavigation()) return; return showSpecial(button.dataset.special); }
+    if (button.dataset.assetId) { if (!await confirmManagedSvgNavigation()) return; return showAsset(button.dataset.assetId); }
+    if (button.dataset.winId) { if (!await confirmManagedSvgNavigation()) return; return openWin(button.dataset.winId); }
     if (button.dataset.winFilter) { winFilter = button.dataset.winFilter; winLimit = 60; return renderWins(); }
     if (button.dataset.winState) { winState = button.dataset.winState; winLimit = 60; return renderWins(); }
     if (button.dataset.mediaState) { mediaState = button.dataset.mediaState; return loadMedia(); }
@@ -632,6 +686,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') docu
 $('#library-search').addEventListener('input', () => { renderSidebar(); clearTimeout(searchTimer); if (current.type === 'media') searchTimer = setTimeout(() => loadMedia().catch(showError), 200); });
 $('#file-input').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file) return;
+  if (!await confirmManagedSvgNavigation()) { event.target.value = ''; return; }
   const replacing = replacement; replacement = null;
   toast('Laddar upp filen…');
   try {
@@ -649,11 +704,11 @@ $('#file-input').addEventListener('change', async event => {
   } catch (error) { showError(error); }
   finally { event.target.value = ''; }
 });
-window.addEventListener('beforeunload', event => { if (draft?.dirty || draft?.pendingSave) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (hasUnsavedWork()) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.data?.type !== 'oy-cms-navigate' || !$$('#preview-stage iframe').some(frame => frame.contentWindow === event.source)) return;
   const target = draft.project.pages.find(item => item.path === event.data.path);
-  if (target) openPage(target.id, event.data.hash ?? '');
+  if (target) confirmManagedSvgNavigation().then(allowed => { if (allowed) openPage(target.id, event.data.hash ?? ''); });
 });
 new ResizeObserver(() => { if (active && !locked && device !== 'compare') fit(); }).observe($('#canvas-stage'));
 
@@ -661,11 +716,12 @@ async function boot() {
   const state = await api('state');
   draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; mediaTotal = state.mediaTotal; built = state.built;
   backups = new Backups(identity.email, {
-    snapshot: () => draft,
+    snapshot: backupSnapshot,
     flush: () => active?.flush(),
-    install: ({ project, pendingSave, base, version }) => {
-      clearEditor(); draft = new Draft(base, version); draft.change(project); draft.pendingSave = pendingSave;
-      openPage(lastPage); status();
+    install: async ({ project, pendingSave, base, version, managedSvg }) => {
+      clearEditor(); svgDraft = null; draft = new Draft(base, version); draft.change(project); draft.pendingSave = pendingSave;
+      if (managedSvg) await openSvgAsset(managedSvg.id, managedSvg); else openPage(lastPage);
+      status();
     },
   });
   await backups.start();

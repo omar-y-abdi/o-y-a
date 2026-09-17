@@ -1,4 +1,4 @@
-import { test } from 'vitest';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { previewData } from '../src/client/previewdata.mjs';
 import { createDeck, sharedCard } from '../src/client/cards.mjs';

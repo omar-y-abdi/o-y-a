@@ -12,7 +12,7 @@ export function pageInspector(page, { update, addPage, removePage, protectedPage
   $('#styles-panel').hidden = true;
 }
 
-export function componentInspector(component, editor, { assets, pickImage, change, onError, extra = '' }) {
+export function componentInspector(component, editor, { assets, pickImage, change, onError, extra = '', advancedStyle = true }) {
   $('#traits-panel').hidden = true;
   $('#styles-panel').hidden = false;
   const tag = component.get('tagName') ?? 'div';
@@ -42,15 +42,17 @@ export function componentInspector(component, editor, { assets, pickImage, chang
     nudgeComponent(component, dx, dy, event.shiftKey ? 10 : 1); change();
   }));
   $('#reset-position').addEventListener('click', () => { resetComponentPosition(component); change(); });
-  const advanced = document.createElement('details'); advanced.className = 'inspector-section advanced-style';
-  advanced.innerHTML = `<summary>Fler stilegenskaper</summary>${field('CSS-egenskap', 'extra-property', '')}${field('Värde', 'extra-value', '')}<button type="button" class="small-button" id="apply-property">Tillämpa</button><p class="inspector-help">Till exempel aspect-ratio, object-fit eller text-shadow. Tomt värde tar bort din ändring.</p>`;
-  $('#custom-inspector').append(advanced);
-  $('#apply-property').addEventListener('click', () => {
-    const property = $('#extra-property').value.trim(), value = $('#extra-value').value.trim();
-    if (!/^(?:--)?[a-z][a-z0-9-]*$/.test(property) || value && !CSS.supports(property, value)) { onError('Ange en CSS-egenskap och ett värde som webbläsaren stöder.'); return; }
-    if (value) component.addStyle({ [property]: value }); else component.removeStyle(property);
-    change();
-  });
+  if (advancedStyle) {
+    const advanced = document.createElement('details'); advanced.className = 'inspector-section advanced-style';
+    advanced.innerHTML = `<summary>Fler stilegenskaper</summary>${field('CSS-egenskap', 'extra-property', '')}${field('Värde', 'extra-value', '')}<button type="button" class="small-button" id="apply-property">Tillämpa</button><p class="inspector-help">Till exempel aspect-ratio, object-fit eller text-shadow. Tomt värde tar bort din ändring.</p>`;
+    $('#custom-inspector').append(advanced);
+    $('#apply-property').addEventListener('click', () => {
+      const property = $('#extra-property').value.trim(), value = $('#extra-value').value.trim();
+      if (!/^(?:--)?[a-z][a-z0-9-]*$/.test(property) || value && !CSS.supports(property, value)) { onError('Ange en CSS-egenskap och ett värde som webbläsaren stöder.'); return; }
+      if (value) component.addStyle({ [property]: value }); else component.removeStyle(property);
+      change();
+    });
+  }
   $('#element-href')?.addEventListener('change', event => {
     const value = event.target.value.trim();
     let allowed = value.startsWith('/') && !value.startsWith('//') || value.startsWith('#');

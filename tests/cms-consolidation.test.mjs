@@ -1,4 +1,4 @@
-import { test, afterAll as after } from 'vitest';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
 import { decodeRaster } from '../src/cms/raster-integrity.mjs';

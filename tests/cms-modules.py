@@ -50,7 +50,7 @@ with sync_playwright() as pw:
 
     def run(name, fn):
         selected = os.environ.get('CMS_MODULE_CASE')
-        if selected and selected not in name: return
+        if selected and selected != name: return
         if os.environ.get('CMS_MODULE_PROFILE') == 'smoke' and name not in smoke_cases: return
         try:
             value = fn()
@@ -393,7 +393,7 @@ with sync_playwright() as pw:
                 'project': None,
             }
             editor(page, data)
-            result = page.evaluate("""()=>{
+            result = page.evaluate("""async()=>{
               const ed=handle.editor, root=ed.getWrapper();
               const text=root.find('#text')[0], link=root.find('#link')[0], image=root.find('#image')[0], button=root.find('#functional')[0], vector=root.find('#vector')[0], group=root.find('#group')[0], shape=root.find('#shape')[0];
               const parent=text.parent(), index=text.index();
@@ -404,9 +404,17 @@ with sync_playwright() as pw:
               const sectors=ed.StyleManager.getSectors({array:true}).map(s=>({id:s.getId(),props:s.getProperties().map(p=>p.getName?.()??p.get('property'))}));
               handle.setStyleMode('normal');
               const normalProps=ed.StyleManager.getSectors({array:true}).flatMap(s=>s.getProperties().map(p=>p.getName?.()??p.get('property')));
-              return {resize:{text:text.get('resizable'),link:link.get('resizable'),image:image.get('resizable'),button:button.get('resizable'),vector:vector.get('resizable'),group:group.get('resizable'),shape:shape.get('resizable')},toolbar:text.get('toolbar'),moved,sectors,normalProps};
+              const groupResize=group.get('resizable'), el=group.getEl(), before=el.getBoundingClientRect();
+              groupResize.onStart(null,{el}); groupResize.updateTarget(el,{w:before.width*1.5,h:before.height*1.25},{store:true});
+              await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+              const after=el.getBoundingClientRect();
+              return {resize:{text:text.get('resizable'),link:link.get('resizable'),image:image.get('resizable'),button:button.get('resizable'),vector:vector.get('resizable'),group:Boolean(groupResize?.onStart&&groupResize?.updateTarget),shape:shape.get('resizable')},groupBounds:{before:{w:before.width,h:before.height},after:{w:after.width,h:after.height}},groupTransform:group.getAttributes().transform,toolbar:text.get('toolbar'),moved,sectors,normalProps};
             }""")
-            assert result['resize'] == {'text': True, 'link': True, 'image': True, 'button': False, 'vector': True, 'group': False, 'shape': False}, result
+            assert result['resize'] == {'text': True, 'link': True, 'image': True, 'button': False, 'vector': True, 'group': True, 'shape': False}, result
+            assert result['groupBounds']['before']['w'] > 0 and result['groupBounds']['before']['h'] > 0, result
+            assert result['groupBounds']['after']['w'] > result['groupBounds']['before']['w'] * 1.4, result
+            assert result['groupBounds']['after']['h'] > result['groupBounds']['before']['h'] * 1.15, result
+            assert 'scale(' in result['groupTransform'], result
             assert result['toolbar'] == [], result
             assert result['moved']['parentSame'] and result['moved']['indexSame'], result
             assert result['moved']['translate'] == '1px 10px', result
@@ -523,15 +531,33 @@ with sync_playwright() as pw:
             data={**PAGE,'html':'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g id="face"><circle id="cheek" cx="50" cy="50" r="40" fill="#ffda44" stroke="#252a24" stroke-width="2"></circle></g></svg>','css':'','project':None}
             frame=editor(page,data)
             expect(frame.locator('#cheek')).to_have_count(1)
-            result=page.evaluate("""()=>{
+            result=page.evaluate("""async data=>{
               const ed=handle.editor, cheek=ed.getWrapper().find('#cheek')[0], group=ed.getWrapper().find('#face')[0];
-              const before={fill:cheek.getAttributes().fill,shapeResizable:cheek.get('resizable'),groupResizable:group.get('resizable')};
+              const resize=group.get('resizable'), el=group.getEl(), beforeRect=el.getBoundingClientRect();
+              const before={fill:cheek.getAttributes().fill,shapeResizable:cheek.get('resizable'),groupResizable:Boolean(resize?.onStart&&resize?.updateTarget)};
+              resize.onStart(null,{el}); resize.updateTarget(el,{w:beforeRect.width*1.25,h:beforeRect.height*1.25},{store:true});
+              cheek.addStyle({opacity:'0.42'});
+              cmsTest.nudgeComponent(group,3,4);
               cheek.addAttributes({fill:'#234ce7'});
-              return {before,html:handle.snapshot(true)?.html??''};
-            }""")
-            assert result['before'] == {'fill':'#ffda44','shapeResizable':False,'groupResizable':False}, result
-            assert 'fill="#234ce7"' in result['html'], result
-            return {'same_editor':True,'safe_shape_protected':True,'group_resize_handle_hidden':True}
+              await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+              const afterRect=el.getBoundingClientRect(), snapshot=handle.snapshot(true);
+              const source=cmsTest.materializeManagedSvg(snapshot.html,ed);
+              handle.destroy();
+              window.ready=false;window.handle=cmsTest.createEditor({page:{...data,html:source,css:''},cssPath:'',assets:[],onChange(){},onSelect(){},onReady(){ready=true}});
+              await new Promise(resolve=>{const check=()=>ready?resolve():requestAnimationFrame(check);check()});
+              await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+              const reopened=handle.editor.getWrapper(), reopenedGroup=reopened.find('#face')[0], reopenedCheek=reopened.find('#cheek')[0], reopenedRect=reopenedGroup.getEl().getBoundingClientRect();
+              return {before,bounds:{before:[beforeRect.width,beforeRect.height],after:[afterRect.width,afterRect.height],reopened:[reopenedRect.width,reopenedRect.height]},source,reopened:{opacity:getComputedStyle(reopenedCheek.getEl()).opacity,transform:reopenedGroup.getAttributes().transform}};
+            }""", data)
+            assert result['before'] == {'fill':'#ffda44','shapeResizable':False,'groupResizable':True}, result
+            assert result['bounds']['after'][0] > result['bounds']['before'][0] * 1.15, result
+            assert result['bounds']['after'][1] > result['bounds']['before'][1] * 1.15, result
+            assert result['bounds']['reopened'][0] > result['bounds']['before'][0] * 1.15, result
+            assert result['bounds']['reopened'][1] > result['bounds']['before'][1] * 1.15, result
+            assert result['reopened']['opacity'] == '0.42', result
+            assert 'translate(3 4)' in result['reopened']['transform'] and 'scale(' in result['reopened']['transform'], result
+            assert 'data-cms-node' not in result['source'] and '<style' not in result['source'], result
+            return {'same_editor':True,'safe_shape_protected':True,'group_resize_visible_bounds':True,'save_reopen_opacity_nudge_resize':True}
         finally: page.close()
 
     def managed_svg_matches_existing_raster_baseline():
@@ -580,7 +606,9 @@ with sync_playwright() as pw:
     run('cms-managed-svg-uses-shared-editor', managed_svg_uses_same_editor_canvas)
     run('cms-managed-svg-preserves-existing-visual-baseline', managed_svg_matches_existing_raster_baseline)
     browser.close()
-(OUT/'results.json').write_text(json.dumps(results, indent=2, ensure_ascii=False))
+result_path = Path(os.environ.get('CMS_MODULE_RESULT_PATH', str(OUT/'results.json')))
+result_path.parent.mkdir(parents=True, exist_ok=True)
+result_path.write_text(json.dumps(results, indent=2, ensure_ascii=False))
 passed = sum(item['passed'] for item in results)
 print(f'SUMMARY pass={passed} fail={len(results)-passed}', flush=True)
 raise SystemExit(int(not results or passed != len(results)))

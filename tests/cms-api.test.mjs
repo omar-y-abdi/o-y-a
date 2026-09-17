@@ -1,4 +1,4 @@
-import { test, afterAll as after, beforeAll as before } from 'vitest';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
