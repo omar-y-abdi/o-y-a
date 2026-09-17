@@ -1,5 +1,5 @@
 import { authenticateAdmin } from './auth.mjs';
-import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, saveManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateReferencedMedia } from './assets.mjs';
+import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, saveManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validatePackageResources, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
 import { normalizeStoredProject } from './shared-content.mjs';
@@ -70,21 +70,23 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       }
       const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });
       if (url.pathname === '/admin/api/asset-usage') return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }, project));
-      const input = { action: body.action, baseVersion: body.baseVersion, project };
+      const input = { action: body.action, baseVersion: body.baseVersion, baseSiteVersion: body.baseSiteVersion, project };
       return json(builtin ? await transitionBuiltinAsset(env.CMS_DB, builtin, input) : await transitionAsset(env, { id: body.id, ...input }));
     }
     if (['/admin/api/replace-resource', '/admin/api/resource-usage'].includes(url.pathname)) {
       const body = await readJson(request, 16 * 1024 * 1024);
       const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });
-      const assets = resourceCatalog(seed, await assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), project);
+      const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
+      const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
+      const assets = resourceCatalog(builtinSeed, selectedAssets, project);
       if (url.pathname.endsWith('/resource-usage')) {
         const counts = resourceReferences(project, url.origin);
         return json({ counts: Object.fromEntries([...counts].map(([src, count]) => [src, count])) });
       }
-      const previous = assets.find(asset => asset.id === body.fromId), next = assets.find(asset => asset.id === body.toId && !asset.builtin);
+      const previous = assets.find(asset => asset.id === body.fromId), next = assets.find(asset => asset.id === body.toId && !asset.builtin && !asset.trashed);
       if (!previous || !next) throw new HttpError(404, 'Filen som ska ersättas eller den nya filen saknas.');
       const result = replaceResource(project, previous, next, url.origin);
-      return json({ ...result, assets: resourceCatalog(seed, assets.filter(asset => !asset.builtin), result.project) });
+      return json({ ...result, assets: resourceCatalog(builtinSeed, assets.filter(asset => !asset.builtin), result.project) });
     }
     if (url.pathname === '/admin/api/recover') {
       const body = await readJson(request, 16 * 1024 * 1024);
@@ -109,6 +111,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const baseline = stored ? storedProject(stored.project) : initial;
       const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project);
+      if (body.resources !== undefined) await validatePackageResources(env.CMS_DB, body.resources);
       await publicationMedia(env.CMS_DB, project);
       if (url.pathname.endsWith('/validate')) { publicationChunks(project, await resolveResources(env.CMS_DB, project)); return json({ project }); }
       if (body.cardId) {

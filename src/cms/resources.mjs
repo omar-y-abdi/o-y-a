@@ -121,8 +121,10 @@ export function resolvedResources(project, assets = []) {
 }
 
 export function resourceCatalog(seed, assets, project) {
-  const slots = resolvedResources(project, [...seed.assets, ...assets]);
-  return [...seed.assets.map(asset => ({ ...asset, ...(asset.slot ? slots[asset.slot] : {}) })), ...assets];
+  // Built-in records are stable source entities. Slot resolution belongs to the
+  // project/publication view and must never rewrite a built-in ID to point at an upload.
+  resolvedResources(project, [...seed.assets, ...assets]);
+  return [...seed.assets, ...assets];
 }
 
 async function builtinResolutionAssets(db) {
@@ -139,7 +141,7 @@ async function builtinResolutionAssets(db) {
 export async function resolveResources(db, project) {
   const keys = Object.values(validateResources(project.resources)).filter(src => src.startsWith('/media/')).map(src => src.slice(7));
   const [rows, builtins] = await Promise.all([
-    keys.length ? db.prepare('SELECT object_key, mime, width, height, alt FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL').bind(JSON.stringify(keys)).all() : Promise.resolve({ results: [] }),
+    keys.length ? db.prepare('SELECT object_key, mime, width, height, alt FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL').bind(JSON.stringify(keys)).all() : Promise.resolve({ results: [] }),
     builtinResolutionAssets(db),
   ]);
   return resolvedResources(project, [...builtins, ...rows.results.map(row => ({ ...row, src: '/media/' + row.object_key }))]);

@@ -9,7 +9,7 @@ import { createEditor } from './editor.mjs';
 import { pageInspector, componentInspector, componentColorInspector, themeInspector } from './inspector.mjs';
 import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign } from './library.mjs';
 import { renderThemeCss as themeCss, assetFontCss } from '../theme-core.mjs';
-import { applyWinAction, exportWinPackage, filterWins, planWinImport } from './win-bulk.mjs';
+import { applyWinAction, exportWinPackage, filterWins, planWinImport, WIN_BATCH_ACTIONS } from './win-bulk.mjs';
 import { synchronizeSharedPageClient } from './shared-project.mjs';
 import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorView, restoreInspectorScroll } from './view-state.mjs';
 
@@ -18,7 +18,7 @@ let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
 let library = 'pages', device = matchMedia('(max-width:760px)').matches ? 'mobile' : 'desktop', zoom = 100, locked = false, saving = false, themeMode = false;
 let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSelection = new Set(), history, reviewVersion = null, replacement = null, mediaState = 'active';
 let backups, previewSequence = 0, inspectorTab = 'design', pendingViewRestore = null, svgDraft = null;
-let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer;
+let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer, mediaTotal = 0;
 const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
 const page = () => draft.project.pages.find(item => item.id === lastPage) ?? draft.project.pages[0];
 const card = () => draft.project.cards.find(item => item.id === current.id);
@@ -63,7 +63,7 @@ function updateCard(id, values) {
 function renderSidebar() {
   $$('[data-library]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.library === library)));
   if (library === 'pages') pageList(draft.project.pages, current.type === 'page' ? current.id : '', $('#library-search').value);
-  else assetNavigation(current.type, assets, draft.project.cards);
+  else assetNavigation(current.type, assets, draft.project.cards, mediaTotal);
   $('[data-action=add-page]').hidden = library !== 'pages';
 }
 
@@ -254,6 +254,7 @@ async function loadMedia(more = false) {
   cacheAssets(result.items);
   mediaItems = more ? [...new Map([...mediaItems, ...result.items].map(asset => [asset.id, asset])).values()] : result.items;
   mediaNext = result.next;
+  if (!more && mediaState === 'active' && !query) mediaTotal = result.total;
   mediaGallery([...assets.filter(asset => asset.builtin), ...mediaItems], query, mediaState);
   if (mediaNext) $('#special-stage').insertAdjacentHTML('beforeend', '<button type="button" class="small-button" data-action="more-media" style="margin-top:24px">Visa fler filer</button>');
 }
@@ -263,7 +264,7 @@ function renderWins() {
   $('#win-search').addEventListener('input', event => {
     const position = event.target.selectionStart;
     winQuery = event.target.value; winLimit = 60; renderWins();
-    $('#win-search').focus(); if ($('#win-search').type === 'text') $('#win-search').setSelectionRange(position, position);
+    const search=$('#win-search'); search.focus(); if(position!==null&&typeof search.setSelectionRange==='function') search.setSelectionRange(position,position);
   });
 }
 
@@ -418,7 +419,7 @@ async function reconcile() {
   const result = mergeProjects(draft.saved, draft.project, state.project);
   if (result.conflicts.length && !await confirmAction({ title: 'Välj dina ändringar vid konflikt?', message: `Båda flikarna har ändrat samma innehåll: ${result.conflicts.join(', ')}. Dina versioner av dessa delar behålls. Övriga ändringar sammanförs. Granska utkastet före Save.`, action: 'Behåll mina vid konflikt' })) return;
   if (!unchangedSince(snapshot)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); change(result.project); assets = state.assets; openPage(lastPage); status(); remember();
+  clearEditor(); draft = new Draft(state.project, state.version); change(result.project); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
   toast('Utkasten är sammanförda. Granska ändringarna och välj Save.');
 }
 
@@ -428,7 +429,7 @@ async function revert() {
   if (!await confirmAction({ title: 'Tillbaka till det sparade?', message: 'Osparade ändringar i detta utkast försvinner. Publicerad webbplats och historik påverkas inte.', action: 'Revert', danger: true })) return;
   const state = await api('state');
   if (!unchangedSince(snapshot)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; openPage(lastPage); status(); await backups.persist();
+  clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); await backups.persist();
 }
 
 async function restore(version) {
@@ -495,7 +496,7 @@ function applyWinBatch(action,value='') {
   active?.flush();
   const next=applyWinAction(draft.project.cards,winSelection,action,value);
   change({...draft.project,cards:next},'wins-batch');
-  if(action==='delete'||action==='trash'||action==='archive'||action==='restore') winSelection.clear();
+  if(WIN_BATCH_ACTIONS[action]?.clearSelection) winSelection.clear();
   renderWins();
 }
 async function importWins() {
@@ -506,10 +507,9 @@ async function importWins() {
       const pkg=JSON.parse(await file.text());
       const collision=prompt('Krockar: skip, replace eller copy?','skip')?.trim().toLowerCase();
       if(!collision)return;
-      const available=new Set(assets.map(asset=>asset.src));
-      const planned=planWinImport(draft.project.cards,pkg,{collision,availableResources:available});
+      const planned=planWinImport(draft.project.cards,pkg,{collision});
       const candidate={...draft.project,cards:planned.cards};
-      const {project}=await api('validate',{project:candidate});
+      const {project}=await api('validate',{project:candidate,resources:pkg.resources});
       change(project,'wins-import'); winSelection.clear(); renderWins(); toast(`${planned.imported} vinster importerades.`);
     } catch(error){showError(error);}
   };
@@ -522,8 +522,9 @@ async function submitLifecycle(item, action) {
     const warning=`${usage.currentReferences} referenser i aktuellt utkast · ${usage.historyReferences} i historik.`;
     if(!await confirmAction({title:`${names[action]} resursen?`,message:warning,action:names[action],danger:['trash','delete'].includes(action)}))return;
   }
-  const result=await api('asset-lifecycle',{id:item.id,action,baseVersion:item.version,project:draft.project});
+  const result=await api('asset-lifecycle',{id:item.id,action,baseVersion:item.version,baseSiteVersion:draft.version,project:draft.project});
   if(result.deleted){assets=assets.filter(asset=>asset.id!==item.id);toast('Resursen är permanent raderad.');return showSpecial('media');}
+  if(!item.builtin){if(item.state==='active'&&result.asset.state!=='active')mediaTotal=Math.max(0,mediaTotal-1);else if(item.state!=='active'&&result.asset.state==='active')mediaTotal++;}
   assets=assets.map(asset=>asset.id===item.id?result.asset:asset); toast(`${names[action]} klar.`); showAsset(item.id);
 }
 
@@ -582,12 +583,11 @@ async function perform(action) {
   if (action === 'select-visible-wins') { for (const card of filterWins(draft.project.cards,{state:winState,flavor:winFilter,query:winQuery}).slice(0,winLimit)) winSelection.add(card.id); return renderWins(); }
   if (action === 'select-matching-wins') { for (const card of filterWins(draft.project.cards,{state:winState,flavor:winFilter,query:winQuery})) winSelection.add(card.id); return renderWins(); }
   if (action === 'clear-win-selection') { winSelection.clear(); return renderWins(); }
-  if (action === 'batch-archive-wins') return applyWinBatch('archive');
-  if (action === 'batch-restore-wins') return applyWinBatch('restore');
-  if (action === 'batch-trash-wins') return applyWinBatch('trash');
-  if (action === 'batch-delete-wins') return applyWinBatch('delete');
-  if (action === 'batch-category-wins') return applyWinBatch('category', $('#batch-win-category').value);
-  if (action === 'batch-export-wins') return downloadJson(exportWinPackage(draft.project.cards,winSelection), 'omar-wins.json');
+  const batchMatch=action.match(/^batch-(.+)-wins$/), batchId=batchMatch?.[1], batchAction=batchId&&WIN_BATCH_ACTIONS[batchId];
+  if(batchAction){
+    if(batchAction.kind==='export')return downloadJson(exportWinPackage(draft.project.cards,winSelection),'omar-wins.json');
+    return applyWinBatch(batchId,batchAction.value==='category'?$('#batch-win-category').value:'');
+  }
   if (action === 'import-wins') return importWins();
   if (action === 'export-win') return exportWin();
   if (action === 'export-draft') return exportDraft();
@@ -635,7 +635,7 @@ $('#file-input').addEventListener('change', async event => {
   const replacing = replacement; replacement = null;
   toast('Laddar upp filen…');
   try {
-    const asset = await upload(file, crypto.randomUUID()); assets = [...assets, asset];
+    const asset = await upload(file, crypto.randomUUID()); assets = [...assets, asset]; mediaTotal++;
     if (replacing) {
       if (replacing.mime.startsWith('image/') !== asset.mime.startsWith('image/')) throw new Error('Filen laddades upp, men bild och typsnitt kan inte ersätta varandra.');
       active?.flush();
@@ -659,7 +659,7 @@ new ResizeObserver(() => { if (active && !locked && device !== 'compare') fit();
 
 async function boot() {
   const state = await api('state');
-  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; built = state.built;
+  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; mediaTotal = state.mediaTotal; built = state.built;
   backups = new Backups(identity.email, {
     snapshot: () => draft,
     flush: () => active?.flush(),

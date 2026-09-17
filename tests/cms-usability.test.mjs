@@ -56,13 +56,13 @@ test('media lifecycle is CAS-safe and supports archive restore trash and delete'
   const state=await (await get('state')).json();
   let version=asset.version;
   for (const action of ['archive','restore','trash']) {
-    const response=await post('asset-lifecycle',{id:asset.id,action,baseVersion:version,project:state.project});
+    const response=await post('asset-lifecycle',{id:asset.id,action,baseVersion:version,baseSiteVersion:state.version,project:state.project});
     assert.equal(response.status,200,await response.clone().text());
     const result=await response.json(); version=result.asset.version;
   }
   const stale=await post('asset-lifecycle',{id:asset.id,action:'restore',baseVersion:asset.version,project:state.project});
   assert.equal(stale.status,409);
-  const deleted=await post('asset-lifecycle',{id:asset.id,action:'delete',baseVersion:version,project:state.project});
+  const deleted=await post('asset-lifecycle',{id:asset.id,action:'delete',baseVersion:version,baseSiteVersion:state.version,project:state.project});
   assert.equal(deleted.status,200,await deleted.clone().text());
   assert.equal((await deleted.json()).deleted,true);
   assert.equal(await runtime.db.prepare('SELECT id FROM cms_media WHERE id=?').bind(asset.id).first(),null);
@@ -72,7 +72,7 @@ test('media lifecycle is CAS-safe and supports archive restore trash and delete'
 test('permanent media deletion keeps an owned tombstone when R2 deletion fails', async () => {
   const asset=await upload('Delete ordering.png');
   const state=await (await get('state')).json();
-  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:state.project});
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,baseSiteVersion:state.version,project:state.project});
   assert.equal(trashed.status,200,await trashed.clone().text());
   const trashedAsset=(await trashed.json()).asset;
   let observed;
@@ -83,7 +83,7 @@ test('permanent media deletion keeps an owned tombstone when R2 deletion fails',
         observed=await runtime.db.prepare('SELECT * FROM cms_media WHERE id=?').bind(asset.id).first();
         throw new Error('simulated R2 failure');
       }},
-    },{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:state.project}),
+    },{id:asset.id,action:'delete',baseVersion:trashedAsset.version,baseSiteVersion:state.version,project:state.project}),
     /simulated R2 failure/,
   );
   assert.equal(observed.id,asset.id);
@@ -96,7 +96,7 @@ test('permanent media deletion keeps an owned tombstone when R2 deletion fails',
 test('duplicate permanent deletes cannot resurrect metadata while the first R2 delete is in flight', async () => {
   const asset=await upload('Concurrent delete.png');
   const state=await (await get('state')).json();
-  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:state.project});
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,baseSiteVersion:state.version,project:state.project});
   assert.equal(trashed.status,200,await trashed.clone().text());
   const trashedAsset=(await trashed.json()).asset;
   const bucket=await runtime.mf.getR2Bucket('CMS_MEDIA');
@@ -105,9 +105,9 @@ test('duplicate permanent deletes cannot resurrect metadata while the first R2 d
   const gate=new Promise(resolve=>{release=resolve});
   let first=true;
   const blockedBucket={delete:async key=>{if(first){first=false;enter();await gate;}return bucket.delete(key);}};
-  const firstDelete=transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:blockedBucket},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:state.project});
+  const firstDelete=transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:blockedBucket},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,baseSiteVersion:state.version,project:state.project});
   await entered;
-  const secondDelete=transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:bucket},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:state.project});
+  const secondDelete=transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:bucket},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,baseSiteVersion:state.version,project:state.project});
   let second,secondError;
   try { second=await secondDelete; } catch (error) { secondError=error; } finally { release(); }
   const firstResult=await firstDelete;
@@ -118,72 +118,34 @@ test('duplicate permanent deletes cannot resurrect metadata while the first R2 d
   assert.equal(await bucket.head(asset.src.slice(7)),null);
 });
 
-test('publication cannot commit a media reference after deletion reserved the asset', async () => {
-  const asset=await upload('Save delete race.png');
+test('trashed media cannot be reintroduced by a stale save', async () => {
+  const asset=await upload('Stale save.png');
   const state=await (await get('state')).json();
-  const clean=structuredClone(state.project);
-  const used=structuredClone(clean);
-  used.pages[0].html=used.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Race"></main>`);
-  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:clean});
+  const stale=structuredClone(state.project);
+  stale.pages[0].html=stale.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Stale"></main>`);
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,baseSiteVersion:state.version,project:state.project});
   assert.equal(trashed.status,200,await trashed.clone().text());
-  const trashedAsset=(await trashed.json()).asset;
-  let enter,release;
-  const entered=new Promise(resolve=>{enter=resolve});
-  const gate=new Promise(resolve=>{release=resolve});
-  let blocked=true;
-  const saveDb={
-    prepare:sql=>runtime.db.prepare(sql),
-    batch:async statements=>{if(blocked){blocked=false;enter();await gate;}return runtime.db.batch(statements);},
-  };
-  const save=publishSite(saveDb,{project:used,baseVersion:state.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
-  await entered;
-  const deleted=await transitionAsset({CMS_DB:runtime.db,CMS_MEDIA:await runtime.mf.getR2Bucket('CMS_MEDIA')},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:clean});
-  assert.equal(deleted.deleted,true);
-  release();
-  let saveError;
-  try { await save; } catch (error) { saveError=error; }
-  const latest=await readSite(runtime.db);
-  if(latest?.project.pages[0].html.includes(asset.src)) await publishSite(runtime.db,{project:clean,baseVersion:latest.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
-  assert.equal(saveError?.status,409);
+  const saved=await post('save',{project:stale,baseVersion:state.version,requestId:crypto.randomUUID()});
+  assert.equal(saved.status,422,await saved.clone().text());
+  assert.equal((await (await get('state')).json()).version,state.version);
 });
 
-test('deletion reservation loses if publication commits a new retained reference first', async () => {
-  const asset=await upload('Delete save race.png');
+test('stale project version cannot trash an asset after another tab publishes a new reference', async () => {
+  const asset=await upload('Stale trash.png');
   const state=await (await get('state')).json();
-  const clean=structuredClone(state.project);
-  const used=structuredClone(clean);
-  used.pages[0].html=used.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Race"></main>`);
-  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:clean});
-  assert.equal(trashed.status,200,await trashed.clone().text());
-  const trashedAsset=(await trashed.json()).asset;
-  let injected=false;
-  const injectPublication=async()=>{
-    if(injected)return;
-    injected=true;
-    await publishSite(runtime.db,{project:used,baseVersion:state.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
-  };
-  const raceDb={
-    prepare(sql){
-      const statement=runtime.db.prepare(sql);
-      if(!sql.startsWith('UPDATE cms_media SET deleting_at'))return statement;
-      return {
-        bind(...values){
-          const bound=statement.bind(...values);
-          return {first:async()=>{await injectPublication();return bound.first();},run:async()=>{await injectPublication();return bound.run();}};
-        },
-      };
-    },
-    batch:async statements=>{await injectPublication();return runtime.db.batch(statements);},
-  };
-  let error;
-  try {
-    await transitionAsset({CMS_DB:raceDb,CMS_MEDIA:await runtime.mf.getR2Bucket('CMS_MEDIA')},{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:clean});
-  } catch (caught) { error=caught; }
-  const latest=await readSite(runtime.db);
-  if(latest?.project.pages[0].html.includes(asset.src)) await publishSite(runtime.db,{project:clean,baseVersion:latest.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
-  assert.equal(error?.status,409);
-  assert.ok(await runtime.db.prepare('SELECT id FROM cms_media WHERE id=?').bind(asset.id).first());
-  assert.ok(await (await runtime.mf.getR2Bucket('CMS_MEDIA')).head(asset.src.slice(7)));
+  const used=structuredClone(state.project);
+  used.pages[0].html=used.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Used"></main>`);
+  const saved=await post('save',{project:used,baseVersion:state.version,requestId:crypto.randomUUID()});
+  assert.equal(saved.status,200,await saved.clone().text());
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,baseSiteVersion:state.version,project:state.project});
+  assert.equal(trashed.status,409,await trashed.clone().text());
+  const row=await runtime.db.prepare('SELECT trashed_at FROM cms_media WHERE id=?').bind(asset.id).first();
+  assert.equal(row.trashed_at,null);
+  const latest=await (await get('state')).json();
+  const clean=structuredClone(latest.project);
+  clean.pages[0].html=clean.pages[0].html.replace(`<img src="${asset.src}" alt="Used">`,'');
+  const cleanup=await post('save',{project:clean,baseVersion:latest.version,requestId:crypto.randomUUID()});
+  assert.equal(cleanup.status,200,await cleanup.clone().text());
 });
 
 test('current and retained history references block destructive media deletion', async () => {
@@ -191,7 +153,7 @@ test('current and retained history references block destructive media deletion',
   const state=await (await get('state')).json();
   const used=structuredClone(state.project);
   used.pages[0].html=used.pages[0].html.replace('</main>',`<img src="${asset.src}" alt="Used"></main>`);
-  const blocked=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:used});
+  const blocked=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,baseSiteVersion:state.version,project:used});
   assert.equal(blocked.status,409);
   const save=await post('save',{project:used,baseVersion:state.version,requestId:crypto.randomUUID()});
   assert.equal(save.status,200,await save.clone().text());
@@ -201,10 +163,10 @@ test('current and retained history references block destructive media deletion',
   assert.equal(save2.status,200,await save2.clone().text());
   const usage=await (await post('asset-usage',{id:asset.id,project:clean})).json();
   assert.equal(usage.currentReferences,0); assert.ok(usage.historyReferences>=1);
-  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,project:clean});
+  const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,baseSiteVersion:state.version+2,project:clean});
   assert.equal(trashed.status,200,await trashed.clone().text());
   const trashedAsset=(await trashed.json()).asset;
-  const deleted=await post('asset-lifecycle',{id:asset.id,action:'delete',baseVersion:trashedAsset.version,project:clean});
+  const deleted=await post('asset-lifecycle',{id:asset.id,action:'delete',baseVersion:trashedAsset.version,baseSiteVersion:state.version+2,project:clean});
   assert.equal(deleted.status,409);
 });
 
@@ -228,8 +190,27 @@ test('built-in resources persist lifecycle and metadata state', async () => {
   assert.equal(published.status,200,await published.clone().text());
   const publicResources=await readPublicData(runtime.db,'resources');
   assert.equal(publicResources.value.social.alt,'Ny alttext');
-  const blocked=await post('asset-lifecycle',{id:builtin.id,action:'trash',baseVersion:metadataResult.asset.version,project:state.project});
+  const blocked=await post('asset-lifecycle',{id:builtin.id,action:'trash',baseVersion:metadataResult.asset.version,baseSiteVersion:metadataReload.version+1,project:state.project});
   assert.equal(blocked.status,409);
+});
+
+test('built-in permanent deletion is terminal and destructive transitions are site-version CAS aware', async () => {
+  const head=await runtime.db.prepare('SELECT version FROM cms_head WHERE id=1').first();
+  const builtin={id:'builtin-unused-test',src:'/unused-review-test.png',name:'Unused',alt:'',mime:'image/png',builtin:true};
+  const project={pages:[],cards:[],theme:{fontFamily:'Arial'},resources:{}};
+  const trashed=await transitionBuiltinAsset(runtime.db,builtin,{action:'trash',baseVersion:0,baseSiteVersion:head.version,project});
+  const deleted=await transitionBuiltinAsset(runtime.db,builtin,{action:'delete',baseVersion:trashed.asset.version,baseSiteVersion:head.version,project});
+  assert.equal(deleted.deleted,true);
+  await assert.rejects(
+    transitionBuiltinAsset(runtime.db,builtin,{action:'restore',baseVersion:trashed.asset.version+1,project}),
+    error=>error.status===409 && /Permanent/.test(error.message),
+  );
+  const staleBuiltin={id:'builtin-stale-test',src:'/stale-review-test.png',name:'Stale',alt:'',mime:'image/png',builtin:true};
+  await publishSite(runtime.db,{project:initial,baseVersion:head.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
+  await assert.rejects(
+    transitionBuiltinAsset(runtime.db,staleBuiltin,{action:'trash',baseVersion:0,baseSiteVersion:head.version,project}),
+    error=>error.status===409,
+  );
 });
 
 test('pre-shared-content retained revisions normalize through state preview revision and restore-save', async () => {

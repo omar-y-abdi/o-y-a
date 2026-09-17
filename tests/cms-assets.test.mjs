@@ -62,3 +62,22 @@ test('publication exposes only rendered references, not unused private files in 
   await assert.rejects(publishSite(env.CMS_DB, { project, baseVersion: 1, requestId: crypto.randomUUID(), actor: 'owner@example.test' }), error => error.status === 422);
   assert.equal((await readSite(env.CMS_DB)).version, 1);
 });
+
+test('trashed fonts do not consume the active 64-font quota', async () => {
+  const now = new Date().toISOString();
+  for (let index = 0; index < 64; index += 1) {
+    const id = crypto.randomUUID();
+    await env.CMS_DB.prepare('INSERT INTO cms_media(id,object_key,name,mime,bytes,width,height,alt,sha256,created_at,archived_at,version,validation_version,trashed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(id, `${id}.woff2`, `Trashed ${index}`, 'font/woff2', 48, null, null, '', 'x'.repeat(64), now, null, 0, 1, now).run();
+  }
+  const id = crypto.randomUUID();
+  const bytes = new Uint8Array(48);
+  const view = new DataView(bytes.buffer);
+  bytes.set(new TextEncoder().encode('wOF2'), 0);
+  view.setUint32(8, 48);
+  view.setUint16(12, 1);
+  view.setUint32(16, 100);
+  const asset = await uploadAsset(env, { id, bytes, name: 'Active.woff2', alt: '' });
+  assert.equal(asset.mime, 'font/woff2');
+  assert.equal(asset.state, 'active');
+});

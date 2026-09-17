@@ -34,10 +34,10 @@ export function findComponentByKey(editor,key){
 }
 export function captureInspectorScroll(root=document){
   const panel=root.querySelector?.('.right-panel');
-  return {right:panel?.scrollTop??0,custom:root.querySelector?.('#custom-inspector')?.scrollTop??0,styles:root.querySelector?.('#styles-panel')?.scrollTop??0,traits:root.querySelector?.('#traits-panel')?.scrollTop??0};
+  return {right:panel?.scrollTop??0,inspector:root.querySelector?.('#inspector-content')?.scrollTop??0,layers:root.querySelector?.('#layers-panel')?.scrollTop??0,blocks:root.querySelector?.('#blocks-panel')?.scrollTop??0,custom:root.querySelector?.('#custom-inspector')?.scrollTop??0,styles:root.querySelector?.('#styles-panel')?.scrollTop??0,traits:root.querySelector?.('#traits-panel')?.scrollTop??0};
 }
 export function restoreInspectorScroll(snapshot,root=document){
-  if(!snapshot)return; for(const [key,selector] of [['right','.right-panel'],['custom','#custom-inspector'],['styles','#styles-panel'],['traits','#traits-panel']]){const node=root.querySelector?.(selector);if(node)node.scrollTop=snapshot[key]??0;}
+  if(!snapshot)return; for(const [key,selector] of [['right','.right-panel'],['inspector','#inspector-content'],['layers','#layers-panel'],['blocks','#blocks-panel'],['custom','#custom-inspector'],['styles','#styles-panel'],['traits','#traits-panel']]){const node=root.querySelector?.(selector);if(node)node.scrollTop=snapshot[key]??0;}
 }
 export function captureEditorView(editor,{device,zoom,tab}={}){
   if(!editor)return {device,zoom,tab,inspector:captureInspectorScroll()};

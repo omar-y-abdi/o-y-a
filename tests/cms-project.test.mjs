@@ -65,3 +65,14 @@ test('trusted shared footer defaults and publication rejects divergent or missin
 test('trusted source pages mark the footer tagline as one shared slot', () => {
   for(const page of pages) assert.match(page.html,/data-cms-shared="footer.tagline"/);
 });
+
+test('required shared slot is enforced once per page rather than by global count',()=>{
+  const sharedSeed={...seed,sharedContent:{'footer.tagline':'Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.'}};
+  const project=validateProject(structuredClone(sharedSeed),sharedSeed);
+  const broken=structuredClone(project);
+  const marker=' data-cms-shared="footer.tagline"';
+  broken.pages[1].html=broken.pages[1].html.replace(marker,'');
+  const duplicate=broken.pages[0].html.match(/<p[^>]*data-cms-shared="footer.tagline"[^>]*>[\s\S]*?<\/p>/)[0].replaceAll(/\sdata-cms-node="[^"]+"/g,'');
+  broken.pages[0].html=broken.pages[0].html.replace('</footer>',duplicate+'</footer>');
+  assert.throws(()=>validateProject(broken,sharedSeed),/alla sidor/i);
+});

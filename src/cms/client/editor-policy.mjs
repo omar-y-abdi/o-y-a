@@ -1,4 +1,4 @@
-import { isResizableComponent } from './position.mjs';
+import { isResizableComponent, svgGroupResizeOptions } from './position.mjs';
 
 export const normalStyleSectors = [
   { id: 'layout', name: 'Layout & storlek', open: true, buildProps: ['display', 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'overflow', 'flex-direction', 'justify-content', 'align-items', 'gap'], properties: [{ property: 'display', type: 'select', options: ['block', 'inline', 'inline-block', 'flex', 'inline-flex', 'grid', 'inline-grid', 'none'].map(id => ({ id, label: id })) }] },
@@ -19,7 +19,7 @@ export const websiteStyleSectors = [
 
 export function configureVisualComponent(component) {
   component.set({
-    resizable: isResizableComponent(component),
+    resizable: String(component.get?.('tagName')??'').toLowerCase()==='g' ? svgGroupResizeOptions(component) : isResizableComponent(component),
     // Canvas move can reparent/reorder. Structural movement belongs in Layers;
     // precise visual movement is exposed by the inspector nudge controls.
     toolbar: [],

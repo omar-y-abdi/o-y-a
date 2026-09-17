@@ -45,14 +45,22 @@ export async function readPublicData(db, key) {
 }
 
 
+const RESOURCE_BACKFILL_LIMIT = 20;
+async function indexRevisionResources(db, version, project) {
+  const refs = [...resourceReferences(project).entries()];
+  const statements = refs.map(([src, count]) => db.prepare('INSERT OR REPLACE INTO cms_revision_resource_index(version,src,reference_count) VALUES(?,?,?)').bind(version, src, count));
+  statements.push(db.prepare('INSERT OR IGNORE INTO cms_revision_resource_indexed(version) VALUES(?)').bind(version));
+  await db.batch(statements);
+}
+async function backfillRevisionResourceIndex(db) {
+  const rows = await db.prepare('SELECT r.version,r.project FROM cms_revisions r LEFT JOIN cms_revision_resource_indexed i ON i.version=r.version WHERE i.version IS NULL ORDER BY r.version LIMIT ?').bind(RESOURCE_BACKFILL_LIMIT + 1).all();
+  for (const row of rows.results.slice(0, RESOURCE_BACKFILL_LIMIT)) await indexRevisionResources(db, row.version, JSON.parse(await decompress(row.project)));
+  if (rows.results.length > RESOURCE_BACKFILL_LIMIT) throw new HttpError(503, 'Historikens resursindex byggs om. Försök igen så fortsätter återställningen.');
+}
 export async function retainedResourceUsage(db, src) {
-  const rows = await db.prepare('SELECT project FROM cms_revisions ORDER BY version').all();
-  let references = 0;
-  for (const row of rows.results) {
-    const project = JSON.parse(await decompress(row.project));
-    references += resourceReferences(project).get(src) ?? 0;
-  }
-  return references;
+  await backfillRevisionResourceIndex(db);
+  const row = await db.prepare('SELECT COALESCE(sum(reference_count),0) AS total FROM cms_revision_resource_index WHERE src=?').bind(src).first();
+  return Number(row?.total ?? 0);
 }
 
 export async function readHistory(db, cursor = Number.MAX_SAFE_INTEGER) {
@@ -97,7 +105,7 @@ export async function publicationMedia(db, project) {
   const mediaKeys = [...resourceReferences(project).keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(src)).map(src => src.slice(7));
   let media = [];
   if (mediaKeys.length) {
-    const available = await db.prepare('SELECT object_key, mime, width, height, alt, validation_version FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL').bind(JSON.stringify(mediaKeys)).all();
+    const available = await db.prepare('SELECT object_key, mime, width, height, alt, validation_version FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL').bind(JSON.stringify(mediaKeys)).all();
     if (available.results.length !== mediaKeys.length) throw new HttpError(422, 'En vald fil saknas. Ladda upp filen innan du sparar.');
     if (available.results.some(row => !row.validation_version)) throw new HttpError(422, 'En vald fil behöver kontrolleras igen innan publicering.');
     media = available.results.map(row => ({ ...row, src: '/media/' + row.object_key }));
@@ -124,12 +132,15 @@ export async function publishSite(db, { project, baseVersion, requestId, actor }
   const mediaKeys = media.map(row => row.object_key);
   const summary = `${manifest.length} sidor · ${project.cards.length} vinster`;
   const revision = mediaKeys.length
-    ? db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ? AND (SELECT count(*) FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND validation_version IS NOT NULL) = ?').bind(version, requestId, baseVersion, actor, createdAt, hash, compressed, JSON.stringify(manifest), summary, baseVersion, JSON.stringify(mediaKeys), mediaKeys.length)
+    ? db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ? AND (SELECT count(*) FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL AND validation_version IS NOT NULL) = ?').bind(version, requestId, baseVersion, actor, createdAt, hash, compressed, JSON.stringify(manifest), summary, baseVersion, JSON.stringify(mediaKeys), mediaKeys.length)
     : db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ?').bind(version, requestId, baseVersion, actor, createdAt, hash, compressed, JSON.stringify(manifest), summary, baseVersion);
   const statements = [revision];
+  const resourceIndex = [...resourceReferences(project).entries()];
+  if (resourceIndex.length) statements.push(db.prepare("INSERT INTO cms_revision_resource_index(version,src,reference_count) SELECT ?, json_extract(value,'$[0]'), json_extract(value,'$[1]') FROM json_each(?) WHERE EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)").bind(version, JSON.stringify(resourceIndex), requestId));
+  statements.push(db.prepare('INSERT INTO cms_revision_resource_indexed(version) SELECT ? WHERE EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)').bind(version, requestId));
   const chunks = publicationChunks(project, await resolveResources(db, project));
   for (const chunk of chunks) statements.push(db.prepare("INSERT INTO cms_rendered (version, path, html, css, meta) SELECT ?, json_extract(value, '$.path'), json_extract(value, '$.html'), json_extract(value, '$.css'), json_extract(value, '$.meta') FROM json_each(?) WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)").bind(version, JSON.stringify(chunk), baseVersion, requestId));
-  if (mediaKeys.length) statements.push(db.prepare('UPDATE cms_media SET published_at = COALESCE(published_at, ?) WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(createdAt, JSON.stringify(mediaKeys), baseVersion, requestId));
+  if (mediaKeys.length) statements.push(db.prepare('UPDATE cms_media SET published_at = COALESCE(published_at, ?) WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(createdAt, JSON.stringify(mediaKeys), baseVersion, requestId));
   statements.push(db.prepare('UPDATE cms_head SET version = ? WHERE id = 1 AND version = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(version, baseVersion, requestId));
   // The conditional inserts and pointer change share a D1 transaction. A stale
   // request writes no rows; any SQL failure rolls back the complete publication.

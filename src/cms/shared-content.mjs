@@ -55,15 +55,15 @@ export function normalizeStoredProject(input,seed={},initial={}){
 export function validateSharedInstances(pages,sharedContent,{publication=true,requiredEverywhere=[]}={}){
   const seen=new Map();
   for(const page of pages){
-    const tree=parseFragment(page.html);
+    const perPage=new Map(),tree=parseFragment(page.html);
     walk(tree,node=>{
       const key=attr(node,'data-cms-shared'); if(!key)return;
       if(!KEY.test(key)||!Object.hasOwn(sharedContent,key))fail('Sidan använder en okänd gemensam innehållsplats.');
       const value=normalizeSharedValue(serialize(node));
       if(publication&&value!==sharedContent[key])fail(`Det gemensamma innehållet ${key} skiljer sig mellan sidor.`);
-      seen.set(key,(seen.get(key)??0)+1);
+      seen.set(key,(seen.get(key)??0)+1); perPage.set(key,(perPage.get(key)??0)+1);
     });
+    if(publication)for(const key of requiredEverywhere)if((perPage.get(key)??0)!==1)fail(`Det gemensamma innehållet ${key} måste finnas exakt en gång på alla sidor.`);
   }
-  if(publication)for(const key of requiredEverywhere)if((seen.get(key)??0)!==pages.length)fail(`Det gemensamma innehållet ${key} måste finnas på alla sidor.`);
   return seen;
 }

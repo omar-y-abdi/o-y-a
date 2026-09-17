@@ -1,18 +1,18 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { isResizableComponent, nudgeComponent, resetComponentPosition } from '../src/cms/client/position.mjs';
-import { componentKey, findComponentByKey, centerOffset } from '../src/cms/client/view-state.mjs';
+import { isResizableComponent, nudgeComponent, resetComponentPosition, svgGroupResizeOptions } from '../src/cms/client/position.mjs';
+import { componentKey, findComponentByKey, centerOffset, captureInspectorScroll, restoreInspectorScroll } from '../src/cms/client/view-state.mjs';
 
 function component({tag='div',type='default',attrs={},style={},parent=null,index=0}={}) {
   let current={...style};
-  return { get:key=>key==='tagName'?tag:key==='type'?type:undefined, getAttributes:()=>attrs, getStyle:()=>({...current}), addStyle:value=>{current={...current,...value};}, removeStyle:key=>{delete current[key];}, parent:()=>parent, index:()=>index, style:()=>current };
+  return { get:key=>key==='tagName'?tag:key==='type'?type:undefined, getAttributes:()=>attrs, getStyle:()=>({...current}), addStyle:value=>{current={...current,...value};}, removeStyle:key=>{delete current[key];}, addAttributes:value=>Object.assign(attrs,value), removeAttributes:key=>{delete attrs[key];}, parent:()=>parent, index:()=>index, style:()=>current };
 }
 
 test('resize allowlist includes visual layout components but protects functional controls and low-level SVG shapes',()=>{
   assert.equal(isResizableComponent(component({tag:'p',type:'text'})),true);
   assert.equal(isResizableComponent(component({tag:'a',type:'link',attrs:{href:'/kontakt/'}})),true);
   assert.equal(isResizableComponent(component({tag:'img',type:'image'})),true);
-  assert.equal(isResizableComponent(component({tag:'g'})),false);
+  assert.equal(isResizableComponent(component({tag:'g'})),true);
   assert.equal(isResizableComponent(component({tag:'path'})),false);
   assert.equal(isResizableComponent(component({tag:'button',attrs:{'data-print':''}})),false);
   assert.equal(isResizableComponent(component({tag:'input'})),false);
@@ -53,4 +53,21 @@ test('editor policy separates normal styling from color/effects mode and removes
   configureVisualComponent(item);
   assert.equal(values.get('resizable'),true);
   assert.deepEqual(values.get('toolbar'),[]);
+});
+
+test('inspector scroll preservation targets the production inspector-content scroller',()=>{
+  const nodes={'.right-panel':{scrollTop:0},'#inspector-content':{scrollTop:73},'#layers-panel':{scrollTop:0},'#blocks-panel':{scrollTop:0},'#custom-inspector':{scrollTop:0},'#styles-panel':{scrollTop:0},'#traits-panel':{scrollTop:0}};
+  const root={querySelector:selector=>nodes[selector]??null};
+  const snapshot=captureInspectorScroll(root);
+  assert.equal(snapshot.inspector,73);
+  nodes['#inspector-content'].scrollTop=0; restoreInspectorScroll(snapshot,root);
+  assert.equal(nodes['#inspector-content'].scrollTop,73);
+});
+
+test('SVG group resize composes a geometry scale transform instead of CSS width and height',()=>{
+  const group=component({tag:'g',attrs:{transform:'rotate(5)'}});
+  const resize=svgGroupResizeOptions(group);
+  resize.onStart(null,{el:{getBoundingClientRect:()=>({width:40,height:20}),getBBox:()=>({x:10,y:5,width:40,height:20})}});
+  resize.updateTarget(null,{w:80,h:40},{store:false});
+  assert.match(group.getAttributes().transform,/rotate\(5\).*scale\(2 2\)/);
 });

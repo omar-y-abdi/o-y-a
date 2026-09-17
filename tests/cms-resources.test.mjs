@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { initial, seed } from '../.generated/cms-seed.mjs';
-import { replaceResource, resourceReferences } from '../src/cms/resources.mjs';
+import { replaceResource, resourceReferences, resourceCatalog } from '../src/cms/resources.mjs';
 import { publicationChunks, PUBLIC_BIND_LIMIT, PUBLIC_ROW_LIMIT, publishSite, readPublicData } from '../src/cms/store.mjs';
 import { uploadAsset } from '../src/cms/assets.mjs';
 import { validateProject } from '../src/cms/project.mjs';
@@ -82,4 +82,15 @@ test('R5: UTF-8 rows and JSON bind chunks have independent enforced byte budgets
  const chunks=publicationChunks(project);assert.ok(chunks.length>1);
  for(const chunk of chunks)assert.ok(bytes(JSON.stringify(chunk))<=PUBLIC_BIND_LIMIT);
  assert.ok(chunks.length+8<50,'Publication must fit even the Free D1 query budget');
+});
+
+test('resource catalog keeps built-in identity separate from a replacement slot value',()=>{
+  const builtin={id:'builtin-social',builtin:true,slot:'social',src:'/social/original.png',name:'Social',alt:'Edited alt',mime:'image/png',width:1200,height:630,version:4,state:'active'};
+  const upload={id:'123e4567-e89b-42d3-a456-426614174000',src:'/media/123e4567-e89b-42d3-a456-426614174000.png',name:'Replacement',alt:'Upload alt',mime:'image/png',width:100,height:100,state:'active'};
+  const project={resources:{...defaultResources,social:upload.src}};
+  const result=resourceCatalog({assets:[builtin]},[upload],project);
+  const stable=result.find(asset=>asset.id===builtin.id);
+  assert.equal(stable.src,'/social/original.png');
+  assert.equal(stable.alt,'Edited alt');
+  assert.equal(stable.version,4);
 });
