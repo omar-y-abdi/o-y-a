@@ -16,7 +16,7 @@ export function createDeck(cards, random = Math.random) {
     const group = ['kind','joke','pause','roast'].includes(flavor) ? flavor : 'kind';
     let deck = decks.get(group);
     if (!deck?.length) {
-      deck = cards.filter(card => card.flavor === group);
+      deck = cards.filter(card => card.flavor === group && (card.state ?? 'active') === 'active');
       for (let i = deck.length - 1; i > 0; i--) {
         const value = random();
         const j = Number.isFinite(value) ? Math.max(0,Math.min(i,Math.floor(value*(i+1)))) : 0;
@@ -28,4 +28,14 @@ export function createDeck(cards, random = Math.random) {
     if (deck.at(-1)?.id === previous && deck.length > 1) [deck[0],deck[deck.length-1]] = [deck.at(-1),deck[0]];
     return deck.pop();
   };
+}
+
+export async function sharedCard(id, cards, fetcher = fetch) {
+  const local = getCard(id, cards);
+  if (local) return (local.state ?? 'active') === 'trash' ? null : local;
+  if (typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(id)) return null;
+  try {
+    const response = await fetcher(`/data/cards/${id}.json`, { credentials: 'same-origin', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(8000) });
+    return response.ok ? response.json() : null;
+  } catch { return null; }
 }

@@ -1,4 +1,4 @@
-import test, { after } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
@@ -61,4 +61,33 @@ test('publication exposes only rendered references, not unused private files in 
   project.theme = { ...defaultTheme, fontFamily: `cms-font-${crypto.randomUUID()}` };
   await assert.rejects(publishSite(env.CMS_DB, { project, baseVersion: 1, requestId: crypto.randomUUID(), actor: 'owner@example.test' }), error => error.status === 422);
   assert.equal((await readSite(env.CMS_DB)).version, 1);
+});
+
+test('trashed fonts do not consume the active 64-font quota', async () => {
+  const now = new Date().toISOString();
+  for (let index = 0; index < 64; index += 1) {
+    const id = crypto.randomUUID();
+    await env.CMS_DB.prepare('INSERT INTO cms_media(id,object_key,name,mime,bytes,width,height,alt,sha256,created_at,archived_at,version,validation_version,trashed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(id, `${id}.woff2`, `Trashed ${index}`, 'font/woff2', 48, null, null, '', 'x'.repeat(64), now, null, 0, 1, now).run();
+  }
+  const id = crypto.randomUUID();
+  const bytes = new Uint8Array(48);
+  const view = new DataView(bytes.buffer);
+  bytes.set(new TextEncoder().encode('wOF2'), 0);
+  view.setUint32(8, 48);
+  view.setUint16(12, 1);
+  view.setUint32(16, 100);
+  const asset = await uploadAsset(env, { id, bytes, name: 'Active.woff2', alt: '' });
+  assert.equal(asset.mime, 'font/woff2');
+  assert.equal(asset.state, 'active');
+});
+
+test('active and archived media pages keep lifecycle index query plans', async () => {
+  for (const filter of ['trashed_at IS NULL AND archived_at IS NULL', 'trashed_at IS NULL AND archived_at IS NOT NULL']) {
+    const plan = await env.CMS_DB.prepare(`EXPLAIN QUERY PLAN SELECT * FROM cms_media WHERE ${filter} AND (? = 0 OR mime LIKE 'image/%') AND (instr(lower(name),lower(?)) > 0 OR instr(lower(mime),lower(?)) > 0) AND (? = '' OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT 61`)
+      .bind(0, '', '', '', '', '', '').all();
+    const details = plan.results.map(row => row.detail);
+    assert.ok(details.some(detail => detail.includes('cms_media_lifecycle')), details.join('\n'));
+    assert.ok(details.every(detail => !detail.startsWith('SCAN cms_media')), details.join('\n'));
+  }
 });

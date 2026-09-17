@@ -1,9 +1,9 @@
-import test, { before, after } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { initial, seed } from '../.generated/cms-seed.mjs';
-import { replaceResource, resourceReferences } from '../src/cms/resources.mjs';
+import { replaceResource, resourceReferences, resourceCatalog } from '../src/cms/resources.mjs';
 import { publicationChunks, PUBLIC_BIND_LIMIT, PUBLIC_ROW_LIMIT, publishSite, readPublicData } from '../src/cms/store.mjs';
 import { uploadAsset } from '../src/cms/assets.mjs';
 import { validateProject } from '../src/cms/project.mjs';
@@ -16,6 +16,12 @@ let runtime;
 before(async()=>{ runtime=await cmsRuntime(); });
 after(async()=>runtime?.close());
 const bytes=value=>Buffer.byteLength(value);
+async function responseStatus(promise) {
+ const response=await promise;
+ try { return response.status; }
+ finally { await response.body?.cancel().catch(()=>{}); }
+}
+
 
 test('R4: definitive errors discard a rejected attempt; unknown outcomes replay immutable bytes',()=>{
  for(const status of [0,200,408,500,502,503,504,400,401,403,409,413,415,422,429]){
@@ -58,7 +64,7 @@ test('R6/R7: font and all global resource slots publish registered immutable obj
  const original=validateProject(structuredClone(initial),seed);const project=structuredClone(original);
  project.theme.fontFamily=`cms-font-${font.id}`;project.resources=Object.fromEntries(Object.keys(defaultResources).map(key=>[key,image.src]));
  const first=await publishSite(runtime.db,{project,baseVersion:0,requestId:crypto.randomUUID(),actor:'owner@example.test'});
- for(const asset of [font,image])assert.equal((await runtime.mf.dispatchFetch('https://omaryusuf.se'+asset.src)).status,200);
+ for(const asset of [font,image])assert.equal(await responseStatus(runtime.mf.dispatchFetch('https://omaryusuf.se'+asset.src)),200);
  const head=await (await runtime.mf.dispatchFetch('https://omaryusuf.se/')).text();
  assert.match(head,new RegExp('rel="apple-touch-icon" href="'+image.src+'"'));const style=await (await runtime.mf.dispatchFetch(`https://omaryusuf.se/cms-public/v${first.version}/home.css`)).text();assert.match(style,new RegExp('font-family:"cms-font-'+font.id+'"'));
  const slots=(await readPublicData(runtime.db,'resources')).value;
@@ -66,7 +72,7 @@ test('R6/R7: font and all global resource slots publish registered immutable obj
  assert.equal(slots.social.width,1200);assert.equal(slots.social.height,630);
  await publishSite(runtime.db,{project:original,baseVersion:first.version,requestId:crypto.randomUUID(),actor:'owner@example.test'});
  assert.equal((await readPublicData(runtime.db,'resources')).value.icon.src,defaultResources.icon);
- assert.equal((await runtime.mf.dispatchFetch('https://omaryusuf.se'+image.src)).status,200,'Historical media must remain available');
+ assert.equal(await responseStatus(runtime.mf.dispatchFetch('https://omaryusuf.se'+image.src)),200,'Historical media must remain available');
 });
 
 test('R5: UTF-8 rows and JSON bind chunks have independent enforced byte budgets',()=>{
@@ -76,4 +82,15 @@ test('R5: UTF-8 rows and JSON bind chunks have independent enforced byte budgets
  const chunks=publicationChunks(project);assert.ok(chunks.length>1);
  for(const chunk of chunks)assert.ok(bytes(JSON.stringify(chunk))<=PUBLIC_BIND_LIMIT);
  assert.ok(chunks.length+8<50,'Publication must fit even the Free D1 query budget');
+});
+
+test('resource catalog keeps built-in identity separate from a replacement slot value',()=>{
+  const builtin={id:'builtin-social',builtin:true,slot:'social',src:'/social/original.png',name:'Social',alt:'Edited alt',mime:'image/png',width:1200,height:630,version:4,state:'active'};
+  const upload={id:'123e4567-e89b-42d3-a456-426614174000',src:'/media/123e4567-e89b-42d3-a456-426614174000.png',name:'Replacement',alt:'Upload alt',mime:'image/png',width:100,height:100,state:'active'};
+  const project={resources:{...defaultResources,social:upload.src}};
+  const result=resourceCatalog({assets:[builtin]},[upload],project);
+  const stable=result.find(asset=>asset.id===builtin.id);
+  assert.equal(stable.src,'/social/original.png');
+  assert.equal(stable.alt,'Edited alt');
+  assert.equal(stable.version,4);
 });

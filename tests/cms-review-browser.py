@@ -15,6 +15,7 @@ from playwright.sync_api import sync_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('cms_review_qa', ROOT/'tests/cms-browser.py')
 qa = importlib.util.module_from_spec(spec); sys.modules[spec.name] = qa; spec.loader.exec_module(qa)
+Q = qa.CMSBrowserQA
 BASE = qa.BASE_URL
 assert qa.loopback_base(BASE), 'Only an isolated local Worker is allowed'
 ENGINE = os.environ.get('CMS_BROWSER', 'chromium')
@@ -23,7 +24,7 @@ report = qa.Reporter(ROOT/f'output/logs/cms-review-{ENGINE}.log')
 
 def api(context, path, data=None):
     url = BASE+'/admin/api/'+path
-    return context.request.get(url) if data is None else context.request.post(url, data=data, headers={'Origin': BASE, 'X-CMS-Request': '1'})
+    return qa.read_api(context.request, url) if data is None else context.request.post(url, data=data, headers={'Origin': BASE, 'X-CMS-Request': '1'})
 
 def publish(context, project):
     state = api(context, 'state').json()
@@ -81,7 +82,7 @@ with sync_playwright() as pw:
                 assert any(r['project']['pages'][0]['description']=='Tab A independent valuable draft' for r in records(a))
                 # Revert B's next edit must only acknowledge B's own generation.
                 b.locator('#page-description').fill('Tab B disposable edit'); backup_settled(b)
-                b.locator('[data-action=revert]').click(); b.locator('[data-confirm=yes]').click()
+                qa.CMSBrowserQA.revert_if_dirty(b)
                 expect(b.locator('#page-description')).to_have_value('Tab B published version')
                 expect(b.locator('#backup-status')).to_have_text('Reservutkast redo')
                 if order == 'B': b.close()
@@ -169,10 +170,16 @@ with sync_playwright() as pw:
     def metadata_conflict():
         ctx=context()
         try:
-            a=admin(ctx); a.locator('#file-input').set_input_files(str(ROOT/'public/mail/omar-smile.png'))
+            a=admin(ctx)
+            uploaded=qa.CMSBrowserQA.upload_file(a, ROOT/'public/mail/omar-smile.png')
+            asset_id=uploaded['id']
             expect(a.locator('#asset-name')).to_be_visible()
-            src=a.locator('#special-stage img').get_attribute('src'); asset_id=src.split('/')[-1].split('.')[0]
-            b=admin(ctx); b.locator('[data-library=assets]').click(); b.locator(f'[data-asset-id="{asset_id}"]').click()
+            b=admin(ctx)
+            Q.open_assets(b)
+            row=b.locator(f'#special-stage [data-asset-id="{asset_id}"]')
+            row.wait_for(state='visible', timeout=20000)
+            row.click()
+            expect(b.locator('#asset-name')).to_be_visible(timeout=20000)
             a.locator('[data-action=archive-asset]').click(); a.locator('[data-confirm=yes]').click()
             b.locator('#asset-name').fill('Renamed without reversing archive')
             b.locator('#asset-alt').fill('Concurrent alternative text')
@@ -181,8 +188,9 @@ with sync_playwright() as pw:
             expect(b.locator('#asset-name')).to_have_value('Renamed without reversing archive')
             shot(b,'asset-metadata-conflict')
             b.locator('#retry-asset').click()
-            expect(b.locator('[data-action=unarchive-asset]')).to_be_visible()
-            item=next(x for x in api(ctx,'state').json()['assets'] if x['id']==asset_id)
+            expect(b.locator('[data-action=restore-asset]')).to_be_visible()
+            archived=api(ctx,'assets?state=archived').json()['items']
+            item=next(x for x in archived if x['id']==asset_id)
             assert item['archived'] and item['name']=='Renamed without reversing archive' and item['alt']=='Concurrent alternative text'
         finally: ctx.close()
 
@@ -198,8 +206,24 @@ with sync_playwright() as pw:
             frame.get_by_text('Local clone target',exact=True).click(); page.locator('#select-parent').click(); page.locator('#duplicate-element').click()
             expect(frame.get_by_text('Local clone target',exact=True)).to_have_count(2)
             save(page); page.reload(); ready(page)
-            public=browser.new_page(); public.goto(BASE+'/review-clone/')
-            values=public.locator('section:has(h2)').filter(has=public.get_by_text('Local clone target',exact=True)).evaluate_all("""ss=>ss.map(s=>({id:s.id,heading:s.querySelector('h2').id,link:s.querySelector('a').getAttribute('href'),label:s.getAttribute('aria-labelledby'),clip:s.querySelector('clipPath').id,clipRef:s.querySelector('rect').getAttribute('clip-path'),padding:getComputedStyle(s).padding,color:getComputedStyle(s).color}))""")
+            saved_state=api(ctx,'state').json()
+            saved_page=next(x for x in saved_state['project']['pages'] if x['id']=='review-clone')
+            compact_css=saved_page['css'].replace(' ','')
+            assert 'padding:19px' in compact_css and 'color:rgb(201,32,17)' in compact_css, saved_page['css']
+            assert 'color:black' not in compact_css and 'border:0solidblack' not in compact_css, saved_page['css']
+            public=browser.new_page()
+            with public.expect_response(lambda response: '/cms-public/v' in response.url and response.url.endswith('/review-clone.css')) as css_info:
+                public.goto(BASE+'/review-clone/',wait_until='load')
+            css_response=css_info.value
+            assert css_response.ok, (css_response.status, css_response.url)
+            published_css=css_response.text().replace(' ','')
+            assert 'padding:19px' in published_css and 'color:rgb(201,32,17)' in published_css, published_css
+            sections=public.locator('section:has(h2)').filter(has=public.get_by_text('Local clone target',exact=True))
+            expect(sections).to_have_count(2)
+            for index in range(2):
+                expect(sections.nth(index)).to_have_css('padding','19px')
+                expect(sections.nth(index)).to_have_css('color','rgb(201, 32, 17)')
+            values=sections.evaluate_all("""ss=>ss.map(s=>({id:s.id,heading:s.querySelector('h2').id,link:s.querySelector('a').getAttribute('href'),label:s.getAttribute('aria-labelledby'),clip:s.querySelector('clipPath').id,clipRef:s.querySelector('rect').getAttribute('clip-path'),padding:getComputedStyle(s).padding,color:getComputedStyle(s).color}))""")
             assert len(values)==2 and values[0]['id']!=values[1]['id'],values
             for value in values:
                 assert value['link']=='#'+value['heading'] and value['label']==value['heading'],value

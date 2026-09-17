@@ -6,27 +6,34 @@ import { mergeProjects } from './merge.mjs';
 import { runtimeView } from './runtime.mjs';
 import { $, $$, escape, toast, dialog, confirmAction, field } from './dom.mjs';
 import { createEditor } from './editor.mjs';
-import { pageInspector, componentInspector, themeInspector } from './inspector.mjs';
+import { pageInspector, componentInspector, componentColorInspector, themeInspector } from './inspector.mjs';
 import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign } from './library.mjs';
-import { themeCss, assetFontCss } from '../theme.mjs';
+import { renderThemeCss as themeCss, assetFontCss } from '../theme-core.mjs';
+import { applyWinAction, exportWinPackage, filterWins, planWinImport, WIN_BATCH_ACTIONS } from './win-bulk.mjs';
+import { synchronizeSharedPageClient } from './shared-project.mjs';
+import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorView, restoreInspectorScroll } from './view-state.mjs';
+import { materializeManagedSvg } from './managed-svg-source.mjs';
+import { saveManagedSvgOperation } from './managed-svg-save.mjs';
 
 let draft, identity, definitions, blank, assets = [], built;
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
 let library = 'pages', device = matchMedia('(max-width:760px)').matches ? 'mobile' : 'desktop', zoom = 100, locked = false, saving = false, themeMode = false;
-let winFilter = 'all', winQuery = '', winLimit = 60, history, reviewVersion = null, replacement = null, archivedAssets = false;
-let backups, previewSequence = 0;
-let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer;
+let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSelection = new Set(), history, reviewVersion = null, replacement = null, mediaState = 'active';
+let backups, previewSequence = 0, inspectorTab = 'design', pendingViewRestore = null, svgDraft = null;
+let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer, mediaTotal = 0;
 const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
 const page = () => draft.project.pages.find(item => item.id === lastPage) ?? draft.project.pages[0];
 const card = () => draft.project.cards.find(item => item.id === current.id);
 
+function hasUnsavedWork() { return Boolean(draft?.dirty || draft?.pendingSave || svgDraft?.dirty); }
+
 function status() {
   if (!draft) return;
-  $('[data-action=save]').disabled = saving || !draft.dirty && !draft.pendingSave;
+  $('[data-action=save]').disabled = saving || !hasUnsavedWork();
   $('[data-action=revert]').disabled = saving || !draft.dirty;
-  $('[data-action=undo]').disabled = saving || !draft.undoStack.length;
-  $('[data-action=redo]').disabled = saving || !draft.redoStack.length;
-  $('#save-status').textContent = saving ? 'Sparar och publicerar…' : draft.dirty ? 'Utkast · inte publicerat' : draft.version ? `Alla ändringar sparade · v${draft.version}` : 'Originalversion · redo att redigera';
+  $('[data-action=undo]').disabled = saving || current.type === 'svg' || !draft.undoStack.length;
+  $('[data-action=redo]').disabled = saving || current.type === 'svg' || !draft.redoStack.length;
+  $('#save-status').textContent = saving ? 'Sparar…' : svgDraft?.dirty ? (svgDraft.operation?.state === 'committed' ? 'SVG-sparning · behöver slutföras' : 'SVG-utkast · inte sparat') : draft.dirty ? 'Utkast · inte publicerat' : draft.version ? `Alla ändringar sparade · v${draft.version}` : 'Originalversion · redo att redigera';
   $('[data-action=edit]').setAttribute('aria-pressed', String(!locked));
   $('[data-action=lock]').setAttribute('aria-pressed', String(locked));
   $('[data-action=edit]').classList.toggle('is-active', !locked);
@@ -38,13 +45,43 @@ function remember() {
   backups?.schedule();
 }
 
+function managedSvgBackup() {
+  if (!svgDraft?.dirty) return null;
+  let svg = svgDraft.html;
+  if (current.type === 'svg' && active) {
+    try { svg = materializeManagedSvg(svgDraft.html, active.editor); } catch { /* The live draft remains protected by unload/navigation guards. */ }
+  }
+  return { id: svgDraft.id, version: svgDraft.version, svg, operation: svgDraft.operation ? structuredClone(svgDraft.operation) : null };
+}
+
+function backupSnapshot() {
+  return { project: draft.project, version: draft.version, pendingSave: draft.pendingSave, dirty: draft.dirty, managedSvg: managedSvgBackup() };
+}
+
+async function confirmManagedSvgNavigation() {
+  if (current.type !== 'svg') return true;
+  active?.flush();
+  if (!svgDraft?.dirty) return true;
+  const accepted = await confirmAction({ title: 'Lämna SVG-utkastet?', message: 'SVG-ändringarna är inte färdigsparade. Fortsätt här eller lämna och kasta just dessa SVG-ändringar.', action: 'Lämna utan SVG-ändring', danger: true });
+  if (!accepted) return false;
+  svgDraft = null;
+  status(); remember();
+  return true;
+}
+
 function change(project, group = '') { draft.change(project, group); status(); remember(); }
 function updatePage(id, values, group = `page-${id}`) {
   const previous = draft.project.pages.find(item => item.id === id);
   if (!previous) return;
   const next = { ...previous, ...values };
   if (JSON.stringify(previous) === JSON.stringify(next)) return;
-  change({ ...draft.project, pages: draft.project.pages.map(item => item.id === id ? next : item) }, group);
+  let project = { ...draft.project, pages: draft.project.pages.map(item => item.id === id ? next : item) };
+  if (values.html !== undefined) {
+    const synchronized = synchronizeSharedPageClient(project, id, next);
+    if (JSON.stringify(synchronized.sharedContent) !== JSON.stringify(project.sharedContent)) group = 'shared-content';
+    project = synchronized;
+  }
+  change(project, group);
   if (values.name) renderSidebar();
 }
 function updateCard(id, values) {
@@ -54,7 +91,7 @@ function updateCard(id, values) {
 function renderSidebar() {
   $$('[data-library]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.library === library)));
   if (library === 'pages') pageList(draft.project.pages, current.type === 'page' ? current.id : '', $('#library-search').value);
-  else assetNavigation(current.type, assets, draft.project.cards);
+  else assetNavigation(current.type, assets, draft.project.cards, mediaTotal);
   $('[data-action=add-page]').hidden = library !== 'pages';
 }
 
@@ -69,6 +106,7 @@ function clearEditor() {
 }
 
 function setInspectorTab(tab = 'design') {
+  inspectorTab = tab;
   $$('[data-inspector]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.inspector === tab)));
   $('#inspector-content').hidden = tab !== 'design';
   $('#layers-panel').hidden = tab !== 'layers';
@@ -81,12 +119,12 @@ function fit() {
   zoom = Math.max(15, Math.min(100, Math.floor(($('#canvas-stage').clientWidth - 48) / width * 100)));
   applyZoom();
 }
-function applyZoom() {
+function applyZoom(center = true) {
   if (!active) return;
   active.editor.Canvas.setZoom(zoom);
   const width = device === 'mobile' ? 390 : 1440;
   const stage = $('#canvas-stage');
-  active.editor.Canvas.setCoords(Math.max(24, (stage.clientWidth - width * zoom / 100) / 2), 24);
+  if (center) active.editor.Canvas.setCoords(centerOffset(stage.clientWidth, width, zoom), 24);
   stage.style.setProperty('--cms-frame-height', `${Math.max(200, (stage.clientHeight - 48) / (zoom / 100))}px`);
   $('#zoom-value').value = `${zoom}%`;
   $('#viewport-size').textContent = `${device === 'mobile' ? 390 : 1440} × auto`;
@@ -110,19 +148,41 @@ function winInputEvents() {
 }
 
 function inspect(component, editor) {
+  const scroll = captureInspectorScroll();
   selected = component;
   if (!component) {
-    $('#selection-name').textContent = current.type === 'win' ? 'En liten vinst' : page().name;
-    $('#selection-type').textContent = current.type === 'win' ? 'Text, form och känsla' : 'Sidans inställningar';
+    active?.setStyleMode('normal');
+    $('#selection-name').textContent = current.type === 'win' ? 'En liten vinst' : current.type === 'svg' ? (svgDraft?.asset.name ?? 'SVG-resurs') : page().name;
+    $('#selection-type').textContent = current.type === 'win' ? 'Text, form och känsla' : current.type === 'svg' ? 'Redigerbar SVG-källa' : 'Sidans inställningar';
     if (current.type === 'win') { $('#custom-inspector').innerHTML = winFields(card()); $('#styles-panel').hidden = true; winInputEvents(); }
+    else if (current.type === 'svg') { $('#custom-inspector').innerHTML = '<section class="inspector-section"><h2>SVG-källa</h2><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>'; }
     else if (themeMode) themeInspector(draft.project.theme, assets, updateTheme);
     else pageInspector(page(), { update: (key, value) => updatePage(lastPage, { [key]: value }), addPage: () => newPage(page()), removePage: deletePage, protectedPage: ['/', '/404.html'].includes(page().path) });
-    return;
+  } else if (themeMode && current.type === 'page') {
+    active?.setStyleMode('website');
+    componentColorInspector(component, { change: () => active?.flush() });
+    $('#selection-hint').textContent = `${component.getName()} · färg, yta och effekter.`;
+  } else {
+    active?.setStyleMode(current.type === 'svg' ? 'svg' : 'normal');
+    componentInspector(component, editor, { assets, pickImage, change: () => active?.flush(true), onError: message => toast(message, true), extra: current.type === 'win' ? winFields(card()) : current.type === 'svg' ? '<section class="inspector-section"><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>' : '', advancedStyle: current.type !== 'svg' });
+    if (current.type === 'win') winInputEvents();
+    $('#selection-hint').textContent = `${component.getName()} · redigera, finjustera eller ändra struktur via Lager.`;
   }
-  themeMode = false;
-  componentInspector(component, editor, { assets, pickImage, change: () => active?.flush(), onError: message => toast(message, true), extra: current.type === 'win' ? winFields(card()) : '' });
-  if (current.type === 'win') winInputEvents();
-  $('#selection-hint').textContent = `${component.getName()} · dra, redigera eller justera till höger.`;
+  requestAnimationFrame(() => requestAnimationFrame(() => restoreInspectorScroll(scroll)));
+}
+
+function restorePendingView(editor) {
+  const snapshot = pendingViewRestore;
+  if (!snapshot) return false;
+  pendingViewRestore = null;
+  device = snapshot.device ?? device;
+  zoom = snapshot.zoom ?? zoom;
+  themeMode = Boolean(snapshot.themeMode);
+  if (device !== 'compare') editor.setDevice(device === 'mobile' ? 'Mobil' : 'Dator');
+  applyZoom(false);
+  restoreEditorView(editor, snapshot, { setTab: setInspectorTab });
+  status();
+  return true;
 }
 
 function protectComponent(component) {
@@ -150,7 +210,8 @@ function openPage(id, hash = '') {
       editor.getWrapper().find('[data-memory-symbol]').forEach(symbol => symbol.find('*').forEach(node => node.set({ selectable: false, hoverable: false, editable: false, draggable: false, removable: false, copyable: false })));
       editor.clearDirtyCount();
       editor.Canvas.getDocument().addEventListener('keydown', shortcuts, true);
-      applyTheme(); $('#loading-state').hidden = true; setDevice(device, false); fit(); inspect(null, editor);
+      applyTheme(); $('#loading-state').hidden = true; setDevice(device, false);
+      if (!restorePendingView(editor)) { fit(); inspect(null, editor); }
       if (hash) editor.Canvas.getDocument().getElementById(hash.slice(1))?.scrollIntoView();
       if (locked || device === 'compare') preview().catch(showError);
     },
@@ -173,7 +234,7 @@ function openWin(id) {
     }, onSelect: inspect, onAssetPick: pickImage,
     onReady: editor => {
       editor.getWrapper().find('[data-card-text]').forEach(component => { for (let node = component; node; node = node.parent()) protectComponent(node); });
-      editor.Canvas.getDocument().addEventListener('keydown', shortcuts, true); $('#loading-state').hidden = true; setDevice(device === 'compare' ? 'desktop' : device, false); fit(); inspect(null, editor);
+      editor.Canvas.getDocument().addEventListener('keydown', shortcuts, true); $('#loading-state').hidden = true; setDevice(device === 'compare' ? 'desktop' : device, false); if (!restorePendingView(editor)) { fit(); inspect(null, editor); }
     },
   });
   status();
@@ -215,22 +276,23 @@ async function showSpecial(type) {
 async function loadMedia(more = false) {
   const sequence = ++mediaSequence;
   const query = $('#library-search').value;
-  const parameters = new URLSearchParams({ q: query, archived: archivedAssets ? '1' : '0', ...(more && mediaNext ? { cursor: mediaNext } : {}) });
+  const parameters = new URLSearchParams({ q: query, state: mediaState, ...(more && mediaNext ? { cursor: mediaNext } : {}) });
   const result = await api('assets?' + parameters);
   if (sequence !== mediaSequence || current.type !== 'media') return;
   cacheAssets(result.items);
   mediaItems = more ? [...new Map([...mediaItems, ...result.items].map(asset => [asset.id, asset])).values()] : result.items;
   mediaNext = result.next;
-  mediaGallery([...assets.filter(asset => asset.builtin), ...mediaItems], query, archivedAssets);
+  if (!more && mediaState === 'active' && !query) mediaTotal = result.total;
+  mediaGallery([...assets.filter(asset => asset.builtin), ...mediaItems], query, mediaState);
   if (mediaNext) $('#special-stage').insertAdjacentHTML('beforeend', '<button type="button" class="small-button" data-action="more-media" style="margin-top:24px">Visa fler filer</button>');
 }
 
 function renderWins() {
-  winGallery(draft.project.cards, winFilter, winQuery, winLimit);
+  winGallery(draft.project.cards, winFilter, winQuery, winLimit, { state: winState, selected: winSelection });
   $('#win-search').addEventListener('input', event => {
     const position = event.target.selectionStart;
     winQuery = event.target.value; winLimit = 60; renderWins();
-    $('#win-search').focus(); if ($('#win-search').type === 'text') $('#win-search').setSelectionRange(position, position);
+    const search=$('#win-search'); search.focus(); if(position!==null&&typeof search.setSelectionRange==='function') search.setSelectionRange(position,position);
   });
 }
 
@@ -240,19 +302,92 @@ async function showAsset(id) {
   assetDetail(item); $('#canvas-label').textContent = 'Resurs'; $('#selection-name').textContent = 'Filens uppgifter'; $('#selection-type').textContent = item.mime; renderSidebar();
   const view = current;
   try {
-    const { counts } = await api('resource-usage', { project: draft.project });
-    if (current === view) $('#asset-usage').textContent = `${counts[item.src] ?? 0} referenser i aktuellt utkast. Äldre versioners filer bevaras.`;
+    const usage = await api('asset-usage', { id: item.id, project: draft.project });
+    if (current === view) assetDetail(item, usage);
   } catch (error) { if (current === view) $('#asset-usage').textContent = `Användningen kunde inte kontrolleras: ${error.message}`; }
 }
 
 function pickImage(select) {
-  const images = assets.filter(asset => asset.mime.startsWith('image/') && !asset.archived);
+  const images = assets.filter(asset => asset.mime.startsWith('image/') && (asset.state ?? (asset.archived ? 'archived' : 'active')) === 'active');
   dialog(`<span class="dialog-eyebrow">FRÅN RESURSRUMMET</span><h2>En bild säger hej.</h2><p>Välj en bild. Fler kan laddas upp i resursbiblioteket.</p><div class="asset-grid">${images.map(asset => `<button type="button" class="asset-card" data-pick-image="${escape(asset.id)}"><div class="asset-image"><img src="${escape(asset.src)}" alt="${escape(asset.alt ?? '')}"></div><div class="asset-card-meta"><strong>${escape(asset.name)}</strong></div></button>`).join('')}</div><div class="dialog-buttons"><button type="button" class="small-button" data-action="close-dialog">Stäng</button></div>`);
   $('#dialog-content').querySelectorAll('[data-pick-image]').forEach(button => button.addEventListener('click', () => { select(assets.find(asset => asset.id === button.dataset.pickImage)); $('#studio-dialog').close(); }));
 }
 
+
+async function rasterizeSvg(svg, width, height, name) {
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  try {
+    const image = new Image();
+    image.decoding = 'async';
+    await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('SVG-källan kunde inte renderas till PNG.')); image.src = url; });
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const context = canvas.getContext('2d'); context.clearRect(0, 0, width, height); context.drawImage(image, 0, 0, width, height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('PNG-derivatet kunde inte skapas.');
+    return new File([blob], `${name.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'asset'}.png`, { type: 'image/png' });
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function openSvgAsset(id, recovery = null) {
+  const asset = assets.find(item => item.id === id && item.editableSrc); if (!asset) return showAsset(id);
+  const source = await api('managed-svg?id=' + encodeURIComponent(id));
+  let html = source.svg, operation = source.operation ? { ...source.operation, svg: source.svg } : null, version = source.version, dirty = Boolean(operation);
+  if (recovery) {
+    const committedRecovery = recovery.operation?.state === 'committed' && source.operation?.id === recovery.operation.id;
+    if (!committedRecovery && recovery.version !== source.version) throw new Error('Reservkopians SVG bygger på en äldre källversion. Kopian behålls så att inget skrivs över.');
+    const verified = await api('managed-svg', { action: 'validate', id, svg: recovery.svg });
+    html = verified.svg; operation = recovery.operation ? { ...recovery.operation, svg: verified.svg } : operation; version = committedRecovery ? source.version : recovery.version; dirty = true;
+  }
+  clearEditor();
+  cacheAssets([source.asset]);
+  current = { type: 'svg', id }; library = 'assets'; themeMode = false; locked = false; reviewVersion = null;
+  svgDraft = { id, version, html, css: '', dirty, asset: source.asset, operation };
+  $('#special-stage').hidden = true; $('#editor').hidden = false; $('#preview-stage').hidden = true; $('#loading-state').hidden = false;
+  $('#canvas-label').textContent = `SVG · ${source.asset.name}`; $('#canvas-path').textContent = source.asset.editableSrc; setInspectorTab(); renderSidebar();
+  active = createEditor({ page: { html, css: '', project: null, path: source.asset.editableSrc, bodyClass: 'cms-svg-editor' }, cssPath: built.styles.home, assets,
+    onChange: values => { if (!svgDraft) return; svgDraft.html = values.html; svgDraft.css = values.css; svgDraft.dirty = true; status(); remember(); }, onSelect: inspect, onAssetPick: null,
+    onReady: editor => {
+      $('#loading-state').hidden = true; setDevice('desktop', false); fit();
+      const root = editor.getWrapper().find('svg')[0]; if (root) editor.select(root); else inspect(null, editor);
+      $('#custom-inspector').insertAdjacentHTML('afterbegin', '<section class="inspector-section"><h2>SVG-källa</h2><p class="inspector-help">Formerna redigeras som SVG. Spara skapar en ny oföränderlig källa och ett PNG-derivat för befintliga konsumenter.</p><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>');
+    },
+  });
+  status(); remember();
+}
+
+async function saveManagedSvgDraft({ returnToAsset = true } = {}) {
+  if (!svgDraft || current.type !== 'svg' || !svgDraft.dirty) return;
+  active?.flush();
+  const source = materializeManagedSvg(svgDraft.html, active.editor);
+  saving = true; status();
+  try {
+    const result = await saveManagedSvgOperation({
+      source,
+      baseVersion: svgDraft.version,
+      operation: svgDraft.operation,
+      project: () => draft.project,
+      unchanged: unchangedSince,
+      onOperation: operation => { if (svgDraft) { svgDraft.operation = operation; svgDraft.dirty = true; status(); remember(); } },
+      stage: input => api('managed-svg', { action: 'stage', id: svgDraft.id, ...input }),
+      rasterize: svg => rasterizeSvg(svg, svgDraft.asset.width || 192, svgDraft.asset.height || 192, svgDraft.asset.name),
+      upload: (file, derivativeId) => upload(file, derivativeId),
+      prepare: input => api('managed-svg', { action: 'prepare', id: svgDraft.id, ...input }),
+      finalize: input => api('managed-svg', { action: 'finalize', id: svgDraft.id, ...input }),
+      apply: (project, finalized) => { if (project !== draft.project) change(project, 'svg-resource'); cacheAssets(finalized.assets ?? []); cacheAssets([finalized.asset]); },
+      complete: input => api('managed-svg', { action: 'complete', id: svgDraft.id, ...input }),
+      clean: finalized => {
+        svgDraft.version = finalized.asset.version; svgDraft.html = finalized.svg; svgDraft.css = ''; svgDraft.asset = finalized.asset; svgDraft.operation = null; svgDraft.dirty = false;
+        cacheAssets([finalized.asset]); status(); remember();
+      },
+    });
+    toast('SVG-källan och PNG-derivatet är sparade i utkastet. Save publicerar ändringen.');
+    if (returnToAsset) return showAsset(result.asset.id);
+    return result;
+  } finally { saving = false; status(); remember(); }
+}
+
 function updateTheme(key, value) { change({ ...draft.project, theme: { ...draft.project.theme, [key]: value } }, 'theme'); applyTheme(); }
-function showTheme() { if (current.type !== 'page') openPage(lastPage); themeMode = true; active?.editor.select(); themeInspector(draft.project.theme, assets, updateTheme); setInspectorTab(); }
+function showTheme() { if (current.type !== 'page') openPage(lastPage); themeMode = true; active?.editor.select(); active?.setStyleMode('normal'); themeInspector(draft.project.theme, assets, updateTheme); setInspectorTab(); }
 
 function setDevice(value, render = true) {
   device = value;
@@ -265,10 +400,13 @@ function setDevice(value, render = true) {
 }
 
 function editView() {
-  locked = false; previewSequence++;
+  const leavingTheme = themeMode;
+  locked = false; themeMode = false; previewSequence++;
   if (!active) openPage(lastPage);
   if (device === 'compare') setDevice('desktop', false);
-  $('#preview-stage').hidden = true; $('#editor').hidden = false; status(); fit();
+  $('#preview-stage').hidden = true; $('#editor').hidden = false;
+  if (leavingTheme && active) inspect(active.editor.getSelected(), active.editor);
+  status(); fit();
 }
 
 async function preview(project = null, id = lastPage, label = '') {
@@ -296,7 +434,9 @@ async function preview(project = null, id = lastPage, label = '') {
 
 async function save() {
   active?.flush();
-  if (saving || !draft.dirty && !draft.pendingSave) return;
+  if (saving) return;
+  if (current.type === 'svg' && svgDraft?.dirty) await saveManagedSvgDraft({ returnToAsset: false });
+  if (!draft.dirty && !draft.pendingSave) return;
   saving = true; status();
   try {
     const intent = draft.project;
@@ -332,7 +472,7 @@ async function reconcile() {
   const result = mergeProjects(draft.saved, draft.project, state.project);
   if (result.conflicts.length && !await confirmAction({ title: 'Välj dina ändringar vid konflikt?', message: `Båda flikarna har ändrat samma innehåll: ${result.conflicts.join(', ')}. Dina versioner av dessa delar behålls. Övriga ändringar sammanförs. Granska utkastet före Save.`, action: 'Behåll mina vid konflikt' })) return;
   if (!unchangedSince(snapshot)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); change(result.project); assets = state.assets; openPage(lastPage); status(); remember();
+  clearEditor(); draft = new Draft(state.project, state.version); change(result.project); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
   toast('Utkasten är sammanförda. Granska ändringarna och välj Save.');
 }
 
@@ -342,7 +482,7 @@ async function revert() {
   if (!await confirmAction({ title: 'Tillbaka till det sparade?', message: 'Osparade ändringar i detta utkast försvinner. Publicerad webbplats och historik påverkas inte.', action: 'Revert', danger: true })) return;
   const state = await api('state');
   if (!unchangedSince(snapshot)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; openPage(lastPage); status(); await backups.persist();
+  clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); await backups.persist();
 }
 
 async function restore(version) {
@@ -400,12 +540,53 @@ async function exportWin() {
   } finally { disposeWin(host); host.remove(); fonts.remove(); }
 }
 
+
+function downloadJson(value, name) {
+  const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));
+  const link=document.createElement('a'); link.href=url; link.download=name; link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function applyWinBatch(action,value='') {
+  active?.flush();
+  const next=applyWinAction(draft.project.cards,winSelection,action,value);
+  change({...draft.project,cards:next},'wins-batch');
+  if(WIN_BATCH_ACTIONS[action]?.clearSelection) winSelection.clear();
+  renderWins();
+}
+async function importWins() {
+  const input=document.createElement('input'); input.type='file'; input.accept='application/json,.json';
+  input.onchange=async()=>{
+    const file=input.files?.[0]; if(!file)return;
+    try {
+      const pkg=JSON.parse(await file.text());
+      const collision=prompt('Krockar: skip, replace eller copy?','skip')?.trim().toLowerCase();
+      if(!collision)return;
+      const planned=planWinImport(draft.project.cards,pkg,{collision});
+      const candidate={...draft.project,cards:planned.cards};
+      const {project}=await api('validate',{project:candidate,resources:pkg.resources});
+      change(project,'wins-import'); winSelection.clear(); renderWins(); toast(`${planned.imported} vinster importerades.`);
+    } catch(error){showError(error);}
+  };
+  input.click();
+}
+async function submitLifecycle(item, action) {
+  const usage=await api('asset-usage',{id:item.id,project:draft.project});
+  const names={archive:'Arkivera',restore:'Återställ',trash:'Flytta till papperskorg',delete:'Radera permanent'};
+  if(action!=='restore'){
+    const warning=`${usage.currentReferences} referenser i aktuellt utkast · ${usage.historyReferences} i historik.`;
+    if(!await confirmAction({title:`${names[action]} resursen?`,message:warning,action:names[action],danger:['trash','delete'].includes(action)}))return;
+  }
+  const result=await api('asset-lifecycle',{id:item.id,action,baseVersion:item.version,baseSiteVersion:draft.version,project:draft.project});
+  if(result.deleted){assets=assets.filter(asset=>asset.id!==item.id);toast('Resursen är permanent raderad.');return showSpecial('media');}
+  if(!item.builtin){if(item.state==='active'&&result.asset.state!=='active')mediaTotal=Math.max(0,mediaTotal-1);else if(item.state!=='active'&&result.asset.state==='active')mediaTotal++;}
+  assets=assets.map(asset=>asset.id===item.id?result.asset:asset); toast(`${names[action]} klar.`); showAsset(item.id);
+}
+
 async function submitAsset(item, patch) {
   try {
-    const updated = await api(`assets/${item.id}`, { ...patch, baseVersion: item.version });
+    const { asset: updated } = await api('asset-metadata', { id: item.id, ...patch, baseVersion: item.version });
     assets = assets.map(asset => asset.id === item.id ? updated : asset);
     toast('Filens uppgifter är sparade.');
-    return patch.archived === true ? showSpecial('media') : showAsset(updated.id);
+    return showAsset(updated.id);
   } catch (error) {
     if (error.status !== 409 || !error.details?.asset) throw error;
     const latest = error.details.asset;
@@ -418,13 +599,14 @@ async function submitAsset(item, patch) {
 async function perform(action) {
   if (!draft && action !== 'close-dialog') return;
   if (action === 'close-dialog') return $('#studio-dialog').close();
+  if (['history','restore','undo','redo','theme','runtime','add-page','new-win','back-to-asset','revert','reconcile'].includes(action) && !await confirmManagedSvgNavigation()) return;
   if (action === 'save') return save();
   if (action === 'revert') return revert();
   if (action === 'reconcile') return reconcile();
   if (action === 'history' || action === 'restore') { $('#studio-dialog').close(); if (action === 'restore' && reviewVersion !== null) return restore(reviewVersion); return showSpecial('history'); }
   if (action === 'edit') return editView();
   if (action === 'lock') { if (locked) return editView(); if (!active) openPage(lastPage); locked = true; status(); return preview(); }
-  if (action === 'undo' || action === 'redo') { active?.flush(); if (draft[action]()) { const view = { ...current }; clearEditor(); if (view.type === 'win') openWin(view.id); else openPage(lastPage); status(); remember(); } return; }
+  if (action === 'undo' || action === 'redo') { const view = active ? { ...captureEditorView(active.editor, { device, zoom, tab: inspectorTab }), themeMode, current: { ...current } } : null; active?.flush(); if (draft[action]()) { pendingViewRestore = view; const previous = { ...current }; clearEditor(); if (previous.type === 'win') openWin(previous.id); else openPage(lastPage); status(); remember(); } return; }
   if (action === 'collapse-left' || action === 'expand-left') { document.body.classList.toggle('is-left-collapsed', action === 'collapse-left'); return fit(); }
   if (action === 'toggle-pages') { document.body.classList.remove('show-properties'); document.body.classList.toggle('show-pages'); return; }
   if (action === 'toggle-properties') { document.body.classList.remove('show-pages'); document.body.classList.toggle('show-properties'); return; }
@@ -434,18 +616,33 @@ async function perform(action) {
   if (action === 'runtime') return showSpecial('runtime');
   if (action === 'add-page') return newPage();
   if (action === 'upload') { replacement = null; return $('#file-input').click(); }
-  if (action === 'toggle-archived') { archivedAssets = !archivedAssets; return showSpecial('media'); }
   if (action === 'more-media') return loadMedia(true);
   if (action === 'replace-asset') { replacement = assets.find(asset => asset.id === current.id); return $('#file-input').click(); }
-  if (['save-asset', 'archive-asset', 'unarchive-asset'].includes(action)) {
+  if (action === 'edit-svg-asset') return openSvgAsset(current.id);
+  if (action === 'save-managed-svg') return saveManagedSvgDraft();
+  if (action === 'back-to-asset') return showAsset(current.id);
+  if (action === 'save-asset') {
     const item = assets.find(asset => asset.id === current.id);
-    if (action === 'archive-asset' && !await confirmAction({ title: 'Arkivera filen?', message: 'Filen döljs i biblioteket. Publicerade sidor och historiska versioner behåller den.', action: 'Arkivera' })) return;
-    const patch = action === 'save-asset' ? Object.fromEntries([['name', $('#asset-name').value], ['alt', $('#asset-alt').value]].filter(([key, value]) => value !== item[key])) : { archived: action === 'archive-asset' };
+    const patch = Object.fromEntries([['name', $('#asset-name').value], ['alt', $('#asset-alt').value]].filter(([key, value]) => value !== item[key]));
     if (!Object.keys(patch).length) return toast('Filens uppgifter är redan sparade.');
     return submitAsset(item, patch);
   }
-  if (action === 'new-win') { const id = `win-${crypto.randomUUID()}`; change({ ...draft.project, cards: [...draft.project.cards, { id, flavor: 'kind', text: 'Du behöver inte vara färdig för att vara på väg.' }] }); return openWin(id); }
+  if (['archive-asset','restore-asset','trash-asset','delete-asset'].includes(action)) {
+    const item = assets.find(asset => asset.id === current.id);
+    const map = { 'archive-asset':'archive','restore-asset':'restore','trash-asset':'trash','delete-asset':'delete' };
+    return submitLifecycle(item, map[action]);
+  }
+  if (action === 'new-win') { const id = `win-${crypto.randomUUID()}`; change({ ...draft.project, cards: [...draft.project.cards, { id, flavor: 'kind', text: 'Du behöver inte vara färdig för att vara på väg.', state: 'active' }] }); return openWin(id); }
   if (action === 'more-wins') { const top = $('#special-stage').scrollTop; winLimit += 60; renderWins(); $('#special-stage').scrollTop = top; return; }
+  if (action === 'select-visible-wins') { for (const card of filterWins(draft.project.cards,{state:winState,flavor:winFilter,query:winQuery}).slice(0,winLimit)) winSelection.add(card.id); return renderWins(); }
+  if (action === 'select-matching-wins') { for (const card of filterWins(draft.project.cards,{state:winState,flavor:winFilter,query:winQuery})) winSelection.add(card.id); return renderWins(); }
+  if (action === 'clear-win-selection') { winSelection.clear(); return renderWins(); }
+  const batchMatch=action.match(/^batch-(.+)-wins$/), batchId=batchMatch?.[1], batchAction=batchId&&WIN_BATCH_ACTIONS[batchId];
+  if(batchAction){
+    if(batchAction.kind==='export')return downloadJson(exportWinPackage(draft.project.cards,winSelection),'omar-wins.json');
+    return applyWinBatch(batchId,batchAction.value==='category'?$('#batch-win-category').value:'');
+  }
+  if (action === 'import-wins') return importWins();
   if (action === 'export-win') return exportWin();
   if (action === 'export-draft') return exportDraft();
   if (action === 'backups') return backups.show();
@@ -461,14 +658,16 @@ document.addEventListener('click', event => {
   const button = event.target.closest('button,a[data-action]'); if (!button) return;
   Promise.resolve().then(async () => {
     if (button.dataset.action) return perform(button.dataset.action);
-    if (button.dataset.pageId) return openPage(button.dataset.pageId);
-    if (button.dataset.library) { library = button.dataset.library; $('#library-search').value = ''; renderSidebar(); if (library === 'assets') return showSpecial('media'); if (current.type !== 'page') return openPage(lastPage); }
+    if (button.dataset.pageId) { if (!await confirmManagedSvgNavigation()) return; return openPage(button.dataset.pageId); }
+    if (button.dataset.library) { if (!await confirmManagedSvgNavigation()) return; library = button.dataset.library; $('#library-search').value = ''; renderSidebar(); if (library === 'assets') return showSpecial('media'); if (current.type !== 'page') return openPage(lastPage); }
     if (button.dataset.device) return setDevice(button.dataset.device);
     if (button.dataset.inspector) return setInspectorTab(button.dataset.inspector);
-    if (button.dataset.special) return showSpecial(button.dataset.special);
-    if (button.dataset.assetId) return showAsset(button.dataset.assetId);
-    if (button.dataset.winId) return openWin(button.dataset.winId);
+    if (button.dataset.special) { if (!await confirmManagedSvgNavigation()) return; return showSpecial(button.dataset.special); }
+    if (button.dataset.assetId) { if (!await confirmManagedSvgNavigation()) return; return showAsset(button.dataset.assetId); }
+    if (button.dataset.winId) { if (!await confirmManagedSvgNavigation()) return; return openWin(button.dataset.winId); }
     if (button.dataset.winFilter) { winFilter = button.dataset.winFilter; winLimit = 60; return renderWins(); }
+    if (button.dataset.winState) { winState = button.dataset.winState; winLimit = 60; return renderWins(); }
+    if (button.dataset.mediaState) { mediaState = button.dataset.mediaState; return loadMedia(); }
     if (button.dataset.restoreVersion) return restore(Number(button.dataset.restoreVersion));
     if (button.dataset.reviewVersion) {
       reviewVersion = Number(button.dataset.reviewVersion);
@@ -481,15 +680,17 @@ document.addEventListener('click', event => {
   }).catch(showError);
 });
 document.addEventListener('input', event => { if (event.target.dataset.copyKey) change({ ...draft.project, runtime: { ...draft.project.runtime, [event.target.dataset.copyKey]: event.target.value } }, `copy-${event.target.dataset.copyKey}`); });
+document.addEventListener('change', event => { if (event.target.dataset.winSelect) { if (event.target.checked) winSelection.add(event.target.dataset.winSelect); else winSelection.delete(event.target.dataset.winSelect); renderWins(); } });
 document.addEventListener('keydown', shortcuts, true);
 document.addEventListener('keydown', event => { if (event.key === 'Escape') document.body.classList.remove('show-pages', 'show-properties'); });
 $('#library-search').addEventListener('input', () => { renderSidebar(); clearTimeout(searchTimer); if (current.type === 'media') searchTimer = setTimeout(() => loadMedia().catch(showError), 200); });
 $('#file-input').addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file) return;
+  if (!await confirmManagedSvgNavigation()) { event.target.value = ''; return; }
   const replacing = replacement; replacement = null;
   toast('Laddar upp filen…');
   try {
-    const asset = await upload(file, crypto.randomUUID()); assets = [...assets, asset];
+    const asset = await upload(file, crypto.randomUUID()); assets = [...assets, asset]; mediaTotal++;
     if (replacing) {
       if (replacing.mime.startsWith('image/') !== asset.mime.startsWith('image/')) throw new Error('Filen laddades upp, men bild och typsnitt kan inte ersätta varandra.');
       active?.flush();
@@ -503,23 +704,24 @@ $('#file-input').addEventListener('change', async event => {
   } catch (error) { showError(error); }
   finally { event.target.value = ''; }
 });
-window.addEventListener('beforeunload', event => { if (draft?.dirty || draft?.pendingSave) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (hasUnsavedWork()) { event.preventDefault(); event.returnValue = ''; } });
 window.addEventListener('message', event => {
   if (event.origin !== location.origin || event.data?.type !== 'oy-cms-navigate' || !$$('#preview-stage iframe').some(frame => frame.contentWindow === event.source)) return;
   const target = draft.project.pages.find(item => item.path === event.data.path);
-  if (target) openPage(target.id, event.data.hash ?? '');
+  if (target) confirmManagedSvgNavigation().then(allowed => { if (allowed) openPage(target.id, event.data.hash ?? ''); });
 });
 new ResizeObserver(() => { if (active && !locked && device !== 'compare') fit(); }).observe($('#canvas-stage'));
 
 async function boot() {
   const state = await api('state');
-  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; built = state.built;
+  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; mediaTotal = state.mediaTotal; built = state.built;
   backups = new Backups(identity.email, {
-    snapshot: () => draft,
+    snapshot: backupSnapshot,
     flush: () => active?.flush(),
-    install: ({ project, pendingSave, base, version }) => {
-      clearEditor(); draft = new Draft(base, version); draft.change(project); draft.pendingSave = pendingSave;
-      openPage(lastPage); status();
+    install: async ({ project, pendingSave, base, version, managedSvg }) => {
+      clearEditor(); svgDraft = null; draft = new Draft(base, version); draft.change(project); draft.pendingSave = pendingSave;
+      if (managedSvg) await openSvgAsset(managedSvg.id, managedSvg); else openPage(lastPage);
+      status();
     },
   });
   await backups.start();

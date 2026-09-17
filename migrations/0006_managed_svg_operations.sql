@@ -1,0 +1,2 @@
+CREATE TABLE cms_managed_svg_operations (id TEXT PRIMARY KEY, source_path TEXT NOT NULL, base_version INTEGER NOT NULL CHECK(base_version >= 0), managed_asset_id TEXT NOT NULL UNIQUE, svg_sha256 TEXT NOT NULL, derivative_media_id TEXT REFERENCES cms_media(id), state TEXT NOT NULL CHECK(state IN ('staged','prepared','committed','completed')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX cms_managed_svg_source_state ON cms_managed_svg_operations(source_path, state, updated_at DESC);

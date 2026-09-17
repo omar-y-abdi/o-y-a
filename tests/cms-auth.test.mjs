@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPair, SignJWT, createLocalJWKSet, exportJWK } from 'jose';
 import { authenticateAdmin, accessConfig } from '../src/cms/auth.mjs';

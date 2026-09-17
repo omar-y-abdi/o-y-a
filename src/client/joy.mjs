@@ -1,6 +1,17 @@
 import { t } from './copy.mjs';
 import { bubbleComment } from './playlogic.mjs';
-import { getCard, createDeck, loadCards } from './cards.mjs';
+import { createDeck, loadCards, sharedCard } from './cards.mjs';
+
+export function startBlobDownload(blob, filename, { documentRef = globalThis.document, urlApi = globalThis.URL, schedule = globalThis.setTimeout } = {}) {
+  const url = urlApi.createObjectURL(blob);
+  const link = documentRef.createElement('a');
+  link.href = url;
+  link.download = filename;
+  documentRef.body.append(link);
+  link.click();
+  link.remove();
+  schedule(() => urlApi.revokeObjectURL(url), 10000);
+}
 
 export function initJoy({ toast, track }) {
   const reduced = () => document.documentElement.dataset.motion === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -124,8 +135,8 @@ export function initJoy({ toast, track }) {
       stage.querySelectorAll('.eye i').forEach(eye => { eye.style.transform = ''; });
     });
     const id = new URLSearchParams(location.search).get('kort');
-    if(id && location.pathname === '/verkstad/') loadCards().then(cards=>{
-      const shared=getCard(id,cards);
+    if(id && location.pathname === '/verkstad/') loadCards().then(async cards=>{
+      const shared=await sharedCard(id,cards);
       if(shared){showCard(shared);requestAnimationFrame(()=>stage.scrollIntoView({block:'center',behavior:'instant'}));}
       else toast(t('runtime.joy.sharedCard.invalid'));
     }).catch(()=>toast(t('runtime.joy.sharedCard.loadError')));
@@ -153,9 +164,7 @@ export function initJoy({ toast, track }) {
       const module = await (winModule ??= import('./win.mjs'));
       const host = document.querySelector('[data-win-artwork]');
       const blob = await module.exportWin(host);
-      const url = URL.createObjectURL(blob), link = document.createElement('a');
-      link.href = url; link.download = t('runtime.joy.canvas.downloadFilename', { id: selected.id });
-      link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
+      startBlobDownload(blob, t('runtime.joy.canvas.downloadFilename', { id: selected.id }));
       toast(t('runtime.joy.canvas.saved'));
     } catch { toast(t('runtime.joy.canvas.saveFailed')); }
   });
@@ -215,6 +224,11 @@ export function initJoy({ toast, track }) {
       const remaining = bubbles.length - popped.size;
       bubbleStatus.textContent = (remaining ? t(remaining === 1 ? 'runtime.joy.bubble.remaining.one' : 'runtime.joy.bubble.remaining.many', { remaining }) : '') + bubbleComment(popTimes,remaining);
       if (remaining === 0) { celebrate(button);track('bubble_complete'); }
+    });
+    button.addEventListener('keydown', event => {
+      if (event.key !== ' ' && event.code !== 'Space') return;
+      event.preventDefault();
+      button.click();
     });
   });
   document.querySelector('[data-bubble-reset]').addEventListener('click', () => {

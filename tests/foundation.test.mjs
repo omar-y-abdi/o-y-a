@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -19,4 +19,8 @@ test('metadata is unique, canonical and not a scaffold', () => {
     assert.ok(/name="description" content=".{40,180}"/.test(html));
     assert.ok(!/\u2014|Lorem ipsum|Vite \+ React|LocalBusiness|your@email|placeholder=/i.test(html));
   }
+});
+test('hosted CI executes the declared Worker dry-run gate', () => {
+  const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+  assert.match(workflow, /name:\s*Worker deploy dry-run[\s\S]*?run:\s*npm run edge:check:built/);
 });

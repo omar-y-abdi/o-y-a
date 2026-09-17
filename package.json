@@ -12,18 +12,32 @@
     "dev": "node scripts/build.mjs && node scripts/serve.mjs",
     "preview": "node scripts/serve.mjs",
     "lint": "node scripts/lint.mjs",
-    "test": "node --test tests/*.test.mjs",
+    "test": "npm run test:fast && npm run test:slow",
     "test:browser": "python tests/browser.py",
-    "test:cms": "node scripts/test-cms-modules.mjs && node scripts/test-cms.mjs",
+    "test:cms": "npm run test:cms:modules && npm run test:cms:browser",
     "cms:dev": "npm run build && node scripts/cms-dev.mjs",
     "check": "npm run build && npm run lint && npm test",
     "deploy": "npm run check && npx --yes wrangler@4.131.1 deploy",
     "test:http": "python tests/http_checks.py",
     "test:render": "python tests/browser.py --render-only --screenshots",
     "quality": "bash scripts/quality.sh",
-    "edge:check": "npm run build && npx --yes wrangler@4.131.1 deploy --dry-run --outdir artifacts/worker-build",
-    "test:cms:modules": "node scripts/test-cms-modules.mjs",
-    "test:cms:compat": "CMS_BROWSER=firefox npm run test:cms:modules && CMS_BROWSER=firefox node scripts/test-cms.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py && CMS_BROWSER=webkit npm run test:cms:modules && CMS_BROWSER=webkit node scripts/test-cms.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py"
+    "edge:check": "npm run build && wrangler deploy --dry-run --outdir artifacts/worker-build",
+    "test:cms:modules": "node scripts/test-cms-modules-parallel.mjs",
+    "test:cms:compat": "node scripts/test-cms-compat.mjs",
+    "test:watch": "node scripts/run-node-tests.mjs watch",
+    "test:card-export": "playwright test tests/card-export.spec.mjs --project=chromium",
+    "test:cms:browser": "node scripts/test-cms-parallel.mjs",
+    "test:cms:smoke": "CMS_MODULE_PROFILE=smoke npm run test:cms:modules",
+    "quality:after-check": "SKIP_CHECK=1 bash scripts/quality.sh",
+    "edge:check:built": "wrangler deploy --dry-run --outdir artifacts/worker-build",
+    "verify:fast": "npm run check:fast && npm run test:cms:smoke",
+    "verify:full": "npm run check && npm run quality:after-check && npm run test:cms && npm run test:cms:compat && npm run edge:check:built",
+    "test:cms:modules:single": "node scripts/test-cms-modules.mjs",
+    "test:public-pages": "playwright test tests/public-pages.spec.mjs --project=chromium",
+    "test:web:e2e": "playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs --project=chromium",
+    "test:fast": "node scripts/run-node-tests.mjs fast",
+    "test:slow": "node scripts/run-node-tests.mjs slow",
+    "check:fast": "npm run build && npm run lint && npm run test:fast"
   },
   "dependencies": {
     "css-tree": "3.2.1",
@@ -36,6 +50,7 @@
   "devDependencies": {
     "esbuild": "0.28.2",
     "miniflare": "5.20260911.0-alpha",
-    "wrangler": "4.131.1"
+    "wrangler": "4.131.1",
+    "@playwright/test": "1.63.0"
   }
 }

@@ -1,4 +1,4 @@
-import test, { before, after, mock } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { seed, initial } from '../.generated/cms-seed.mjs';
@@ -29,7 +29,7 @@ test('R13: release rehearsal checks current and all retained revisions, then acc
 });
 
 test('diagnosis: injected D1 and R2 failures emit correlated codes, never request or driver secrets',async()=>{
-  const captured=[];const logger=mock.method(console,'error',value=>captured.push(JSON.parse(value)));
+  const captured=[];const originalError=console.error;console.error=value=>captured.push(JSON.parse(value));
   const secret='JWT_SECRET owner-private@example.test draft-private';
   try {
     const badDb={prepare(){throw new Error('D1_ERROR '+secret);}};
@@ -42,5 +42,5 @@ test('diagnosis: injected D1 and R2 failures emit correlated codes, never reques
     assert.equal(uploadResponse.status,503);assert.equal(uploadResponse.headers.get('X-Request-ID'),captured[1].requestId);assert.equal(captured[1].operation,'upload');assert.equal(captured[1].code,'storage-r2');
     assert.ok(!JSON.stringify(captured).includes('SECRET')&&!JSON.stringify(captured).includes('@')&&!JSON.stringify(captured).includes('draft-private'));
     assert.ok(!(await uploadResponse.text()).includes(secret));
-  } finally {logger.mock.restore();}
+  } finally {console.error=originalError;}
 });

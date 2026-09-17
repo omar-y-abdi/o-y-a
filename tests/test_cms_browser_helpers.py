@@ -75,7 +75,7 @@ class LibraryNavigationTests(unittest.TestCase):
         self.page.evaluate("libraryFixture.assetNavigation('asset',[],[]);libraryFixture.assetDetail({id:'image',name:'image.png',mime:'image/png',src:'/image.png',alt:''})")
         self.assertEqual(self.page.locator('[data-special=media]').count(), 2)
         Q.open_assets(self.page)
-        expect(self.page.locator('#special-stage [data-action=toggle-archived]')).to_be_visible()
+        expect(self.page.locator('#special-stage [data-media-state=active]')).to_be_visible()
         self.assertEqual(self.page.evaluate('fixture.requests'), 1)
 
     def test_wins_opens_assets_from_initial_pages_tab(self):
@@ -86,7 +86,7 @@ class LibraryNavigationTests(unittest.TestCase):
 
     def test_media_opens_from_pages_without_duplicate_fetch(self):
         Q.open_assets(self.page)
-        expect(self.page.locator('#special-stage [data-action=toggle-archived]')).to_be_visible()
+        expect(self.page.locator('#special-stage [data-media-state=active]')).to_be_visible()
         self.assertEqual(self.page.evaluate('fixture.requests'), 1)
 
     def preview_fixture(self, previous=True, new_script=True, replace=True):
@@ -128,7 +128,7 @@ class LibraryNavigationTests(unittest.TestCase):
 class TransportOrderingTests(unittest.TestCase):
     def response_page(self, status=200):
         page = Mock()
-        response = Mock(status=status, url=qa.BASE_URL+'/admin/api/assets/asset-one')
+        response = Mock(status=status, url=qa.BASE_URL+'/admin/api/asset-metadata')
         response.request.method = 'POST'
         response.request.headers = {'x-cms-upload-id':'asset-one'}
         # The harness must not depend on Chromium retaining any response body.

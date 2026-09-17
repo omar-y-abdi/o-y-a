@@ -1,6 +1,7 @@
 import { $, escape, field } from './dom.mjs';
 import { editableText, replaceEditableText } from './text-edit.mjs';
-import { defaultTheme, fontFamilies } from '../theme.mjs';
+import { defaultTheme, fontFamilies } from '../theme-core.mjs';
+import { nudgeComponent, resetComponentPosition } from './position.mjs';
 
 export function pageInspector(page, { update, addPage, removePage, protectedPage }) {
   $('#custom-inspector').innerHTML = `<section class="inspector-section"><h2>Sidans innehåll</h2>${field('Namn i studion', 'page-name', page.name)}${field('Adress', 'page-path', page.path, { readonly: true })}${field('Titel för sök och delning', 'page-title', page.title)}${field('Beskrivning', 'page-description', page.description, { textarea: true })}<div class="inspector-actions"><button type="button" class="small-button" id="duplicate-page">Duplicera sida</button>${protectedPage ? '' : '<button type="button" class="small-button danger" id="delete-page">Ta bort sida</button>'}</div><p class="inspector-help">Klicka på text eller en form i arbetsytan för att redigera den direkt.</p></section>`;
@@ -11,7 +12,7 @@ export function pageInspector(page, { update, addPage, removePage, protectedPage
   $('#styles-panel').hidden = true;
 }
 
-export function componentInspector(component, editor, { assets, pickImage, change, onError, extra = '' }) {
+export function componentInspector(component, editor, { assets, pickImage, change, onError, extra = '', advancedStyle = true }) {
   $('#traits-panel').hidden = true;
   $('#styles-panel').hidden = false;
   const tag = component.get('tagName') ?? 'div';
@@ -23,7 +24,7 @@ export function componentInspector(component, editor, { assets, pickImage, chang
   const label = component.getName();
   $('#selection-name').textContent = label;
   $('#selection-type').textContent = `${tag.toUpperCase()}${attributes.id ? ` · #${attributes.id}` : ''}`;
-  $('#custom-inspector').innerHTML = `${extra}<section class="inspector-section"><h2>Valt element</h2>${textLike ? field('Text', 'element-text', component.getEl()?.textContent ?? '', { textarea: true }) : '<p class="inspector-help">Dra för att flytta. Använd handtagen för storlek, eller ange exakta värden nedan.</p>'}${tag === 'a' ? field('Länkadress', 'element-href', attributes.href ?? '/') : ''}${image ? `${field('Alternativtext', 'element-alt', attributes.alt ?? '')}<button type="button" class="small-button" id="choose-image">Byt bild</button>` : ''}<div class="inspector-actions" style="margin-top:12px"><button type="button" class="small-button" id="select-parent">Välj förälder</button>${component.get('copyable') === false ? '' : '<button type="button" class="small-button" id="duplicate-element">Duplicera</button>'}${component.get('removable') === false ? '' : '<button type="button" class="small-button danger" id="delete-element">Ta bort</button>'}</div>${component.get('removable') === false ? '<div class="inspector-lock">Funktionen är skyddad. Text och utseende kan redigeras; kopplingarna som får den att fungera bevaras.</div>' : ''}</section>`;
+  $('#custom-inspector').innerHTML = `${extra}<section class="inspector-section"><h2>Valt element</h2>${textLike ? field('Text', 'element-text', component.getEl()?.textContent ?? '', { textarea: true }) : '<p class="inspector-help">Använd handtagen för storlek. Flytta exakt med pilarna nedan; struktur och ordning ändras i Lager.</p>'}${tag === 'a' ? field('Länkadress', 'element-href', attributes.href ?? '/') : ''}${image ? `${field('Alternativtext', 'element-alt', attributes.alt ?? '')}<button type="button" class="small-button" id="choose-image">Byt bild</button>` : ''}<div class="inspector-actions" style="margin-top:12px"><button type="button" class="small-button" id="select-parent">Välj förälder</button>${component.get('copyable') === false ? '' : '<button type="button" class="small-button" id="duplicate-element">Duplicera</button>'}${component.get('removable') === false ? '' : '<button type="button" class="small-button danger" id="delete-element">Ta bort</button>'}</div>${component.get('removable') === false ? '<div class="inspector-lock">Funktionen är skyddad. Text och utseende kan redigeras; kopplingarna som får den att fungera bevaras.</div>' : ''}</section>`;
   if (svg) {
     const shape = document.createElement('section'); shape.className = 'inspector-section';
     shape.innerHTML = `<h2>Formens detaljer</h2>${['fill', 'stroke', 'stroke-width', ...(tag === 'svg' ? ['viewBox'] : [])].map(name => field({ fill: 'Fyllning', stroke: 'Kontur', 'stroke-width': 'Konturbredd', viewBox: 'Koordinatsystem' }[name], `shape-${name}`, attributes[name] ?? '')).join('')}`;
@@ -32,23 +33,26 @@ export function componentInspector(component, editor, { assets, pickImage, chang
   }
   if (textLike) $('#element-text').value = editableText(component.getInnerHTML());
   $('#element-text')?.addEventListener('input', event => { component.components().resetFromString(replaceEditableText(component.getInnerHTML(), event.target.value), { skipViewUpdate: false }); change(); });
-  const move = document.createElement('div'); move.className = 'inspector-actions';
-  move.innerHTML = '<button type="button" class="small-button" id="move-up">Flytta upp</button><button type="button" class="small-button" id="move-down">Flytta ned</button>';
-  $('#custom-inspector .inspector-section').append(move);
-  for (const [id, offset] of [['move-up', -1], ['move-down', 1]]) $(`#${id}`).addEventListener('click', () => {
-    const parent = component.parent(); if (!parent) return;
-    const at = Math.max(0, Math.min(parent.components().length - 1, component.index() + offset));
-    component.move(parent, { at }); change();
-  });
-  const advanced = document.createElement('details'); advanced.className = 'inspector-section advanced-style';
-  advanced.innerHTML = `<summary>Fler stilegenskaper</summary>${field('CSS-egenskap', 'extra-property', '')}${field('Värde', 'extra-value', '')}<button type="button" class="small-button" id="apply-property">Tillämpa</button><p class="inspector-help">Till exempel aspect-ratio, object-fit eller text-shadow. Tomt värde tar bort din ändring.</p>`;
-  $('#custom-inspector').append(advanced);
-  $('#apply-property').addEventListener('click', () => {
-    const property = $('#extra-property').value.trim(), value = $('#extra-value').value.trim();
-    if (!/^(?:--)?[a-z][a-z0-9-]*$/.test(property) || value && !CSS.supports(property, value)) { onError('Ange en CSS-egenskap och ett värde som webbläsaren stöder.'); return; }
-    if (value) component.addStyle({ [property]: value }); else component.removeStyle(property);
-    change();
-  });
+  const move = document.createElement('div'); move.className = 'inspector-section';
+  move.innerHTML = '<h2>Finjustera position</h2><p class="inspector-help">1 px per tryck. Håll Shift för 10 px. Elementet stannar i samma container och samma ordning.</p><div class="inspector-actions nudge-grid"><button type="button" class="small-button" data-nudge="left" aria-label="Flytta 1 pixel vänster">←</button><button type="button" class="small-button" data-nudge="up" aria-label="Flytta 1 pixel upp">↑</button><button type="button" class="small-button" data-nudge="down" aria-label="Flytta 1 pixel ned">↓</button><button type="button" class="small-button" data-nudge="right" aria-label="Flytta 1 pixel höger">→</button><button type="button" class="small-button" id="reset-position">Nollställ</button></div>';
+  $('#custom-inspector').append(move);
+  const directions = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+  move.querySelectorAll('[data-nudge]').forEach(button => button.addEventListener('click', event => {
+    const [dx, dy] = directions[event.currentTarget.dataset.nudge];
+    nudgeComponent(component, dx, dy, event.shiftKey ? 10 : 1); change();
+  }));
+  $('#reset-position').addEventListener('click', () => { resetComponentPosition(component); change(); });
+  if (advancedStyle) {
+    const advanced = document.createElement('details'); advanced.className = 'inspector-section advanced-style';
+    advanced.innerHTML = `<summary>Fler stilegenskaper</summary>${field('CSS-egenskap', 'extra-property', '')}${field('Värde', 'extra-value', '')}<button type="button" class="small-button" id="apply-property">Tillämpa</button><p class="inspector-help">Till exempel aspect-ratio, object-fit eller text-shadow. Tomt värde tar bort din ändring.</p>`;
+    $('#custom-inspector').append(advanced);
+    $('#apply-property').addEventListener('click', () => {
+      const property = $('#extra-property').value.trim(), value = $('#extra-value').value.trim();
+      if (!/^(?:--)?[a-z][a-z0-9-]*$/.test(property) || value && !CSS.supports(property, value)) { onError('Ange en CSS-egenskap och ett värde som webbläsaren stöder.'); return; }
+      if (value) component.addStyle({ [property]: value }); else component.removeStyle(property);
+      change();
+    });
+  }
   $('#element-href')?.addEventListener('change', event => {
     const value = event.target.value.trim();
     let allowed = value.startsWith('/') && !value.startsWith('//') || value.startsWith('#');
@@ -65,6 +69,27 @@ export function componentInspector(component, editor, { assets, pickImage, chang
     editor.select(copy); change();
   });
   $('#delete-element')?.addEventListener('click', () => { component.remove(); change(); });
+}
+
+
+export function componentColorInspector(component, { change }) {
+  const tag = String(component.get('tagName') ?? 'div').toLowerCase();
+  const attrs = component.getAttributes();
+  $('#traits-panel').hidden = true;
+  $('#styles-panel').hidden = false;
+  $('#selection-name').textContent = component.getName();
+  $('#selection-type').textContent = `WEBBPLATSENS STIL · ${tag.toUpperCase()}${attrs.id ? ` · #${attrs.id}` : ''}`;
+  $('#custom-inspector').innerHTML = `<section class="inspector-section"><h2>Färg & effekter</h2><p class="inspector-help">Inställningarna nedan gäller bara det valda elementet. Layout, marginaler och storlekar ändras inte i det här läget.</p><div class="inspector-actions"><button type="button" class="small-button" data-gloss="none">Ingen glans</button><button type="button" class="small-button" data-gloss="soft">Mjuk glans</button><button type="button" class="small-button" data-gloss="glass">Glasglans</button></div></section>`;
+  const presets = {
+    none: { 'box-shadow': '', filter: '' },
+    soft: { 'box-shadow': 'inset 0 1px 0 rgba(255,255,255,.28), 0 10px 24px rgba(0,0,0,.12)', filter: 'saturate(1.04)' },
+    glass: { 'box-shadow': 'inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(0,0,0,.12), 0 14px 30px rgba(0,0,0,.16)', filter: 'saturate(1.08) brightness(1.03)' },
+  };
+  $('#custom-inspector').querySelectorAll('[data-gloss]').forEach(button => button.addEventListener('click', () => {
+    const preset = presets[button.dataset.gloss];
+    for (const [property, value] of Object.entries(preset)) value ? component.addStyle({ [property]: value }) : component.removeStyle(property);
+    change();
+  }));
 }
 
 export function themeInspector(theme, assets, update) {

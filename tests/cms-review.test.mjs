@@ -1,4 +1,4 @@
-import test, { before, after } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
@@ -57,8 +57,8 @@ test('R10: stale metadata writes cannot reverse another tab archive', async () =
   const fields = { name: 'Review image', alt: '', baseVersion: 0 };
   assert.equal((await admin('assets/' + id, { ...fields, archived: true })).status, 200);
   assert.equal((await admin('assets/' + id, { ...fields, name: 'Stale rename', archived: false })).status, 409);
-  const state = await (await admin('state')).json();
-  assert.equal(state.assets.find(asset => asset.id === id).archived, true);
+  const archived = await (await admin('assets?state=archived')).json();
+  assert.equal(archived.items.find(asset => asset.id === id)?.archived, true);
 });
 
 test('R11: removing a dialog label cannot leave a dangling accessible-name reference', () => {

@@ -1,6 +1,7 @@
 import { ID_REFERENCES } from '../id-references.mjs';
 import { mapCssReferences } from '../css-references.mjs';
 import { resolveSiteLink } from '../routes.mjs';
+import { ensureComponentIdentity } from './view-state.mjs';
 
 export function remapClone(original, clone, editor) {
   const pairs = [];
@@ -27,6 +28,7 @@ export function remapClone(original, clone, editor) {
       } else if (['style', 'fill', 'stroke', 'clip-path', 'mask', 'filter'].includes(name)) attrs[name] = mapCssReferences(String(value), { url });
     }
     copy.setAttributes(attrs);
+    ensureComponentIdentity(copy,{fresh:true});
     copy.setStyle(Object.fromEntries(Object.entries(copy.getStyle()).map(([name, value]) => [name, mapCssReferences(String(value), { url })])));
   }
   // GrapesJS copies component rules itself. Preserve those IDs and styles;

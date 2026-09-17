@@ -30,15 +30,16 @@ export class Backups {
     clearTimeout(this.timer);
     const draft = this.snapshot();
     try {
-      await this.store.write(draft.dirty || draft.pendingSave ? { project: draft.project, version: draft.version, pendingSave: draft.pendingSave } : null);
-      this.report(draft.dirty || draft.pendingSave ? 'Reservutkast sparat för denna flik' : 'Reservutkast redo');
+      const pending = draft.dirty || draft.pendingSave || draft.managedSvg;
+      await this.store.write(pending ? { project: draft.project, version: draft.version, pendingSave: draft.pendingSave, managedSvg: draft.managedSvg ?? null } : null);
+      this.report(pending ? 'Reservutkast sparat för denna flik' : 'Reservutkast redo');
       return true;
     } catch { this.report('Reservutkast kunde inte sparas.', true); return false; }
   }
   export(record) {
     this.flush();
     const source = record ?? this.snapshot();
-    download(draftBackup(source.project, source.version, source.pendingSave));
+    download(draftBackup(source.project, source.version, source.pendingSave, source.managedSvg ?? null));
   }
   async restore(record) {
     this.flush();
@@ -48,7 +49,7 @@ export class Backups {
       const base = await api(`revision/${record.version}`);
       this.flush();
       if (this.snapshot().project !== before) throw new Error('Utkastet ändrades medan återställningen kontrollerades. Dina senaste ändringar och reservkopian är kvar.');
-      this.install({ ...verified, base: base.project, version: record.version });
+      await this.install({ ...verified, base: base.project, version: record.version, managedSvg: record.managedSvg ?? null });
       // First commit the new session's independent copy, then acknowledge only
       // the exact generation accepted from an inactive recovery record.
       if (await this.persist() && record.key) await this.store.discard(record);
@@ -83,7 +84,7 @@ export class Backups {
         if (!await confirmAction({ title: 'Läs in reservutkast?', message: `Innehållet ersätter det aktuella utkastet efter säkerhetskontroll. Exportera först om du vill behålla båda. Ursprung: ${data.origin ?? 'tidigare export'}. Save krävs för publicering.`, action: 'Kontrollera och läs in' })) return;
         this.flush();
         if (expected !== this.snapshot().project) throw new Error('Utkastet ändrades under importen. Försök igen.');
-        await this.restore({ project: data.project, version: data.baseVersion, pendingSave: data.pendingSave });
+        await this.restore({ project: data.project, version: data.baseVersion, pendingSave: data.pendingSave, managedSvg: data.managedSvg ?? null });
       } catch (error) { toast(error.message, true); }
     };
     $('#dialog-content').querySelectorAll('[data-backup-export]').forEach(button => { button.onclick = () => this.export(records[Number(button.dataset.backupExport)]); });

@@ -1,14 +1,14 @@
-import test, { after } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { publishSite, readSite, readPublicPage, readHistory } from '../src/cms/store.mjs';
+import { publishSite, readSite, readPublicPage, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/project.mjs';
+import { migrateCmsDb } from './helpers/cms-runtime.mjs';
 
 const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default { fetch() { return new Response("test"); } };', compatibilityDate: '2026-09-11', d1Databases: ['CMS_DB'] }));
 after(() => mf.dispose());
 const db = await mf.getD1Database('CMS_DB');
-await db.exec(await readFile(new URL('../migrations/0001_cms.sql', import.meta.url), 'utf8'));
+await migrateCmsDb(db);
 const project = text => ({ schemaVersion: 1, pages: [{ id: 'home', path: '/', name: 'Hem', title: 'Omar Yusuf', description: 'En portfolio.', template: 'home', bodyClass: 'page-home', html: `<main id="main"><h1>${text}</h1></main>`, css: '', project: null }], cards: [{ id: 'k01', flavor: 'kind', text }], runtime: {}, theme: defaultTheme });
 let revision = 0;
 
@@ -68,6 +68,19 @@ test('a failed D1 statement rolls back the revision and every rendered page', as
   assert.equal(afterFailure.version, before.version);
   assert.equal(afterFailure.project.pages[0].html, before.project.pages[0].html);
   assert.equal((await readHistory(db)).items.length, revision);
+});
+
+
+test('new revisions persist an indexed resource manifest used by historical usage checks', async () => {
+  const current = await readSite(db);
+  const next = project('Indexerad');
+  next.pages[0].html = '<main id="main"><h1>Indexerad</h1><img src="/favicon.png" alt=""></main>';
+  const saved = await publishSite(db, { project: next, baseVersion: current.version, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
+  revision = saved.version;
+  const indexed = await db.prepare('SELECT reference_count FROM cms_revision_resource_index WHERE version=? AND src=?').bind(saved.version, '/favicon.png').first();
+  assert.equal(indexed.reference_count, 1);
+  assert.ok(await db.prepare('SELECT version FROM cms_revision_resource_indexed WHERE version=?').bind(saved.version).first());
+  assert.ok((await retainedResourceUsage(db, '/favicon.png')) >= 1);
 });
 
 test('an absent page in a published revision is distinct from an unpublished site', async () => {

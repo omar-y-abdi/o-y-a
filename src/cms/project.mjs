@@ -4,10 +4,12 @@ import { validateCss, validateEditorData, validateHtml, validatePagePath, VALIDA
 import { resolveSiteLink } from './routes.mjs';
 import { referencedIds } from './id-references.mjs';
 import { validateResources, resourceReferences } from './resources.mjs';
+import { normalizeSharedContent, validateSharedInstances } from './shared-content.mjs';
 
 import { validateTheme } from './theme.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
 const FLAVORS = ['kind', 'joke', 'pause', 'roast'];
+const CARD_STATES = new Set(['active', 'archived', 'trash']);
 
 function fail(message) { throw new HttpError(422, message); }
 function text(value, name, max = 200, min = 1) {
@@ -84,7 +86,9 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
   const normalizedCards = cards.map(card => {
     if (!card || typeof card.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(card.id) || cardIds.has(card.id) || !FLAVORS.includes(card.flavor)) fail('Varje vinst behöver en unik identitet och en giltig kategori.');
     cardIds.add(card.id);
-    const result = { id: card.id, flavor: card.flavor, text: text(card.text, 'Vinsttext', 500, publication ? 1 : 0) };
+    const state = card.state ?? 'active';
+    if (!CARD_STATES.has(state)) fail('Vinstens status är ogiltig.');
+    const result = { id: card.id, flavor: card.flavor, text: text(card.text, 'Vinsttext', 500, publication ? 1 : 0), state };
     if (card.design) {
       const html = validateHtml(card.design.html);
       const roots = parseFragment(html).childNodes.filter(node => node.tagName || node.nodeName === '#text' && node.value.trim());
@@ -100,7 +104,7 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     }
     return result;
   });
-  for (const flavor of FLAVORS) if (!normalizedCards.some(card => card.flavor === flavor)) fail('Varje kategori som maskinen visar behöver minst en vinst.');
+  for (const flavor of FLAVORS) if (!normalizedCards.some(card => card.flavor === flavor && card.state === 'active')) fail('Varje kategori som maskinen visar behöver minst en vinst.');
   const runtime = {};
   if (!input.runtime || typeof input.runtime !== 'object' || Array.isArray(input.runtime) || Object.keys(input.runtime).length > 300) fail('Funktionstexterna är ogiltiga.');
   for (const [key, value] of Object.entries(input.runtime)) {
@@ -111,7 +115,9 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     const variables = source => [...new Set([...source.matchAll(/\{([a-zA-Z0-9_]+)\}/g)].map(match => match[1]))].sort().join(',');
     if (publication && variables(value) !== variables(seed.runtime?.[key] ?? '')) fail(`Texten ${key} måste behålla samma dynamiska värden inom klamrar.`);
   }
-  const result = { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources) };
+  const sharedContent = normalizeSharedContent(input.sharedContent, seed);
+  validateSharedInstances(pages, sharedContent, { publication, requiredEverywhere: Object.keys(seed.sharedContent ?? {}) });
+  const result = { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources), sharedContent };
   if (publication && seed.staticPaths) {
     const inventory = new Set(seed.staticPaths);
     for (const path of resourceReferences(result).keys()) {

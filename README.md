@@ -56,11 +56,11 @@ python3 -m venv .test-venv
 . .test-venv/bin/activate
 pip install -r requirements-test.txt
 python -m playwright install chromium
-npm run quality
-npm run test:cms
+npm run verify:fast
+npm run verify:full
 ```
 
-`quality` kör bygge, syntax, Node-tester, HTTP och publik browser-E2E. `test:cms` startar en isolerad Worker på ledig port och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
+`verify:fast` är den lokala standardloopen: bygge, lint, parallella `node:test`-tester och kritiska GrapesJS-smokes. `verify:full` är release/CI-gaten och lägger till publik HTTP/browser-E2E, 240 parallella kortexporter, autentiserad CMS-browser-E2E, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
 
 ## Miljöer och kontakt
 
