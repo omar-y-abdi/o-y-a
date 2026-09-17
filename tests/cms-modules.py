@@ -538,6 +538,7 @@ with sync_playwright() as pw:
               resize.onStart(null,{el}); resize.updateTarget(el,{w:beforeRect.width*1.25,h:beforeRect.height*1.25},{store:true});
               cheek.addStyle({opacity:'0.42'});
               cmsTest.nudgeComponent(group,3,4);
+              cmsTest.nudgeComponent(cheek,2,1);
               cheek.addAttributes({fill:'#234ce7'});
               await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
               const afterRect=el.getBoundingClientRect(), snapshot=handle.snapshot(true);
@@ -547,7 +548,7 @@ with sync_playwright() as pw:
               await new Promise(resolve=>{const check=()=>ready?resolve():requestAnimationFrame(check);check()});
               await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
               const reopened=handle.editor.getWrapper(), reopenedGroup=reopened.find('#face')[0], reopenedCheek=reopened.find('#cheek')[0], reopenedRect=reopenedGroup.getEl().getBoundingClientRect();
-              return {before,bounds:{before:[beforeRect.width,beforeRect.height],after:[afterRect.width,afterRect.height],reopened:[reopenedRect.width,reopenedRect.height]},source,reopened:{opacity:getComputedStyle(reopenedCheek.getEl()).opacity,transform:reopenedGroup.getAttributes().transform}};
+              return {before,bounds:{before:[beforeRect.width,beforeRect.height],after:[afterRect.width,afterRect.height],reopened:[reopenedRect.width,reopenedRect.height]},source,reopened:{opacity:getComputedStyle(reopenedCheek.getEl()).opacity,transform:reopenedGroup.getAttributes().transform,shapeTransform:reopenedCheek.getAttributes().transform}};
             }""", data)
             assert result['before'] == {'fill':'#ffda44','shapeResizable':False,'groupResizable':True}, result
             assert result['bounds']['after'][0] > result['bounds']['before'][0] * 1.15, result
@@ -556,6 +557,7 @@ with sync_playwright() as pw:
             assert result['bounds']['reopened'][1] > result['bounds']['before'][1] * 1.15, result
             assert result['reopened']['opacity'] == '0.42', result
             assert 'translate(3 4)' in result['reopened']['transform'] and 'scale(' in result['reopened']['transform'], result
+            assert 'translate(2 1)' in result['reopened']['shapeTransform'], result
             assert 'data-cms-node' not in result['source'] and '<style' not in result['source'], result
             return {'same_editor':True,'safe_shape_protected':True,'group_resize_visible_bounds':True,'save_reopen_opacity_nudge_resize':True}
         finally: page.close()
@@ -573,13 +575,13 @@ with sync_playwright() as pw:
                   ca.getContext('2d').drawImage(a,0,0,width,height);cb.getContext('2d').drawImage(b,0,0,width,height);
                   const x=ca.getContext('2d').getImageData(0,0,width,height).data, y=cb.getContext('2d').getImageData(0,0,width,height).data;
                   let total=0;for(let i=0;i<x.length;i+=4)total+=Math.abs(x[i]-y[i])+Math.abs(x[i+1]-y[i+1])+Math.abs(x[i+2]-y[i+2]);
-                  return total/(width*height*3);
+                  return total/(width*height*3*255);
                 } finally {URL.revokeObjectURL(url)}
               }
               return {mail:await compare(fixture.mailPngData,fixture.mailSvg,192,192),icon:await compare(fixture.iconPngData,fixture.iconSvg,180,180)};
             }""", FIXTURE)
-            assert result['mail'] < 5, result
-            assert result['icon'] < .5, result
+            assert result['mail'] < .02, result
+            assert result['icon'] < .006, result
             return result
         finally: page.close()
 

@@ -3,6 +3,12 @@ const PRESENTATION = new Set([
   'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset',
 ]);
 
+function cssTranslate(value) {
+  const match = String(value ?? '').trim().match(/^(-?(?:\d+(?:\.\d+)?|\.\d+))px(?:\s+(-?(?:\d+(?:\.\d+)?|\.\d+))px)?$/);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2] ?? 0)];
+}
+
 function components(root) {
   const result = [];
   const visit = component => { result.push(component); component.components?.().forEach(visit); };
@@ -23,6 +29,14 @@ export function materializeManagedSvg(html, editor) {
     if (!node) continue;
     const style = component.getStyle?.() ?? {};
     for (const [property, value] of Object.entries(style)) if (PRESENTATION.has(property) && String(value).trim()) node.setAttribute(property, String(value).trim());
+    const liveTransform = String(attrs.transform ?? '').trim();
+    if (liveTransform) node.setAttribute('transform', liveTransform);
+    const liveTranslate = cssTranslate(style.translate);
+    if (liveTranslate && (liveTranslate[0] || liveTranslate[1])) {
+      const transform = [node.getAttribute('transform'), `translate(${liveTranslate[0]} ${liveTranslate[1]})`].filter(Boolean).join(' ');
+      node.setAttribute('transform', transform);
+    }
+    if (attrs['data-cms-translate']) node.setAttribute('data-cms-translate', String(attrs['data-cms-translate']).trim());
   }
   for (const node of nodes) {
     node.removeAttribute('data-cms-node');
