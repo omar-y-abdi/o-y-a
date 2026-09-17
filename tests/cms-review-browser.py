@@ -24,7 +24,7 @@ report = qa.Reporter(ROOT/f'output/logs/cms-review-{ENGINE}.log')
 
 def api(context, path, data=None):
     url = BASE+'/admin/api/'+path
-    return context.request.get(url) if data is None else context.request.post(url, data=data, headers={'Origin': BASE, 'X-CMS-Request': '1'})
+    return qa.read_api(context.request, url) if data is None else context.request.post(url, data=data, headers={'Origin': BASE, 'X-CMS-Request': '1'})
 
 def publish(context, project):
     state = api(context, 'state').json()
