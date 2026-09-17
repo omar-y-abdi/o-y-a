@@ -35,12 +35,27 @@ export function winFields(card) {
   return `<section class="inspector-section"><h2>Vinstens innehåll</h2>${field('Text på vinsten', 'win-text', card.text, { textarea: true })}<label class="inspector-field">Kategori<select id="win-flavor">${Object.entries(flavors).map(([value, name]) => `<option value="${value}" ${value === card.flavor ? 'selected' : ''}>${name}</option>`).join('')}</select></label>${field('Stabil identitet', 'win-id', card.id, { readonly: true })}<button type="button" class="small-button" data-action="export-win">Spara förhandsbild ↗</button><p class="inspector-help">Samma design visas i maskinen och följer med bilden som besökaren sparar.</p></section>`;
 }
 
-export function assetDetail(asset, usage = { currentReferences: null, historyReferences: null }) {
+function assetUsageText(usage) {
+  const count = value => value == null ? '…' : String(value);
+  return `${count(usage.currentReferences)} referenser i aktuellt utkast · ${count(usage.historyReferences)} i sparad historik.`;
+}
+
+export function updateAssetUsage(usage) {
+  const target = $('#asset-usage');
+  if (target) target.textContent = assetUsageText(usage);
+}
+
+export function assetDetail(asset, usage = null) {
+  const openAsset = $('#custom-inspector [data-asset-detail-id]')?.dataset.assetDetailId;
+  if (usage && openAsset === asset.id) {
+    updateAssetUsage(usage);
+    return;
+  }
   const state = asset.state ?? (asset.archived ? 'archived' : 'active');
-  const count = value => value === null ? '…' : String(value);
-  $('#special-stage').innerHTML = `<div class="special-heading"><div><p class="special-kicker">EN DEL AV WEBBPLATSEN</p><h1>${escape(asset.name)}</h1><p>${asset.width ? `${asset.width} × ${asset.height} px · ` : ''}${escape(asset.mime)} · ${state === 'active' ? 'Aktiv' : state === 'archived' ? 'Arkiverad' : 'Papperskorg'}</p></div><button type="button" class="small-button" data-special="media">Till biblioteket</button></div><div class="asset-image" style="height:360px;border:1px solid #dce3ce;border-radius:8px">${asset.mime.startsWith('image/') ? `<img src="${escape(asset.src)}" alt="${escape(asset.alt ?? '')}" style="padding:30px">` : '<span class="font-preview">Aa Bb Cc</span>'}</div><p id="asset-usage" class="inspector-help" style="margin-top:20px">${count(usage.currentReferences)} referenser i aktuellt utkast · ${count(usage.historyReferences)} i sparad historik.</p>`;
+  const displayedUsage = usage ?? { currentReferences: null, historyReferences: null };
+  $('#special-stage').innerHTML = `<div class="special-heading"><div><p class="special-kicker">EN DEL AV WEBBPLATSEN</p><h1>${escape(asset.name)}</h1><p>${asset.width ? `${asset.width} × ${asset.height} px · ` : ''}${escape(asset.mime)} · ${state === 'active' ? 'Aktiv' : state === 'archived' ? 'Arkiverad' : 'Papperskorg'}</p></div><button type="button" class="small-button" data-special="media">Till biblioteket</button></div><div class="asset-image" style="height:360px;border:1px solid #dce3ce;border-radius:8px">${asset.mime.startsWith('image/') ? `<img src="${escape(asset.src)}" alt="${escape(asset.alt ?? '')}" style="padding:30px">` : '<span class="font-preview">Aa Bb Cc</span>'}</div><p id="asset-usage" class="inspector-help" style="margin-top:20px">${assetUsageText(displayedUsage)}</p>`;
   const lifecycle = state === 'active' ? '<button type="button" class="small-button" data-action="archive-asset">Arkivera</button><button type="button" class="small-button danger" data-action="trash-asset">Flytta till papperskorg</button>' : state === 'archived' ? '<button type="button" class="small-button" data-action="restore-asset">Återställ</button><button type="button" class="small-button danger" data-action="trash-asset">Flytta till papperskorg</button>' : '<button type="button" class="small-button" data-action="restore-asset">Återställ</button><button type="button" class="small-button danger" data-action="delete-asset">Radera permanent</button>';
-  $('#custom-inspector').innerHTML = `<section class="inspector-section"><h2>Filens uppgifter</h2>${field('Namn', 'asset-name', asset.name)}${field('Alternativtext', 'asset-alt', asset.alt ?? '', { textarea: true })}<div class="inspector-actions"><button type="button" class="small-button primary" data-action="save-asset">Spara metadata</button><button type="button" class="small-button" data-action="replace-asset">Ersätt fil</button>${asset.editableSrc ? '<button type="button" class="small-button primary" data-action="edit-svg-asset">Redigera SVG</button>' : ''}${lifecycle}</div><p class="inspector-help">${asset.builtin ? 'Originalet ligger kvar i källkoden; CMS-status och metadata sparas separat.' : 'Publicerade/historiska bytes bevaras tills permanent radering är säker.'}</p></section>`;
+  $('#custom-inspector').innerHTML = `<section class="inspector-section" data-asset-detail-id="${escape(asset.id)}"><h2>Filens uppgifter</h2>${field('Namn', 'asset-name', asset.name)}${field('Alternativtext', 'asset-alt', asset.alt ?? '', { textarea: true })}<div class="inspector-actions"><button type="button" class="small-button primary" data-action="save-asset">Spara metadata</button><button type="button" class="small-button" data-action="replace-asset">Ersätt fil</button>${asset.editableSrc ? '<button type="button" class="small-button primary" data-action="edit-svg-asset">Redigera SVG</button>' : ''}${lifecycle}</div><p class="inspector-help">${asset.builtin ? 'Originalet ligger kvar i källkoden; CMS-status och metadata sparas separat.' : 'Publicerade/historiska bytes bevaras tills permanent radering är säker.'}</p></section>`;
 }
 
 export function historyView(history, currentVersion) {

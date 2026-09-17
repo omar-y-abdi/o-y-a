@@ -25,18 +25,19 @@ function run(file) {
   });
 }
 
-
 async function runHelpersOnce() {
   if (process.env.CMS_SKIP_HELPERS === '1') return;
-  console.log('\n=== CMS browser helpers ===');
-  const child = spawn(python, ['tests/test_cms_browser_helpers.py'], { stdio: 'inherit', env: process.env });
-  children.add(child);
-  const code = await new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('exit', value => resolve(value ?? 1));
-  });
-  children.delete(child);
-  if (code) process.exit(code);
+  for (const file of ['tests/test_cms_browser_helpers.py', 'tests/test_cms_asset_usage.py']) {
+    console.log(`\n=== CMS browser helper: ${file} ===`);
+    const child = spawn(python, [file], { stdio: 'inherit', env: process.env });
+    children.add(child);
+    const code = await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', value => resolve(value ?? 1));
+    });
+    children.delete(child);
+    if (code) process.exit(code);
+  }
 }
 
 async function worker() {
