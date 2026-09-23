@@ -30,6 +30,12 @@ Browser ownership: only the Luna High subagent runs Chrome; the parent owns CLI 
 
 Diagnostic artifacts cited above live under ignored `output/cms-local/` and are local to the working copy, including `profile-before-scan-reuse.log`, `rapid-inline-diagnostic.log`, and `modules-serializer-firefox.log`. They are not committed. Raw production tail/auth material and production project exports were not committed; avoid copying secrets or private content into the PR.
 
+## Remote handoff status
+
+- Draft PR: [#7](https://github.com/omar-y-abdi/o-y-a/pull/7), head `ea2596c`. The PR description carries this handoff.
+- GitHub Actions run [35931978202](https://github.com/omar-y-abdi/o-y-a/actions/runs/35931978202) did not start any of its three jobs. GitHub reported an account billing/spending-limit block. No billing change is authorized.
+- Cloudflare’s PR check uploaded preview Worker version `24f47735-94bc-4a2e-bde6-b464ad21ddbe`; Wrangler still reports production at 100% version `6e552399-5723-4741-b3f6-02a3d0d2f196` from 2026-09-17. The push did not promote this change to production.
+
 ## Remaining work
 
 1. Resolve the nested-noscript regression. Inspect the actual GrapesJS RTE target/eligibility: RTE enable is guarded by `model.get('editable')` and the library documents base `editable` default false (`node_modules/grapesjs/dist/index.d.ts:6999`, `dist/grapes.mjs:36708`). Confirm the active target used by this CMS can contain the protected noscript fallback before choosing a source fix. If unreachable, replace the synthetic test with a real editor-level assertion that proves the guard; otherwise preserve fallback semantics without dropping the user’s real text edit.
