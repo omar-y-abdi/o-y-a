@@ -22,6 +22,7 @@ let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSel
 let backups, previewSequence = 0, inspectorTab = 'design', pendingViewRestore = null, svgDraft = null;
 let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer, mediaTotal = 0;
 const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
+const saveInProgress = 'Sparning pågår. Ändringarna finns kvar; försök igen när den är klar.';
 const page = () => draft.project.pages.find(item => item.id === lastPage) ?? draft.project.pages[0];
 const card = () => draft.project.cards.find(item => item.id === current.id);
 
@@ -55,7 +56,7 @@ function managedSvgBackup() {
 }
 
 function backupSnapshot() {
-  return { project: draft.project, version: draft.version, pendingSave: draft.pendingSave, dirty: draft.dirty, managedSvg: managedSvgBackup() };
+  return { owner: draft, project: draft.project, version: draft.version, pendingSave: draft.pendingSave, dirty: draft.dirty, managedSvg: managedSvgBackup() };
 }
 
 async function confirmManagedSvgNavigation() {
@@ -437,19 +438,22 @@ async function save() {
   if (saving) return;
   if (current.type === 'svg' && svgDraft?.dirty) await saveManagedSvgDraft({ returnToAsset: false });
   if (!draft.dirty && !draft.pendingSave) return;
+  const savingDraft = draft;
   saving = true; status();
   try {
-    const intent = draft.project;
+    const intent = savingDraft.project;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const pending = draft.beginSave();
+      const pending = savingDraft.beginSave();
+      if (!pending) break;
+      const submittedSnapshot = savingDraft.pendingSnapshot;
       await backups.persist();
       const result = await api('save', pending);
-      draft.acknowledge(pending.project, result.version);
-      if (!draft.dirty || pending.project === intent || draft.project !== intent) break;
+      savingDraft.acknowledge(submittedSnapshot, result.version, pending);
+      if (draft !== savingDraft || !savingDraft.dirty || savingDraft.project !== intent) break;
     }
-    toast(draft.dirty ? 'Versionen sparades. Dina nyare ändringar finns kvar som utkast.' : `Version ${draft.version} är sparad och publicerad.`);
+    toast(savingDraft.dirty ? 'Versionen sparades. Dina nyare ändringar finns kvar som utkast.' : `Version ${savingDraft.version} är sparad och publicerad.`);
   } catch (error) {
-    draft.rejectSave(error);
+    savingDraft.rejectSave(error);
     showError(error);
   } finally { await backups.persist(); saving = false; status(); }
 }
@@ -465,38 +469,44 @@ function showError(error) {
 }
 
 async function reconcile() {
+  if (saving) { toast(saveInProgress, true); return; }
   $('#studio-dialog').close(); active?.flush();
+  const owner = draft, snapshot = owner.project, version = owner.version;
   const state = await api('state');
+  if (saving) { toast(saveInProgress, true); return; }
   active?.flush();
-  const snapshot = draft.project;
-  const result = mergeProjects(draft.saved, draft.project, state.project);
+  if (!unchangedSince(snapshot, version, owner)) return;
+  const result = mergeProjects(owner.saved, owner.project, state.project);
   if (result.conflicts.length && !await confirmAction({ title: 'Välj dina ändringar vid konflikt?', message: `Båda flikarna har ändrat samma innehåll: ${result.conflicts.join(', ')}. Dina versioner av dessa delar behålls. Övriga ändringar sammanförs. Granska utkastet före Save.`, action: 'Behåll mina vid konflikt' })) return;
-  if (!unchangedSince(snapshot)) return;
+  if (saving) { toast(saveInProgress, true); return; }
+  if (!unchangedSince(snapshot, version, owner)) return;
   clearEditor(); draft = new Draft(state.project, state.version); change(result.project); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
   toast('Utkasten är sammanförda. Granska ändringarna och välj Save.');
 }
 
 async function revert() {
+  if (saving) { toast(saveInProgress, true); return; }
   active?.flush();
-  const snapshot = draft.project;
+  const owner = draft, snapshot = owner.project, version = owner.version;
   if (!await confirmAction({ title: 'Tillbaka till det sparade?', message: 'Osparade ändringar i detta utkast försvinner. Publicerad webbplats och historik påverkas inte.', action: 'Revert', danger: true })) return;
   const state = await api('state');
-  if (!unchangedSince(snapshot)) return;
+  if (saving) { toast(saveInProgress, true); return; }
+  if (!unchangedSince(snapshot, version, owner)) return;
   clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); await backups.persist();
 }
 
 async function restore(version) {
   active?.flush();
-  const snapshot = draft.project;
+  const owner = draft, snapshot = owner.project, baseVersion = owner.version;
   if (!await confirmAction({ title: `Återställ version ${version}?`, message: 'Versionen läses in som utkast. Nuvarande utkast ersätts. Webbplatsen ändras först när du väljer Save; all historik bevaras.', action: 'Läs in utkast' })) return;
   const state = await api(`revision/${version}`);
-  if (!unchangedSince(snapshot)) return;
-  clearEditor(); change(state.project); draft.pendingSave = null; openPage(lastPage); toast(`Version ${version} finns nu som utkast. Save publicerar den på nytt.`);
+  if (!unchangedSince(snapshot, baseVersion, owner)) return;
+  clearEditor(); change(state.project); draft.restorePending(null); openPage(lastPage); toast(`Version ${version} finns nu som utkast. Save publicerar den på nytt.`);
 }
 
-function unchangedSince(snapshot) {
+function unchangedSince(snapshot, version = draft.version, owner = draft) {
   active?.flush();
-  if (draft.project === snapshot) return true;
+  if (draft === owner && draft.project === snapshot && draft.version === version) return true;
   toast('Utkastet ändrades medan innehållet hämtades. Dina senaste ändringar är kvar. Försök åtgärden igen.', true);
   return false;
 }
@@ -719,7 +729,8 @@ async function boot() {
     snapshot: backupSnapshot,
     flush: () => active?.flush(),
     install: async ({ project, pendingSave, base, version, managedSvg }) => {
-      clearEditor(); svgDraft = null; draft = new Draft(base, version); draft.change(project); draft.pendingSave = pendingSave;
+      if (saving) throw new Error(saveInProgress);
+      clearEditor(); svgDraft = null; draft = new Draft(base, version); draft.change(project); draft.restorePending(pendingSave);
       if (managedSvg) await openSvgAsset(managedSvg.id, managedSvg); else openPage(lastPage);
       status();
     },

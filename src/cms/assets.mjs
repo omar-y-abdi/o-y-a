@@ -108,8 +108,8 @@ async function validateStoredMedia(env, row) {
   await env.CMS_DB.prepare('UPDATE cms_media SET validation_version = 1 WHERE id = ? AND sha256 = ?').bind(row.id, row.sha256).run();
 }
 
-export async function validateReferencedMedia(env, project) {
-  const keys = [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7));
+export async function validateReferencedMedia(env, project, references = resourceReferences(project)) {
+  const keys = [...references.keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7));
   if (!keys.length) return;
   const rows = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL').bind(JSON.stringify(keys)).all();
   if (rows.results.length !== keys.length) throw new HttpError(422, 'En vald fil saknas. Ladda upp filen innan du sparar.');

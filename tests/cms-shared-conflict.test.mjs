@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { initial } from '../.generated/cms-seed.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
+import { projectChanges } from '../src/cms/project-changes.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
 const originalTagline = 'Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.';
@@ -56,8 +57,10 @@ test('divergent legacy shared content is recoverable by choosing one stored vari
     assert.equal(recoverable.project.sharedContent['footer.tagline'], chosen.value);
 
     const { sharedContentConflicts: _conflicts, ...repairProject } = recoverable.project;
+    const changes = projectChanges(recoverable.project, repairProject);
+    changes.sharedContent = repairProject.sharedContent;
     const repaired = await post('save', {
-      project: repairProject,
+      changes,
       baseVersion: recoverable.version,
       requestId: crypto.randomUUID(),
     });

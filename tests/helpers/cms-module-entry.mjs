@@ -10,5 +10,6 @@ import { nudgeComponent } from '../../src/cms/client/position.mjs';
 import { captureEditorView, restoreEditorView, centerOffset } from '../../src/cms/client/view-state.mjs';
 import { synchronizeSharedPageClient } from '../../src/cms/client/shared-project.mjs';
 import { materializeManagedSvg } from '../../src/cms/client/managed-svg-source.mjs';
+import { liveHtml } from '../../src/cms/client/live-text.mjs';
 
-globalThis.cmsTest = { remapClone, editableText, replaceEditableText, createEditor, componentInspector, loadCards, loadCopy, renderWin, exportWin, disposeWin, previewData, nudgeComponent, captureEditorView, restoreEditorView, centerOffset, synchronizeSharedPageClient, materializeManagedSvg };
+globalThis.cmsTest = { remapClone, editableText, replaceEditableText, createEditor, componentInspector, loadCards, loadCopy, renderWin, exportWin, disposeWin, previewData, nudgeComponent, captureEditorView, restoreEditorView, centerOffset, synchronizeSharedPageClient, materializeManagedSvg, liveHtml };

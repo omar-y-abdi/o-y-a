@@ -1,8 +1,9 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { publishSite, readSite, readPublicPage, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';
+import { publishSite, publicationMedia, readSite, readPublicPage, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/project.mjs';
+import { fontCss } from '../src/cms/theme.mjs';
 import { migrateCmsDb } from './helpers/cms-runtime.mjs';
 
 const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default { fetch() { return new Response("test"); } };', compatibilityDate: '2026-09-11', d1Databases: ['CMS_DB'] }));
@@ -87,4 +88,25 @@ test('an absent page in a published revision is distinct from an unpublished sit
   const page = await readPublicPage(db, '/missing/');
   assert.equal(page.version, revision);
   assert.equal(page.page, null);
+});
+
+test('publication media and page fonts reuse a trusted reference index without rescanning the project', async () => {
+  const id = crypto.randomUUID();
+  const src = `/media/${id}.woff2`;
+  const objectKey = `${id}.woff2`;
+  const references = new Map([[src, 1]]);
+  const project = new Proxy({}, { get(_target, key) { throw new Error(`Unexpected reference rescan: ${String(key)}`); } });
+  assert.equal(fontCss(project, references), `@font-face{font-family:"cms-font-${id}";src:url(/media/${id}.woff2) format("woff2");font-display:swap}`);
+
+  let query;
+  const mediaDb = { prepare(sql) {
+    query = sql;
+    return { bind(value) {
+      assert.deepEqual(JSON.parse(value), [objectKey]);
+      return { all: async () => ({ results: [{ object_key: objectKey, mime: 'font/woff2', width: null, height: null, alt: '', validation_version: 1 }] }) };
+    } };
+  } };
+  const media = await publicationMedia(mediaDb, project, references);
+  assert.match(query, /cms_media/);
+  assert.equal(media[0].src, src);
 });

@@ -9,6 +9,7 @@ const SERIAL_CASES = new Set(['R20-preserve-rich-structure-and-simple-newlines']
 for (const name of SERIAL_CASES) if (!registered.includes(name)) throw new Error(`Unknown serial CMS module case: ${name}`);
 const SMOKE = new Set([
   'R14-active-typing-newlines-composition-flush',
+  'R23-live-text-active-inactive-serialization-stable',
   'R12-clone-anchor-aria-svg-and-style',
   'cms-duplicate-inline-section-preserves-style',
   'cms-usability-resize-nudge-and-style-mode',

@@ -25,6 +25,18 @@ export async function readSite(db, version) {
   return { version: row.version, requestId: row.request_id, createdAt: row.created_at, project: JSON.parse(await decompress(row.project)) };
 }
 
+export async function readCurrentVersion(db) {
+  const row = await db.prepare('SELECT version FROM cms_head WHERE id = 1').first();
+  return Number(row?.version ?? 0);
+}
+
+export async function replaySave(db, { requestId, actor, payloadHash }) {
+  const existing = await db.prepare('SELECT version, payload_hash, actor, created_at FROM cms_revisions WHERE request_id = ?').bind(requestId).first();
+  if (!existing) return null;
+  if (existing.payload_hash !== payloadHash || existing.actor !== actor) throw new HttpError(409, 'Ett annat sparförsök använde samma identitet.');
+  return { version: existing.version, requestId, createdAt: existing.created_at, replayed: true };
+}
+
 export async function readPublicPage(db, path) {
   const row = await db.prepare('SELECT h.version, p.html, p.css, p.meta FROM cms_head h LEFT JOIN cms_rendered p ON p.version = h.version AND p.path = ? WHERE h.id = 1').bind(path).first();
   if (!row || row.version === 0) return null;
@@ -76,8 +88,8 @@ function metadata(page) {
 const utf8Bytes = value => new TextEncoder().encode(value).byteLength;
 export const PUBLIC_ROW_LIMIT = 1500000;
 export const PUBLIC_BIND_LIMIT = 1800000;
-export function publicationChunks(project, resources = resourceSlots) {
-  const fonts = fontCss(project);
+export function publicationChunks(project, resources = resourceSlots, references = resourceReferences(project)) {
+  const fonts = fontCss(project, references);
   const manifest = project.pages.map(metadata);
   const publicCard = card => ({ id: card.id, flavor: card.flavor, text: card.text, ...(card.design ? { design: { html: card.design.html, css: fontCss({ theme: {}, pages: [], cards: [card] }) + card.design.css } } : {}) });
   const addressableCards = project.cards.filter(card => (card.state ?? 'active') !== 'trash').map(publicCard);
@@ -101,8 +113,8 @@ export function publicationChunks(project, resources = resourceSlots) {
   return chunks;
 }
 
-export async function publicationMedia(db, project) {
-  const mediaKeys = [...resourceReferences(project).keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(src)).map(src => src.slice(7));
+export async function publicationMedia(db, project, references = resourceReferences(project)) {
+  const mediaKeys = [...references.keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(src)).map(src => src.slice(7));
   let media = [];
   if (mediaKeys.length) {
     const available = await db.prepare('SELECT object_key, mime, width, height, alt, validation_version FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL').bind(JSON.stringify(mediaKeys)).all();
@@ -113,11 +125,11 @@ export async function publicationMedia(db, project) {
   return media;
 }
 
-export async function publishSite(db, { project, baseVersion, requestId, actor }) {
+export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references }) {
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(requestId)) throw new HttpError(400, 'Sparförsöket saknar en giltig version eller identitet.');
   const serialized = JSON.stringify(project);
   if (new TextEncoder().encode(serialized).byteLength > 8 * 1024 * 1024) throw new HttpError(413, 'Projektet är för stort.');
-  const hash = await digest(serialized);
+  const hash = payloadHash ?? await digest(serialized);
   const existing = await db.prepare('SELECT version, payload_hash, actor, created_at FROM cms_revisions WHERE request_id = ?').bind(requestId).first();
   if (existing) {
     if (existing.payload_hash !== hash || existing.actor !== actor) throw new HttpError(409, 'Sparförsökets identitet har redan använts för andra ändringar.');
@@ -128,17 +140,18 @@ export async function publishSite(db, { project, baseVersion, requestId, actor }
   const version = baseVersion + 1;
   const createdAt = new Date().toISOString();
   const manifest = project.pages.map(metadata);
-  const media = await publicationMedia(db, project);
+  const trustedReferences = references ?? resourceReferences(project);
+  const media = await publicationMedia(db, project, trustedReferences);
   const mediaKeys = media.map(row => row.object_key);
   const summary = `${manifest.length} sidor · ${project.cards.length} vinster`;
   const revision = mediaKeys.length
     ? db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ? AND (SELECT count(*) FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL AND validation_version IS NOT NULL) = ?').bind(version, requestId, baseVersion, actor, createdAt, hash, compressed, JSON.stringify(manifest), summary, baseVersion, JSON.stringify(mediaKeys), mediaKeys.length)
     : db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ?').bind(version, requestId, baseVersion, actor, createdAt, hash, compressed, JSON.stringify(manifest), summary, baseVersion);
   const statements = [revision];
-  const resourceIndex = [...resourceReferences(project).entries()];
-  if (resourceIndex.length) statements.push(db.prepare("INSERT INTO cms_revision_resource_index(version,src,reference_count) SELECT ?, json_extract(value,'$[0]'), json_extract(value,'$[1]') FROM json_each(?) WHERE EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)").bind(version, JSON.stringify(resourceIndex), requestId));
-  statements.push(db.prepare('INSERT INTO cms_revision_resource_indexed(version) SELECT ? WHERE EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)').bind(version, requestId));
-  const chunks = publicationChunks(project, await resolveResources(db, project));
+  const resourceIndex = [...trustedReferences.entries()];
+  if (resourceIndex.length) statements.push(db.prepare("INSERT INTO cms_revision_resource_index(version,src,reference_count) SELECT ?, json_extract(value,'$[0]'), json_extract(value,'$[1]') FROM json_each(?) WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)").bind(version, JSON.stringify(resourceIndex), baseVersion, requestId));
+  statements.push(db.prepare('INSERT INTO cms_revision_resource_indexed(version) SELECT ? WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)').bind(version, baseVersion, requestId));
+  const chunks = publicationChunks(project, await resolveResources(db, project), trustedReferences);
   for (const chunk of chunks) statements.push(db.prepare("INSERT INTO cms_rendered (version, path, html, css, meta) SELECT ?, json_extract(value, '$.path'), json_extract(value, '$.html'), json_extract(value, '$.css'), json_extract(value, '$.meta') FROM json_each(?) WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)").bind(version, JSON.stringify(chunk), baseVersion, requestId));
   if (mediaKeys.length) statements.push(db.prepare('UPDATE cms_media SET published_at = COALESCE(published_at, ?) WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(createdAt, JSON.stringify(mediaKeys), baseVersion, requestId));
   statements.push(db.prepare('UPDATE cms_head SET version = ? WHERE id = 1 AND version = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(version, baseVersion, requestId));

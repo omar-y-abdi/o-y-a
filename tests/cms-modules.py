@@ -41,6 +41,7 @@ with sync_playwright() as pw:
 
     smoke_cases = {
         'R14-active-typing-newlines-composition-flush',
+        'R23-live-text-active-inactive-serialization-stable',
         'R12-clone-anchor-aria-svg-and-style',
         'cms-duplicate-inline-section-preserves-style',
         'cms-usability-resize-nudge-and-style-mode',
@@ -87,6 +88,51 @@ with sync_playwright() as pw:
             page.evaluate('handle.flush()')
             assert page.evaluate("snapshots.at(-1).html.includes('!')")
             return {'active': True, 'line_break_and_composition_captured': True, 'before_composition': before}
+        finally: page.close()
+
+    def live_text_serialization():
+        page = make_page()
+        try:
+            value = page.evaluate(r'''()=>{
+              const model = {};
+              const activeHtml = '<main><button disabled=""><span data-cms-node="text">before</span></button><input disabled=""><br/><noscript><p>Keep no-script content</p></noscript><table><tbody><tr><td>Table cell</td></tr></tbody></table><svg viewBox="0 0 2 2"><path d="M0 0h2v2z"></path></svg></main>';
+              const inactiveHtml = '<main><button disabled><span data-cms-node="text">after</span></button><input disabled><br><noscript><p>Keep no-script content</p></noscript><table><tbody><tr><td>Table cell</td></tr></tbody></table><svg viewBox="0 0 2 2"><path d="M0 0h2v2z"></path></svg></main>';
+              const active = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML(options){
+                if (!options?.attributes) return activeHtml;
+                const attrs = options.attributes(model, {});
+                return activeHtml.replace('<span data-cms-node="text">', `<span data-cms-capture="${attrs['data-cms-capture']}" data-cms-node="text">`);
+              }})}, {el:{isConnected:true},model,getChildrenContainer:()=>({innerHTML:'after'})});
+              const inactive = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>inactiveHtml})}, null);
+              const roundtrip = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>active})}, null);
+              const liveContainer=document.createElement('div');
+              liveContainer.innerHTML='<span>before</span><noscript><p>Keep no-script content</p></noscript>';
+              const containerHtml='<main><span>before</span><noscript><p>Keep no-script content</p></noscript></main>';
+              const activeContainer=cmsTest.liveHtml({getWrapper:()=>({getInnerHTML(options){
+                if (!options?.attributes) return containerHtml;
+                const attrs=options.attributes(model,{});
+                return containerHtml.replace('<main>',`<main data-cms-capture="${attrs['data-cms-capture']}">`);
+              }})},{el:{isConnected:true},model,getChildrenContainer:()=>({innerHTML:liveContainer.innerHTML.replace('before','after')})});
+              const serialize = html => cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>html})}, null);
+              const fragments = {row:serialize('<tr><td>Standalone row</td></tr>'),cell:serialize('<td>Standalone cell</td>'),title:serialize('<title>Standalone title</title>')};
+              const canonical = value => {const template=document.createElement('template');template.innerHTML=value;return template.innerHTML};
+              const structure = value => {const parsed=new DOMParser().parseFromString(value,'text/html');return {noScript:parsed.querySelector('noscript p')?.textContent,tableCell:parsed.querySelector('table td')?.textContent,svgPath:parsed.querySelector('svg path')?.namespaceURI}};
+              return {same:active===inactive, stable:active===roundtrip, canonicalSame:canonical(active)===canonical(inactive), containerStructure:structure(activeContainer), fragments,
+                fragmentTagsPreserved:/<tr\b/.test(fragments.row)&&/<td\b/.test(fragments.row)&&fragments.row.includes('Standalone row')&&/<td\b/.test(fragments.cell)&&fragments.cell.includes('Standalone cell')&&/<title\b/.test(fragments.title)&&fragments.title.includes('Standalone title'),
+                activeHasEdit:active.includes('after')&&!active.includes('before'),
+                inactiveHasEdit:inactive.includes('after')&&!inactive.includes('before'),
+                activeStructure:structure(active),inactiveStructure:structure(inactive),
+                hasBooleanAndVoid:active.includes('disabled')&&inactive.includes('disabled')&&active.includes('<input')&&inactive.includes('<input')&&active.includes('<br')&&inactive.includes('<br')};
+            }''')
+            assert value['activeHasEdit'] and value['inactiveHasEdit'], value
+            assert value['fragmentTagsPreserved'], value
+            expected_structure={'noScript':'Keep no-script content','tableCell':'Table cell','svgPath':'http://www.w3.org/2000/svg'}
+            assert value['activeStructure']==expected_structure and value['inactiveStructure']==expected_structure, value
+            assert value['containerStructure']['noScript']=='Keep no-script content', value
+            assert value['hasBooleanAndVoid'], value
+            assert value['canonicalSame'], value
+            assert value['stable'], value
+            assert value['same'], 'RTE and inactive model serializers must not create a phantom HTML diff: '+str(value)
+            return value
         finally: page.close()
 
     def canonical_reload():
@@ -586,6 +632,7 @@ with sync_playwright() as pw:
         finally: page.close()
 
     run('R14-active-typing-newlines-composition-flush', active_input)
+    run('R23-live-text-active-inactive-serialization-stable', live_text_serialization)
     run('R18-canonical-content-reloads-without-divergent-editor-data', canonical_reload)
     run('R20-preserve-rich-structure-and-simple-newlines', rich_structure)
     run('R20-text-ranges-unicode-links-and-escaping', text_ranges)

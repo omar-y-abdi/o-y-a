@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { initial, seed } from '../.generated/cms-seed.mjs';
+import { seed } from '../.generated/cms-seed.mjs';
 import { Draft } from '../src/cms/client/draft.mjs';
 import { ApiError } from '../src/cms/client/api.mjs';
 let runtime, cookie;
@@ -13,15 +13,18 @@ const request=attempt=>runtime.mf.dispatchFetch(runtime.url+'/admin/api/save',{m
 const state=async()=>(await runtime.mf.dispatchFetch(runtime.url+'/admin/api/state',{headers:headers()})).json();
 
 for(const boundary of ['request-body','compressed-revision'])test(`R4: real ${boundary} rejection permits a corrected save and exact replay`,async()=>{
-  const before=await state(), project=structuredClone(initial);
-  if(boundary==='request-body')project.oversized='x'.repeat(8*1024*1024);
-  else for(let i=0;i<5;i++)project.pages.push({...seed.blank,id:`large-${i}`,sourceId:'blank',path:`/large-${i}/`,html:seed.blank.html.replace('</main>',`<p>${randomBytes(330000).toString('base64')}</p></main>`)});
-  const draft=new Draft(project,before.version), rejected=draft.beginSave();
+  const before=await state(), project=structuredClone(before.project);
+  if(boundary==='request-body')project.pages[0].html='x'.repeat(8*1024*1024);
+  else {
+    const {contracts: _serverTemplateContracts, ...blankPage}=seed.blank;
+    for(let i=0;i<5;i++)project.pages.push({...blankPage,id:`large-${i}`,sourceId:'blank',path:`/large-${i}/`,html:seed.blank.html.replace('</main>',`<p>${randomBytes(330000).toString('base64')}</p></main>`)});
+  }
+  const draft=new Draft(before.project,before.version);draft.change(project);const rejected=draft.beginSave();
   const response=await request(rejected);assert.equal(response.status,413,await response.clone().text());
   assert.equal((await state()).version,before.version);
   draft.rejectSave(new ApiError(await response.text(),response.status));
   assert.equal(draft.pendingSave,null,'A recovered draft must not resurrect a definitively rejected attempt');
-  draft.change(structuredClone(initial));
+  const repairedProject=structuredClone(before.project);repairedProject.pages[0].description+=' corrected';draft.change(repairedProject);
   const repaired=draft.beginSave();assert.notEqual(repaired.requestId,rejected.requestId);
   const first=await request(repaired);assert.equal(first.status,200,await first.clone().text());
   const second=await request(repaired);assert.equal(second.status,200,await second.clone().text());

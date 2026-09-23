@@ -1,5 +1,6 @@
 import { dialog, escape } from './dom.mjs';
 import { applySharedContentClient } from './shared-project.mjs';
+import { projectChanges } from '../project-changes.mjs';
 
 export class ApiError extends Error {
   constructor(message, status = 0, details) { super(message); this.status = status; this.details = details; }
@@ -60,7 +61,10 @@ async function repairSharedContent(state) {
         project = applySharedContentClient(project, conflict.key, option.value);
       }
       try {
-        await request('save', { project, baseVersion: state.version, requestId: crypto.randomUUID() });
+        const changes = projectChanges(state.project, project);
+        // A legacy conflicting snapshot can already look normalized in the client; persisting its chosen shared value still canonicalizes the stored revision.
+        changes.sharedContent = structuredClone(project.sharedContent);
+        await request('save', { changes, baseVersion: state.version, requestId: crypto.randomUUID() });
         const fresh = await request('state');
         cleanup();
         modal.close();

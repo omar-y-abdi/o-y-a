@@ -3,9 +3,10 @@ import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetState
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
 import { normalizeStoredProject } from './shared-content.mjs';
-import { publicationChunks, publicationMedia, publishSite, readHistory, readSite } from './store.mjs';
+import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
+import { applyProjectChanges, validateProjectChanges } from './project-changes.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 
@@ -119,8 +120,27 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       if (body.pendingSave) {
         const pending = body.pendingSave;
         if (!Number.isSafeInteger(pending.baseVersion) || pending.baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(pending.requestId)) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
-        validateProject(structuredClone(pending.project), seed, null, { origins: [url.origin], publication: false });
-        pendingSave = { project: pending.project, baseVersion: pending.baseVersion, requestId: pending.requestId };
+        const legacy = Object.hasOwn(pending, 'project') && !Object.hasOwn(pending, 'changes');
+        const delta = Object.hasOwn(pending, 'changes') && !Object.hasOwn(pending, 'project');
+        const allowed = new Set(['baseVersion', 'requestId', legacy ? 'project' : 'changes']);
+        if ((!legacy && !delta) || Object.keys(pending).some(key => !allowed.has(key)) || delta && body.baseVersion !== undefined && pending.baseVersion !== body.baseVersion) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
+        if (legacy) {
+          validateProject(structuredClone(pending.project), seed, null, { origins: [url.origin], publication: false });
+          pendingSave = { project: pending.project, baseVersion: pending.baseVersion, requestId: pending.requestId };
+        } else {
+          if (pending.baseVersion === 0) throw new HttpError(422, 'Första reservutkastet kräver hela webbplatsen.');
+          let changes;
+          try { changes = validateProjectChanges(pending.changes); }
+          catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
+          const saved = await readSite(env.CMS_DB, pending.baseVersion);
+          if (!saved) throw new HttpError(422, 'Reservutkastets ursprungsversion saknas.');
+          const base = storedProject(saved.project);
+          let candidate;
+          try { candidate = applyProjectChanges(base, changes); }
+          catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
+          validateProject(candidate, seed, base, { origins: [url.origin], publication: false });
+          pendingSave = pending;
+        }
       }
       return json({ project, pendingSave, warnings });
     }
@@ -144,11 +164,47 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     if (url.pathname === '/admin/api/save') {
       const body = await readJson(request, 8 * 1024 * 1024);
+      const hasProject = Object.hasOwn(body ?? {}, 'project'), hasChanges = Object.hasOwn(body ?? {}, 'changes');
+      const allowed = new Set(['baseVersion', 'requestId', hasChanges ? 'changes' : 'project']);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || hasProject === hasChanges
+        || Object.keys(body).some(key => !allowed.has(key)) || !Number.isSafeInteger(body.baseVersion) || body.baseVersion < 0
+        || typeof body.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(body.requestId)) {
+        throw new HttpError(422, 'Sparförsöket är ogiltigt.');
+      }
+      if (hasChanges) {
+        let changes;
+        try { changes = validateProjectChanges(body.changes); }
+        catch { throw new HttpError(422, 'Sparförändringarna är ogiltiga.'); }
+        const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, changes: body.changes }));
+        const replay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
+        if (replay) return json(replay);
+        if (body.baseVersion === 0) throw new HttpError(422, 'Första sparningen kräver hela webbplatsen.');
+        if (await readCurrentVersion(env.CMS_DB) !== body.baseVersion) {
+          const racedReplay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
+          if (racedReplay) return json(racedReplay);
+          throw new HttpError(409, 'Webbplatsen ändrades i en annan flik. Ditt utkast finns kvar; jämför innan du sparar igen.');
+        }
+        const stored = await readSite(env.CMS_DB);
+        if ((stored?.version ?? 0) !== body.baseVersion) {
+          const racedReplay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
+          if (racedReplay) return json(racedReplay);
+          throw new HttpError(409, 'Webbplatsen ändrades i en annan flik. Ditt utkast finns kvar; jämför innan du sparar igen.');
+        }
+        const baseline = stored ? storedProject(stored.project) : initial;
+        let candidate;
+        try { candidate = applyProjectChanges(baseline, changes); }
+        catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
+        const project = validateProject(candidate, seed, baseline, { origins: [url.origin] });
+        const references = resourceReferences(project);
+        await validateReferencedMedia(env, project, references);
+        return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references }));
+      }
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
       const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
-      await validateReferencedMedia(env, project);
-      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email }));
+      const references = resourceReferences(project);
+      await validateReferencedMedia(env, project, references);
+      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));
     }
     const asset = url.pathname.match(/^\/admin\/api\/assets\/([0-9a-f-]{36})$/);
     if (asset) return json(await updateAsset(env.CMS_DB, asset[1], await readJson(request, 4096)));

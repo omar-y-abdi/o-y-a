@@ -25,10 +25,12 @@ async function responseStatus(promise) {
 
 test('R4: definitive errors discard a rejected attempt; unknown outcomes replay immutable bytes',()=>{
  for(const status of [0,200,408,500,502,503,504,400,401,403,409,413,415,422,429]){
-  const draft=new Draft({text:'old'},3); draft.change({text:'sent'});const attempt=draft.beginSave();
-  draft.change({text:'new'});draft.rejectSave(new ApiError('failure',status));const next=draft.beginSave();
-  if(status>=400&&status<500&&status!==408){assert.notEqual(next.requestId,attempt.requestId);assert.equal(next.project.text,'new');}
-  else {assert.equal(next,attempt);assert.equal(next.project.text,'sent');}
+  const base=structuredClone(initial),sent=structuredClone(base),newer=structuredClone(base);
+  sent.pages[0].title='sent';newer.pages[0].title='new';
+  const draft=new Draft(base,3);draft.change(sent);const attempt=draft.beginSave();
+  draft.change(newer);draft.rejectSave(new ApiError('failure',status));const next=draft.beginSave();
+  if(status>=400&&status<500&&status!==408){assert.notEqual(next.requestId,attempt.requestId);assert.equal(next.changes.pages.upsert[0].title,'new');}
+  else {assert.equal(next,attempt);assert.equal(next.changes.pages.upsert[0].title,'sent');}
  }
 });
 
