@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeProjects } from '../src/cms/client/merge.mjs';
-const base = () => ({ schemaVersion: 1, pages: [{ id: 'home', html: 'old', css: 'old', project: { old: true } }, { id: 'about', html: 'about' }], cards: [{ id: 'win', text: 'old' }], theme: { blue: '#123456', fontFamily: 'Arial' }, runtime: { hello: 'Hej' } });
+import { projectChanges, validateProjectChanges } from '../src/cms/project-changes.mjs';
+const base = () => ({ schemaVersion: 1, pages: [{ id: 'home', html: 'old', css: 'old', project: { old: true } }, { id: 'about', html: 'about' }], cards: [{ id: 'win', text: 'old' }], theme: { blue: '#123456', fontFamily: 'Arial' }, runtime: { hello: 'Hej' }, sharedContent: { 'footer.tagline': 'Original footer' } });
 
 test('disjoint tab changes merge without losing either page, card or setting', () => {
   const before = base(), mine = base(), theirs = base();
@@ -31,4 +32,14 @@ test('identical edits and non-overlapping deletions need no conflict confirmatio
   const result = mergeProjects(before, mine, theirs);
   assert.deepEqual(result.conflicts, []);
   assert.equal(result.project.pages.length, 1);
+});
+
+test('reconciled project preserves shared content and produces a valid save delta', () => {
+  const before = base(), mine = base(), theirs = base();
+  mine.pages[0] = { ...mine.pages[0], description: 'mine' };
+  theirs.pages[0] = { ...theirs.pages[0], description: 'theirs' };
+  const result = mergeProjects(before, mine, theirs);
+  assert.equal(result.project.sharedContent['footer.tagline'], 'Original footer');
+  const changes = projectChanges(theirs, result.project);
+  assert.doesNotThrow(() => validateProjectChanges(changes));
 });

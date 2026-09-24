@@ -36,7 +36,8 @@ with sync_playwright() as pw:
           window.snapshots=[];window.ready=false;
           window.handle=cmsTest.createEditor({page:data,cssPath:'',assets:[],onChange(value){snapshots.push(value)},onSelect(){},onReady(){ready=true}});
         }''', content or PAGE)
-        page.wait_for_function('ready')
+        # Compat boots multiple GrapesJS engines concurrently; only editor startup gets extra headroom.
+        page.wait_for_function('ready', timeout=20_000)
         return page.frame_locator('#editor iframe.gjs-frame')
 
     smoke_cases = {

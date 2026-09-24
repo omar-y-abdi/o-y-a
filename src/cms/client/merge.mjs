@@ -18,11 +18,11 @@ export function mergeProjects(base, local, remote) {
       .map(id => choose(`${name}:${id}`, before.get(id), mine.get(id), theirs.get(id)))
       .filter(item => item !== undefined);
   }
-  function properties(name) {
-    const before = base[name] ?? defaultResources, mine = local[name] ?? defaultResources, theirs = remote[name] ?? defaultResources;
+  function properties(name, fallback = defaultResources) {
+    const before = base[name] ?? fallback, mine = local[name] ?? fallback, theirs = remote[name] ?? fallback;
     return Object.fromEntries([...new Set([...Object.keys(before), ...Object.keys(mine), ...Object.keys(theirs)])]
       .map(key => [key, choose(`${name}:${key}`, before[key], mine[key], theirs[key])])
       .filter(([, value]) => value !== undefined));
   }
-  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime'), resources: properties('resources') }, conflicts };
+  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime'), resources: properties('resources'), sharedContent: properties('sharedContent', {}) }, conflicts };
 }
