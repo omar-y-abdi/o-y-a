@@ -43,12 +43,14 @@ export class Backups {
   }
   async restore(record) {
     this.flush();
-    const before = this.snapshot().project;
+    const before = this.snapshot();
     try {
       const verified = await api('recover', { project: record.project, pendingSave: record.pendingSave });
+      if (verified.pendingSave && verified.pendingSave.baseVersion !== record.version) throw new Error('Reservutkastet hör till en annan version.');
       const base = await api(`revision/${record.version}`);
       this.flush();
-      if (this.snapshot().project !== before) throw new Error('Utkastet ändrades medan återställningen kontrollerades. Dina senaste ändringar och reservkopian är kvar.');
+      const current = this.snapshot();
+      if (current.owner !== before.owner || current.project !== before.project || current.version !== before.version || current.pendingSave !== before.pendingSave) throw new Error('Utkastet ändrades. Dina ändringar och reservkopian finns kvar.');
       await this.install({ ...verified, base: base.project, version: record.version, managedSvg: record.managedSvg ?? null });
       // First commit the new session's independent copy, then acknowledge only
       // the exact generation accepted from an inactive recovery record.

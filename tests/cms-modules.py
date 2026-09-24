@@ -36,11 +36,13 @@ with sync_playwright() as pw:
           window.snapshots=[];window.ready=false;
           window.handle=cmsTest.createEditor({page:data,cssPath:'',assets:[],onChange(value){snapshots.push(value)},onSelect(){},onReady(){ready=true}});
         }''', content or PAGE)
-        page.wait_for_function('ready')
+        # Compat boots multiple GrapesJS engines concurrently; only editor startup gets extra headroom.
+        page.wait_for_function('ready', timeout=20_000)
         return page.frame_locator('#editor iframe.gjs-frame')
 
     smoke_cases = {
         'R14-active-typing-newlines-composition-flush',
+        'R23-live-text-active-inactive-serialization-stable',
         'R12-clone-anchor-aria-svg-and-style',
         'cms-duplicate-inline-section-preserves-style',
         'cms-usability-resize-nudge-and-style-mode',
@@ -87,6 +89,51 @@ with sync_playwright() as pw:
             page.evaluate('handle.flush()')
             assert page.evaluate("snapshots.at(-1).html.includes('!')")
             return {'active': True, 'line_break_and_composition_captured': True, 'before_composition': before}
+        finally: page.close()
+
+    def live_text_serialization():
+        page = make_page()
+        try:
+            value = page.evaluate(r'''()=>{
+              const model = {};
+              const activeHtml = '<main><button disabled=""><span data-cms-node="text">before</span></button><input disabled=""><br/><noscript><p>Keep no-script content</p></noscript><table><tbody><tr><td>Table cell</td></tr></tbody></table><svg viewBox="0 0 2 2"><path d="M0 0h2v2z"></path></svg></main>';
+              const inactiveHtml = '<main><button disabled><span data-cms-node="text">after</span></button><input disabled><br><noscript><p>Keep no-script content</p></noscript><table><tbody><tr><td>Table cell</td></tr></tbody></table><svg viewBox="0 0 2 2"><path d="M0 0h2v2z"></path></svg></main>';
+              const active = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML(options){
+                if (!options?.attributes) return activeHtml;
+                const attrs = options.attributes(model, {});
+                return activeHtml.replace('<span data-cms-node="text">', `<span data-cms-capture="${attrs['data-cms-capture']}" data-cms-node="text">`);
+              }})}, {el:{isConnected:true},model,getChildrenContainer:()=>({innerHTML:'after'})});
+              const inactive = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>inactiveHtml})}, null);
+              const roundtrip = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>active})}, null);
+              const serialize = html => cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>html})}, null);
+              const fragments = {row:serialize('<tr><td>Standalone row</td></tr>'),cell:serialize('<td>Standalone cell</td>'),title:serialize('<title>Standalone title</title>')};
+              const canonical = value => {const template=document.createElement('template');template.innerHTML=value;return template.innerHTML};
+              const structure = value => {const parsed=new DOMParser().parseFromString(value,'text/html');return {noScript:parsed.querySelector('noscript p')?.textContent,tableCell:parsed.querySelector('table td')?.textContent,svgPath:parsed.querySelector('svg path')?.namespaceURI}};
+              return {same:active===inactive, stable:active===roundtrip, canonicalSame:canonical(active)===canonical(inactive), fragments,
+                fragmentTagsPreserved:/<tr\b/.test(fragments.row)&&/<td\b/.test(fragments.row)&&fragments.row.includes('Standalone row')&&/<td\b/.test(fragments.cell)&&fragments.cell.includes('Standalone cell')&&/<title\b/.test(fragments.title)&&fragments.title.includes('Standalone title'),
+                activeHasEdit:active.includes('after')&&!active.includes('before'),
+                inactiveHasEdit:inactive.includes('after')&&!inactive.includes('before'),
+                activeStructure:structure(active),inactiveStructure:structure(inactive),
+                hasBooleanAndVoid:active.includes('disabled')&&inactive.includes('disabled')&&active.includes('<input')&&inactive.includes('<input')&&active.includes('<br')&&inactive.includes('<br')};
+            }''')
+            assert value['activeHasEdit'] and value['inactiveHasEdit'], value
+            assert value['fragmentTagsPreserved'], value
+            expected_structure={'noScript':'Keep no-script content','tableCell':'Table cell','svgPath':'http://www.w3.org/2000/svg'}
+            assert value['activeStructure']==expected_structure and value['inactiveStructure']==expected_structure, value
+            assert value['hasBooleanAndVoid'], value
+            assert value['canonicalSame'], value
+            assert value['stable'], value
+            assert value['same'], 'RTE and inactive model serializers must not create a phantom HTML diff: '+str(value)
+            frame = editor(page)
+            eligibility = page.evaluate('''()=>{
+              const root=handle.editor.getWrapper(), fallback=root.find('noscript')[0];
+              if(!fallback)return null;
+              const chain=[];
+              for(let node=fallback;node;node=node.parent())chain.push({tag:node.get('tagName')??'wrapper',editable:Boolean(node.get('editable'))});
+              return {chain,editableAncestors:chain.filter(node=>node.editable).map(node=>node.tag)};
+            }''')
+            assert eligibility and eligibility['editableAncestors']==[], eligibility
+            return {'serialization':value, 'protectedFallbackRteEligibility':eligibility}
         finally: page.close()
 
     def canonical_reload():
@@ -234,10 +281,24 @@ with sync_playwright() as pw:
         try:
             data={**PAGE,'html':'<main id="main"><section id="original"><h2 id="target">Label</h2><p aria-labelledby="target">Copy</p><a href="#target">Jump</a><svg><defs><linearGradient id="paint"><stop offset="0" stop-color="red"></stop></linearGradient></defs><rect width="10" height="10" fill="url(#paint)"></rect></svg></section></main>','css':'#target{color:rgb(201,32,17)}','project':None}
             editor(page,data)
-            result=page.evaluate('''()=>{const original=handle.editor.getWrapper().find('#original')[0];const clone=original.clone();original.parent().append(clone);cmsTest.remapClone(original,clone,handle.editor);const target=clone.find('h2')[0].getId(),paint=clone.find('linearGradient')[0]?.getId()??clone.find('lineargradient')[0]?.getId();return {target,href:clone.find('a')[0].getAttributes().href,label:clone.find('p')[0].getAttributes()['aria-labelledby'],paint,fill:clone.find('rect')[0].getAttributes().fill,color:getComputedStyle(clone.find('h2')[0].getEl()).color}}''')
+            result=page.evaluate(r'''()=>{
+              const original=handle.editor.getWrapper().find('#original')[0],clone=original.clone();
+              original.parent().append(clone);cmsTest.remapClone(original,clone,handle.editor);
+              const target=clone.find('h2')[0].getId(),paint=clone.find('linearGradient')[0]?.getId()??clone.find('lineargradient')[0]?.getId();
+              const ids=new Map([['target','target-copy'],['paint','paint-copy']]);
+              return {target,href:clone.find('a')[0].getAttributes().href,label:clone.find('p')[0].getAttributes()['aria-labelledby'],paint,
+                fill:clone.find('rect')[0].getAttributes().fill,color:getComputedStyle(clone.find('h2')[0].getEl()).color,
+                escapedSelector:cmsTest.mapCloneCss(String.raw`#tar\67 et,[data-note="#target"]/*#target*/`,ids,true),
+                escapedUrl:cmsTest.mapCloneCss(String.raw`url("#pa\69 nt") "url(#paint)" /*url(#paint)*/`,ids),
+                cloneSelector:cmsTest.hasCloneSelector('#target-copy,[data-note="#target-copy"]',new Set(['target-copy'])),
+                quotedOnly:cmsTest.hasCloneSelector('[data-note="#target-copy"]/*#target-copy*/',new Set(['target-copy']))};
+            }''')
             assert result['target'] != 'target' and result['href'] == '#'+result['target'] and result['label']==result['target']
             assert result['fill']=='url(#'+result['paint']+')'
             assert result['color']=='rgb(201, 32, 17)'
+            assert result['escapedSelector']=='#target-copy,[data-note="#target"]/*#target*/', result
+            assert result['escapedUrl']=='url(#paint-copy) "url(#paint)" /*url(#paint)*/', result
+            assert result['cloneSelector'] and not result['quotedOnly'], result
             return result
         finally: page.close()
 
@@ -586,6 +647,7 @@ with sync_playwright() as pw:
         finally: page.close()
 
     run('R14-active-typing-newlines-composition-flush', active_input)
+    run('R23-live-text-active-inactive-serialization-stable', live_text_serialization)
     run('R18-canonical-content-reloads-without-divergent-editor-data', canonical_reload)
     run('R20-preserve-rich-structure-and-simple-newlines', rich_structure)
     run('R20-text-ranges-unicode-links-and-escaping', text_ranges)

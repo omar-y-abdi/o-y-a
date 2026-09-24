@@ -146,7 +146,7 @@ with sync_playwright() as pw:
             with page.expect_response(lambda r:r.url.endswith('/admin/api/save')): page.locator('[data-action=save]').click()
             expect(page.locator('#save-status')).not_to_contain_text('Sparar')
             page.locator('#page-description').fill('Corrected payload'); save(page)
-            assert calls[0]['requestId']!=calls[1]['requestId'] and calls[1]['project']['pages'][0]['description']=='Corrected payload'
+            assert calls[0]['requestId']!=calls[1]['requestId'] and any(page['description']=='Corrected payload' for page in calls[1]['changes']['pages']['upsert'])
             page.unroute('**/admin/api/save'); calls=[]
             def lose(route):
                 calls.append(route.request.post_data_json)
@@ -165,6 +165,51 @@ with sync_playwright() as pw:
             assert len(calls)==3 and calls[2]['requestId']!=calls[1]['requestId']
             assert api(ctx,'state').json()['project']['pages'][0]['description']=='Newer correction after unknown outcome'
             shot(page,'save-rejection-and-replay')
+        finally: ctx.close()
+
+    def rapid_inline_save_diagnostic():
+        ctx=context()
+        try:
+            page=admin(ctx); requests=[]
+            def capture(route):
+                requests.append(route.request.post_data_json)
+                route.continue_()
+            page.route('**/admin/api/save',capture)
+            frame=qa.CMSBrowserQA.frame(page)
+            target=frame.locator('#hero-title')
+            target.dblclick()
+            editable=frame.locator('[contenteditable=true]').first
+            editable.wait_for(state='visible',timeout=5000)
+            marker=f'RAPID-{uuid.uuid4().hex[:6]}'
+            editable.press('ControlOrMeta+A')
+            editable.press('Backspace')
+            editable.type(marker)
+            with page.expect_response(lambda response:response.url.endswith('/admin/api/save')) as response:
+                page.locator('[data-action=save]').click()
+            result=response.value
+            expect(page.locator('#save-status')).not_to_contain_text('Sparar',timeout=20000)
+            page.wait_for_timeout(600)  # let the editor flush and recovery write settle
+            state=api(ctx,'state').json()
+            rows=records(page)
+            row=max(rows,key=lambda item:item.get('updatedAt','')) if rows else None
+            payload=requests[0] if requests else {}
+            submitted=next((item for item in payload.get('changes',{}).get('pages',{}).get('upsert',[]) if item.get('id')=='home'),{})
+            current=next((item for item in state['project']['pages'] if item.get('id')=='home'),{})
+            backup=next((item for item in (row or {}).get('project',{}).get('pages',[]) if item.get('id')=='home'),{})
+            fields=('title','description','html','css')
+            print('RAPID_SAVE_DIAGNOSTIC '+json.dumps({
+                'browser':ENGINE,'status':result.status,'requestCount':len(requests),
+                'requestBytes':len(json.dumps(payload,separators=(',',':')).encode()),
+                'submittedPageFields':sorted(submitted),'serverVersion':state['version'],
+                'serverDiffFromSubmitted':[key for key in fields if submitted.get(key)!=current.get(key)],
+                'backupDiffFromSubmitted':[key for key in fields if submitted.get(key)!=backup.get(key)] if backup else None,
+                'saveStatus':page.locator('#save-status').inner_text(),
+                'backupStatus':page.locator('#backup-status').inner_text(),
+            },ensure_ascii=False))
+            assert len(requests)==1 and result.status==200, 'Expected one successful immediate Save request.'
+            assert not (backup and [key for key in fields if backup.get(key)!=submitted.get(key)]), 'A canvas/editor flush changed the draft after Save despite no further user input.'
+            assert 'Utkast' not in page.locator('#save-status').inner_text(), 'A single immediate Save should leave this no-further-input draft clean.'
+            shot(page,'rapid-inline-save-diagnostic')
         finally: ctx.close()
 
     def metadata_conflict():
@@ -264,7 +309,7 @@ with sync_playwright() as pw:
                 shot(page,'resource-slot-'+slot)
         finally: ctx.close()
 
-    cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
+    cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('rapid-inline-save-diagnostic',rapid_inline_save_diagnostic),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
     selected=os.environ.get('CMS_REVIEW_CASE')
     for name,run in cases:
         if not selected or selected in name: report.run(name,run)

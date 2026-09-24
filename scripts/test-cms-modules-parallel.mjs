@@ -9,6 +9,7 @@ const SERIAL_CASES = new Set(['R20-preserve-rich-structure-and-simple-newlines']
 for (const name of SERIAL_CASES) if (!registered.includes(name)) throw new Error(`Unknown serial CMS module case: ${name}`);
 const SMOKE = new Set([
   'R14-active-typing-newlines-composition-flush',
+  'R23-live-text-active-inactive-serialization-stable',
   'R12-clone-anchor-aria-svg-and-style',
   'cms-duplicate-inline-section-preserves-style',
   'cms-usability-resize-nudge-and-style-mode',
@@ -22,7 +23,8 @@ const cases = selected.filter(name => !SERIAL_CASES.has(name));
 const serialCases = selected.filter(name => SERIAL_CASES.has(name));
 const expectedCases = [...cases, ...serialCases];
 const workers = Math.max(1, Math.min(Number(process.env.CMS_MODULE_WORKERS || 4), Math.max(cases.length, 1)));
-const resultsDir = 'output/cms-modules/results';
+const resultsDir = process.env.CMS_MODULE_RESULTS_DIR || 'output/cms-modules/results';
+const aggregatePath = process.env.CMS_MODULE_RESULTS_FILE || 'output/cms-modules/results.json';
 await rm(resultsDir, { recursive: true, force: true });
 await mkdir(resultsDir, { recursive: true });
 let python = process.env.PYTHON ?? 'python3';
@@ -64,7 +66,7 @@ async function mergeResults() {
   }
   const names = aggregate.map(item => item.name);
   if (names.length !== expectedCases.length || new Set(names).size !== expectedCases.length) throw new Error(`CMS module evidence mismatch: expected ${expectedCases.length}, got ${names.length}.`);
-  await writeFile('output/cms-modules/results.json', JSON.stringify(aggregate, null, 2));
+  await writeFile(aggregatePath, JSON.stringify(aggregate, null, 2));
   if (aggregate.some(item => !item.passed)) failed = true;
 }
 function stop(signal) { for (const child of running) child.kill(signal); }

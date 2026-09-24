@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 const browsers = ['firefox', 'webkit'];
+const runId = process.pid;
 const running = new Set();
 let stopping = false;
 
@@ -20,7 +21,7 @@ function run(command, args, env) {
 }
 
 async function runBrowser(browser) {
-  const env = { ...process.env, CMS_BROWSER: browser, CMS_MODULE_WORKERS: process.env.CMS_COMPAT_MODULE_WORKERS || '2', CMS_BROWSER_WORKERS: process.env.CMS_COMPAT_BROWSER_WORKERS || '2' };
+  const env = { ...process.env, CMS_BROWSER: browser, CMS_MODULE_WORKERS: process.env.CMS_COMPAT_MODULE_WORKERS || '2', CMS_BROWSER_WORKERS: process.env.CMS_COMPAT_BROWSER_WORKERS || '2', CMS_MODULE_RESULTS_DIR: `output/cms-modules/results-${runId}-${browser}`, CMS_MODULE_RESULTS_FILE: `output/cms-modules/results-${runId}-${browser}.json` };
   console.log(`\n=== CMS compatibility: ${browser} ===`);
   let code = await run('npm', ['run', 'test:cms:modules'], env);
   if (code) return { browser, code };

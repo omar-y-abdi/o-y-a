@@ -15,9 +15,9 @@ export function validateTheme(input) {
 
 export function themeCss(input) { return renderThemeCss(validateTheme(input)); }
 
-export function referencedFonts(project) {
-  return [...resourceReferences(project).keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.woff2$/.test(src)).map(src => src.slice(7, -6));
+export function referencedFonts(project, references = resourceReferences(project)) {
+  return [...references.keys()].filter(src => /^\/media\/[0-9a-f-]{36}\.woff2$/.test(src)).map(src => src.slice(7, -6));
 }
-export function fontCss(project) {
-  return referencedFonts(project).map(id => `@font-face{font-family:"cms-font-${id}";src:url(/media/${id}.woff2) format("woff2");font-display:swap}`).join('');
+export function fontCss(project, references = resourceReferences(project)) {
+  return referencedFonts(project, references).map(id => `@font-face{font-family:"cms-font-${id}";src:url(/media/${id}.woff2) format("woff2");font-display:swap}`).join('');
 }

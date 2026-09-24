@@ -1,3 +1,5 @@
+import { applyProjectChanges, projectChanges } from '../project-changes.mjs';
+
 export class Draft {
   constructor(project, version) {
     this.project = project;
@@ -9,14 +11,31 @@ export class Draft {
     this.lastGroup = '';
     this.lastChange = 0;
     this.pendingSave = null;
+    this.pendingSnapshot = null;
   }
   get dirty() { return this.project !== this.saved; }
   beginSave() {
-    this.pendingSave ??= { project: structuredClone(this.project), baseVersion: this.version, requestId: crypto.randomUUID() };
+    if (!this.pendingSave) {
+      const snapshot = structuredClone(this.project);
+      const changes = projectChanges(this.saved, snapshot);
+      if (!Object.keys(changes).length) { this.saved = this.project; return null; }
+      this.pendingSnapshot = snapshot;
+      this.pendingSave = this.version === 0
+        ? { project: snapshot, baseVersion: 0, requestId: crypto.randomUUID() }
+        : { changes, baseVersion: this.version, requestId: crypto.randomUUID() };
+    }
     return this.pendingSave;
   }
   rejectSave(error) {
-    if (error.definitive) this.pendingSave = null;
+    if (error.definitive) { this.pendingSave = null; this.pendingSnapshot = null; }
+  }
+  restorePending(pendingSave) {
+    this.pendingSave = pendingSave ?? null;
+    if (!pendingSave) { this.pendingSnapshot = null; return; }
+    this.pendingSnapshot = pendingSave.changes
+      ? applyProjectChanges(this.saved, pendingSave.changes)
+      : pendingSave.project ? structuredClone(pendingSave.project) : null;
+    if (!this.pendingSnapshot) throw new TypeError('Invalid pending save.');
   }
   change(project, group = '') {
     if (project === this.project) return;
@@ -34,7 +53,8 @@ export class Draft {
   undo() {
     if (!this.undoStack.length) return false;
     this.redoStack.push(this.project);
-    this.project = this.undoStack.pop();
+    const project = this.undoStack.pop();
+    this.project = JSON.stringify(project) === JSON.stringify(this.saved) ? this.saved : project;
     this.lastGroup = '';
     this.generation++;
     return true;
@@ -42,14 +62,16 @@ export class Draft {
   redo() {
     if (!this.redoStack.length) return false;
     this.undoStack.push(this.project);
-    this.project = this.redoStack.pop();
+    const project = this.redoStack.pop();
+    this.project = JSON.stringify(project) === JSON.stringify(this.saved) ? this.saved : project;
     this.lastGroup = '';
     this.generation++;
     return true;
   }
-  acknowledge(snapshot, version) {
+  acknowledge(snapshot, version, pendingSave) {
+    if (!snapshot || !Number.isSafeInteger(version)) throw new TypeError('Invalid save acknowledgement.');
     this.saved = JSON.stringify(snapshot) === JSON.stringify(this.project) ? this.project : snapshot;
     this.version = version;
-    this.pendingSave = null;
+    if (this.pendingSave === pendingSave) { this.pendingSave = null; this.pendingSnapshot = null; }
   }
 }
