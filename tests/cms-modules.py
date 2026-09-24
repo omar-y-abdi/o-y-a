@@ -281,10 +281,24 @@ with sync_playwright() as pw:
         try:
             data={**PAGE,'html':'<main id="main"><section id="original"><h2 id="target">Label</h2><p aria-labelledby="target">Copy</p><a href="#target">Jump</a><svg><defs><linearGradient id="paint"><stop offset="0" stop-color="red"></stop></linearGradient></defs><rect width="10" height="10" fill="url(#paint)"></rect></svg></section></main>','css':'#target{color:rgb(201,32,17)}','project':None}
             editor(page,data)
-            result=page.evaluate('''()=>{const original=handle.editor.getWrapper().find('#original')[0];const clone=original.clone();original.parent().append(clone);cmsTest.remapClone(original,clone,handle.editor);const target=clone.find('h2')[0].getId(),paint=clone.find('linearGradient')[0]?.getId()??clone.find('lineargradient')[0]?.getId();return {target,href:clone.find('a')[0].getAttributes().href,label:clone.find('p')[0].getAttributes()['aria-labelledby'],paint,fill:clone.find('rect')[0].getAttributes().fill,color:getComputedStyle(clone.find('h2')[0].getEl()).color}}''')
+            result=page.evaluate(r'''()=>{
+              const original=handle.editor.getWrapper().find('#original')[0],clone=original.clone();
+              original.parent().append(clone);cmsTest.remapClone(original,clone,handle.editor);
+              const target=clone.find('h2')[0].getId(),paint=clone.find('linearGradient')[0]?.getId()??clone.find('lineargradient')[0]?.getId();
+              const ids=new Map([['target','target-copy'],['paint','paint-copy']]);
+              return {target,href:clone.find('a')[0].getAttributes().href,label:clone.find('p')[0].getAttributes()['aria-labelledby'],paint,
+                fill:clone.find('rect')[0].getAttributes().fill,color:getComputedStyle(clone.find('h2')[0].getEl()).color,
+                escapedSelector:cmsTest.mapCloneCss(String.raw`#tar\67 et,[data-note="#target"]/*#target*/`,ids,true),
+                escapedUrl:cmsTest.mapCloneCss(String.raw`url("#pa\69 nt") "url(#paint)" /*url(#paint)*/`,ids),
+                cloneSelector:cmsTest.hasCloneSelector('#target-copy,[data-note="#target-copy"]',new Set(['target-copy'])),
+                quotedOnly:cmsTest.hasCloneSelector('[data-note="#target-copy"]/*#target-copy*/',new Set(['target-copy']))};
+            }''')
             assert result['target'] != 'target' and result['href'] == '#'+result['target'] and result['label']==result['target']
             assert result['fill']=='url(#'+result['paint']+')'
             assert result['color']=='rgb(201, 32, 17)'
+            assert result['escapedSelector']=='#target-copy,[data-note="#target"]/*#target*/', result
+            assert result['escapedUrl']=='url(#paint-copy) "url(#paint)" /*url(#paint)*/', result
+            assert result['cloneSelector'] and not result['quotedOnly'], result
             return result
         finally: page.close()
 
