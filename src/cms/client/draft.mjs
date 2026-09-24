@@ -69,7 +69,7 @@ export class Draft {
     return true;
   }
   acknowledge(snapshot, version, pendingSave) {
-    if (!snapshot || !Number.isSafeInteger(version)) throw new TypeError('Save acknowledgement has no matching snapshot.');
+    if (!snapshot || !Number.isSafeInteger(version)) throw new TypeError('Invalid save acknowledgement.');
     this.saved = JSON.stringify(snapshot) === JSON.stringify(this.project) ? this.project : snapshot;
     this.version = version;
     if (this.pendingSave === pendingSave) { this.pendingSave = null; this.pendingSnapshot = null; }

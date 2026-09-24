@@ -104,19 +104,11 @@ with sync_playwright() as pw:
               }})}, {el:{isConnected:true},model,getChildrenContainer:()=>({innerHTML:'after'})});
               const inactive = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>inactiveHtml})}, null);
               const roundtrip = cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>active})}, null);
-              const liveContainer=document.createElement('div');
-              liveContainer.innerHTML='<span>before</span><noscript><p>Keep no-script content</p></noscript>';
-              const containerHtml='<main><span>before</span><noscript><p>Keep no-script content</p></noscript></main>';
-              const activeContainer=cmsTest.liveHtml({getWrapper:()=>({getInnerHTML(options){
-                if (!options?.attributes) return containerHtml;
-                const attrs=options.attributes(model,{});
-                return containerHtml.replace('<main>',`<main data-cms-capture="${attrs['data-cms-capture']}">`);
-              }})},{el:{isConnected:true},model,getChildrenContainer:()=>({innerHTML:liveContainer.innerHTML.replace('before','after')})});
               const serialize = html => cmsTest.liveHtml({getWrapper:()=>({getInnerHTML:()=>html})}, null);
               const fragments = {row:serialize('<tr><td>Standalone row</td></tr>'),cell:serialize('<td>Standalone cell</td>'),title:serialize('<title>Standalone title</title>')};
               const canonical = value => {const template=document.createElement('template');template.innerHTML=value;return template.innerHTML};
               const structure = value => {const parsed=new DOMParser().parseFromString(value,'text/html');return {noScript:parsed.querySelector('noscript p')?.textContent,tableCell:parsed.querySelector('table td')?.textContent,svgPath:parsed.querySelector('svg path')?.namespaceURI}};
-              return {same:active===inactive, stable:active===roundtrip, canonicalSame:canonical(active)===canonical(inactive), containerStructure:structure(activeContainer), fragments,
+              return {same:active===inactive, stable:active===roundtrip, canonicalSame:canonical(active)===canonical(inactive), fragments,
                 fragmentTagsPreserved:/<tr\b/.test(fragments.row)&&/<td\b/.test(fragments.row)&&fragments.row.includes('Standalone row')&&/<td\b/.test(fragments.cell)&&fragments.cell.includes('Standalone cell')&&/<title\b/.test(fragments.title)&&fragments.title.includes('Standalone title'),
                 activeHasEdit:active.includes('after')&&!active.includes('before'),
                 inactiveHasEdit:inactive.includes('after')&&!inactive.includes('before'),
@@ -127,12 +119,20 @@ with sync_playwright() as pw:
             assert value['fragmentTagsPreserved'], value
             expected_structure={'noScript':'Keep no-script content','tableCell':'Table cell','svgPath':'http://www.w3.org/2000/svg'}
             assert value['activeStructure']==expected_structure and value['inactiveStructure']==expected_structure, value
-            assert value['containerStructure']['noScript']=='Keep no-script content', value
             assert value['hasBooleanAndVoid'], value
             assert value['canonicalSame'], value
             assert value['stable'], value
             assert value['same'], 'RTE and inactive model serializers must not create a phantom HTML diff: '+str(value)
-            return value
+            frame = editor(page)
+            eligibility = page.evaluate('''()=>{
+              const root=handle.editor.getWrapper(), fallback=root.find('noscript')[0];
+              if(!fallback)return null;
+              const chain=[];
+              for(let node=fallback;node;node=node.parent())chain.push({tag:node.get('tagName')??'wrapper',editable:Boolean(node.get('editable'))});
+              return {chain,editableAncestors:chain.filter(node=>node.editable).map(node=>node.tag)};
+            }''')
+            assert eligibility and eligibility['editableAncestors']==[], eligibility
+            return {'serialization':value, 'protectedFallbackRteEligibility':eligibility}
         finally: page.close()
 
     def canonical_reload():

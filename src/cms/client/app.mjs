@@ -22,7 +22,7 @@ let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSel
 let backups, previewSequence = 0, inspectorTab = 'design', pendingViewRestore = null, svgDraft = null;
 let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer, mediaTotal = 0;
 const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
-const saveInProgress = 'Sparning pågår. Ändringarna finns kvar; försök igen när den är klar.';
+const saveInProgress = 'Sparning pågår. Ändringarna finns kvar; vänta och försök igen.';
 const page = () => draft.project.pages.find(item => item.id === lastPage) ?? draft.project.pages[0];
 const card = () => draft.project.cards.find(item => item.id === current.id);
 
