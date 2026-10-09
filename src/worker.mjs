@@ -8,6 +8,7 @@ import { ADMIN_CSP, publicContent } from './cms/render.mjs';
 import { errorResponse } from './cms/http.mjs';
 import { reportFailure } from './cms/diagnostics.mjs';
 import { negotiatePublicPage } from './server/markdown.mjs';
+import { isVersionedApiPath, rejectUnsupportedApiVersion, withApiVersion } from './server/api-version.mjs';
 
 const PAGES = new Set(routes.filter(page => !page.noindex).map(page => page.path));
 const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
@@ -94,6 +95,12 @@ export default {
     if (['GET','HEAD'].includes(request.method) && TRUST_ALIASES.has(url.pathname)) {
       return secure(new Response(null, { status:308, headers:{Location:(local || stage ? url.origin : CANONICAL) + TRUST_ALIASES.get(url.pathname) + url.search} }),url.protocol === 'https:');
     }
+    const versionedApi = isVersionedApiPath(url.pathname);
+    const unsupportedVersion = versionedApi ? rejectUnsupportedApiVersion(request) : null;
+    if (unsupportedVersion) {
+      const versionedResponse = withApiVersion(secure(unsupportedVersion,url.protocol === 'https:'));
+      return request.method === 'HEAD' ? new Response(null,versionedResponse) : versionedResponse;
+    }
     let response;
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       response = await handleAdmin(request,env,{seed,initial,built});
@@ -125,8 +132,16 @@ export default {
       response = new Response(response.body,{status:404,headers:response.headers});
     }
     response = await negotiatePublicPage(request, response);
-    const secured = secure(response,url.protocol === 'https:');
+    const secured = versionedApi
+      ? withApiVersion(secure(response,url.protocol === 'https:'))
+      : secure(response,url.protocol === 'https:');
     if (stage || url.pathname.startsWith('/login')) secured.headers.set('X-Robots-Tag','noindex, nofollow');
+    if (url.pathname === '/' && ['GET','HEAD'].includes(request.method) && secured.status === 200) {
+      // RFC 8631 discovery works for browsers, crawlers and Markdown clients
+      // without adding another visible CMS/footer element.
+      secured.headers.append('Link', '</developers/>; rel="service-doc"; type="text/html"');
+      secured.headers.append('Link', '</openapi.json>; rel="service-desc"; type="application/json"');
+    }
     if (request.method === 'HEAD') return new Response(null,secured);
     return secured;
   },

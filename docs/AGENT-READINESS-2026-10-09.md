@@ -22,21 +22,48 @@ Source: `GET https://ora.ai/api/score/{domain}?include=essentials`
 
 **Not directly portable:** Blade is a booking business with its own live business structured data and a public booking action; Omar Yusuf is a personal portfolio with `Person` identity and no agent-writable public service. Ora correctly marks Blade's OpenAPI and developer portal as *not applicable*; inventing a company, transaction API, CLI or credentials on the portfolio would be deceptive.
 
+## Update after the owner changed Cloudflare security (2026-10-09)
+
+The owner reports disabling **Bot Fight Mode** in Cloudflare and receiving **97/100** in a new Ora readiness scan, compared with the historical **5/100** measured below. The updated score is owner-reported rather than independently fetched from a new Ora API result; the previously cached API output still represents the older scan. This is consistent with the verified Bot Fight Mode challenges having caused most of the failures.
+
+The API follow-up changes now implement an optional, backwards-compatible `API-Version: 1` header for actual public JSON operations, typed OpenAPI descriptions for 7/7 operations, explicit English when-to-use agent guidance and RFC 8631 discovery links. No fictitious Organization, CLI, SDK or account product has been added. Their incremental scoring impact must be determined by a fresh scan after deployment.
+
+## Confirmed cause of Ora 5/100 (second scan, 2026-10-09)
+
+Read-only Cloudflare GraphQL `firewallEventsAdaptive` for 06:25–06:30 UTC returned **100 sampled Security Events**, all with `source=botFight` and `action=managed_challenge`. Events at 06:27:33 UTC included `OraBot/1.0 (+https://ora.ai/bot)` requests for `/`, `/openapi.json` and probe paths; a homepage event at 06:27:49 UTC used `is-agentic-site-type/1.0`. The Ora essentials score remained **5/100** at its 06:27 UTC scan, while direct HTML, Markdown, sitemap, OpenAPI and llms.txt tests from the owner's network returned HTTP 200.
+
+For comparison, the same read-only GraphQL query returned **zero Security Events** in Blade & Blend's five-minute Ora scan window (05:29–05:34 UTC). These are limited samples, **not** full request totals or proof of either site's current Bot Fight Mode settings.
+
+**Conclusion:** This is a confirmed Cloudflare Bot Fight Mode false positive **before** the portfolio Worker, not missing source content. Cloudflare explicitly states that the Free-plan Bot Fight Mode [cannot be bypassed by WAF Skip/Allow rules](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/). Rewriting HTML or publishing fake API products cannot fix this score. The owner reports having disabled Bot Fight Mode, which reduces bot challenges site-wide; a more granular paid alternative remains a separate product and security decision. Preserve Cloudflare Access to `/admin/`, API/contact Turnstile, rate limits, the WAF and DDoS safeguards.
+
 ## Cloudflare permissions and separate owner action
 
-The provided Wrangler login was successfully authenticated and has `zone (read)` but not security-management scopes. Read-only calls for either zone's `settings/security_level`, `bot_management` and `rulesets` returned HTTP **403**. The actual challenging product/rule therefore **cannot be determined from the available credentials**.
+The Wrangler OAuth session has `zone (read)` and can read Security Events using GraphQL, but does **not** have Bot Management Read/Write or Zone Settings Write. Direct calls to `bot_management`, `settings/security_level`, `settings/browser_check` and `rulesets` returned **HTTP 403**. The source (`botFight`) is now confirmed by event evidence, but the current credentials cannot change its setting. Cloudflare Dashboard redirected to `/login`, with no authenticated browser session. **This investigation did not change production security settings; the owner subsequently disabled Bot Fight Mode directly.**
 
-1. In Cloudflare Dashboard, select **omaryusuf.se** → **Security → Analytics / Events**. Examine challenged requests at approximately 2026-10-09 05:23 UTC (the Ora scan time). Filter bot traffic and record **Service / Rule**, request action and whether the challenge is generated before the Worker. Compare the same timeframe with bladeblendstudio.se.
-2. If Service is **Bot Fight Mode**, see [Cloudflare's official docs](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/). On the Free plan Bot Fight Mode **cannot** be bypassed by WAF Skip/Allow rules. Decide whether to disable it in **Security → Settings → Bot traffic → Bot Fight Mode**, while preserving DDoS protection, any other WAF custom rules and Cloudflare Access on `/admin/`. Do not lower security without confirming the source of the false positive. Upgrading to Super Bot Fight Mode is another path if precise verified-bot exemptions are required.
-3. If the challenge instead comes from a **WAF custom rule or AI Crawl Control**, narrow only the offending rule and permit legitimate **verified bots** (Cloudflare `cf.client.bot`), not a blindly trusted spoofable User-Agent. Keep CMS routes and write endpoints protected. See [verified-bot examples](https://developers.cloudflare.com/waf/custom-rules/use-cases/allow-traffic-from-verified-bots/) and [AI Crawl Control](https://developers.cloudflare.com/ai-crawl-control/features/manage-ai-crawlers/).
+1. **Completed by the owner:** Bot Fight Mode was turned off for omaryusuf.se, followed by a user-reported Ora score of 97/100. Keep Cloudflare Access on `/admin/`, WAF/DDoS protection and contact Turnstile/rate limits unchanged. Do not add a spoofable User-Agent bypass or weaken additional security controls.
+2. If Bot Fight Mode must remain in place, consider **Super Bot Fight Mode** with scoped verified-bot exceptions rather than trusting arbitrary `User-Agent` headers; [Cloudflare's documentation](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/) confirms that Free-plan Bot Fight Mode cannot be bypassed by custom WAF Skip/Allow rules. This is a product/security decision, not a Git diff.
+3. **Only if a new audit still fails after changing Bot Fight Mode**, inspect fresh Security Events for other controls (WAF custom rules or AI Crawl Control). Narrow only a verified offending rule, using [Cloudflare's verified-bot guidance](https://developers.cloudflare.com/waf/custom-rules/use-cases/allow-traffic-from-verified-bots/) rather than a spoofable User-Agent. Keep CMS and contact-write routes protected.
 4. Re-run Ora on the **deployed site** after the security change. Inspect the **new scan's per-check evidence**, not only the headline number: `https://ora.ai/api/score/omaryusuf.se?include=essentials`. Re-test Markdown/HTML negotiation and crawler responses.
 5. For brand search visibility, verify indexing/search coverage for `omaryusuf.se` with the domain owner and submit its existing XML sitemap through the configured search engine webmaster tools. Rankings and re-indexing require search-engine cooperation/time; the PR cannot force them.
 
-## Code work in this PR
+## Code already merged via PR #10 and PR #11
 
 - Mobile footer contains every control even when a prior CMS style sets a fixed `height: 282px`.
 - Legacy published CMS footer migrates a **single** developer link into the editor's trusted element tree, remapping only verified pre-change identities and selectors. No runtime-only injected extra anchor, and preserving owner-edited text, style, revision history and functions.
 - CMS incremental save allows only footer schema version 1, tested with a genuine pre-change D1 revision and an authenticated browser.
 - Personal `Person` JSON-LD includes a grounded description of the published portfolio. Public HTML advertises the already-implemented same-URL Markdown representation via an alternate link.
+
+## Independent post-merge verification (2026-10-09)
+
+The same source tree as production `main` (`a0bdcb9d3e45c36794a9b19392cde6e84c8fbf63`) was tested in an **isolated Git worktree** so concurrent local CMS edits in `/Users/k/dev/o-y-a` remain intact:
+
+- `TEST_CONCURRENCY=2 npm run check:fast`: **237/237 tests passed**, including build and lint.
+- `SKIP_CHECK=1 npm run quality`: **21/21 real HTTP checks**, **320/320 Chromium browser tests**, interaction/privacy checks and **31/31 revision tests** passed.
+- `npm run test:cms:footer` using the pinned Playwright environment: **8/8 Chromium**, **8/8 WebKit**, and **8/8 Firefox** regressions passed (CMS edit/save/preview/reload and widths 320–1440 px).
+- `npm run edge:check:built`: Wrangler's production Worker dry-run passed.
+- Independent live HTTP verification on `https://omaryusuf.se`: **17/17 targeted checks passed**, including at least 500 visible HTML characters, H1/heading order, homepage Markdown with `Vary: Accept`, JSON API errors, valid OpenAPI 3.1.1 with seven distinct operations, sitemap, robots, `llms.txt`, Person JSON-LD, developer links, and genuine trust anchors.
+- Six named bot User-Agent strings returned 200 on the owner's connection; **Cloudflare Security Events proved Ora's separate network was challenged**, so this is not evidence that Ora can crawl.
+
+The original evidence-only update did not change the WAF or deploy a Worker. The owner subsequently disabled Bot Fight Mode and reports **97/100**. This PR additionally contains verified public API versioning and discovery changes. Their impact must be measured by a **new Ora audit after deployment**, not inferred from the earlier score.
 
 **Do not report a 100/100 result without a fresh Ora score after the real WAF change.**

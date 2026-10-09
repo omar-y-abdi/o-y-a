@@ -3,7 +3,7 @@
   "info": {
     "title": "Omar Yusuf portfolio public HTTP endpoints",
     "version": "1.0.0",
-    "description": "A personal portfolio, not an open automation platform. Public read-only routes require no API key. Contact and analytics writes are first-party, anti-abuse protected functionality, not unrestricted agent actions. The owner-only CMS is deliberately excluded."
+    "description": "A personal portfolio, not an open automation platform. HTTP API major version 1 is supported via the optional API-Version: 1 request header; omission selects v1 for backward compatibility. See /developers/ for the deprecation and sunset policy. Public reads require no API key. Contact and analytics writes are first-party, anti-abuse protected functionality, not unrestricted agent actions. The owner-only CMS is deliberately excluded."
   },
   "servers": [
     {
@@ -52,6 +52,15 @@
                   }
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "405": {
@@ -62,9 +71,33 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "API-Version",
+            "in": "header",
+            "required": false,
+            "description": "HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "default": "1"
+            }
+          }
+        ]
       }
     },
     "/api/contact/config": {
@@ -99,6 +132,15 @@
                   }
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "405": {
@@ -109,9 +151,33 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "API-Version",
+            "in": "header",
+            "required": false,
+            "description": "HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "default": "1"
+            }
+          }
+        ]
       }
     },
     "/api/contact": {
@@ -123,6 +189,19 @@
         "summary": "Send a human contact form message",
         "description": "First-party form submission only. Requires same-origin request, a valid Cloudflare Turnstile token bound to this hostname/action, honeypot, UUID submission id, and configured mail delivery. Rate-limited to five attempts per 60 seconds per hashed IP address and per hashed sender email; no public API keys or automated sender integration are offered. The handler returns JSON and never stores a public contact message.",
         "parameters": [
+          {
+            "name": "API-Version",
+            "in": "header",
+            "required": false,
+            "description": "HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "default": "1"
+            }
+          },
           {
             "name": "Origin",
             "in": "header",
@@ -208,6 +287,15 @@
                   }
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "400": {
@@ -216,6 +304,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ContactError"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -228,6 +325,15 @@
                   "$ref": "#/components/schemas/ContactError"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "405": {
@@ -236,6 +342,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ContactError"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -248,6 +363,15 @@
                   "$ref": "#/components/schemas/ContactError"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "413": {
@@ -258,6 +382,15 @@
                   "$ref": "#/components/schemas/ContactError"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "415": {
@@ -266,6 +399,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ContactError"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -298,6 +440,13 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
               }
             }
           },
@@ -307,6 +456,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ContactError"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -323,6 +481,19 @@
         "summary": "Record one consented website event",
         "description": "Optional first-party telemetry, disabled unless explicitly configured. Rejects cross-origin use, missing/denied consent, GPC/DNT and unknown data. Not a public analytics ingestion API. Maximum body is 256 bytes.",
         "parameters": [
+          {
+            "name": "API-Version",
+            "in": "header",
+            "required": false,
+            "description": "HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "default": "1"
+            }
+          },
           {
             "name": "Origin",
             "in": "header",
@@ -386,7 +557,16 @@
         },
         "responses": {
           "204": {
-            "description": "Event accepted; no response body."
+            "description": "Event accepted; no response body.",
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
+            }
           },
           "400": {
             "description": "Request rejected; read the code and hint.",
@@ -394,6 +574,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -406,6 +595,15 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "405": {
@@ -414,6 +612,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -426,6 +633,15 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "415": {
@@ -436,6 +652,15 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "503": {
@@ -444,6 +669,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -471,6 +705,15 @@
                   }
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "405": {
@@ -481,9 +724,33 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "API-Version",
+            "in": "header",
+            "required": false,
+            "description": "HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "default": "1"
+            }
+          }
+        ]
       }
     },
     "/data/runtime.json": {
@@ -504,6 +771,15 @@
                   "additionalProperties": true
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "405": {
@@ -514,9 +790,33 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "API-Version",
+            "in": "header",
+            "required": false,
+            "description": "HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "default": "1"
+            }
+          }
+        ]
       }
     },
     "/data/cards/{id}.json": {
@@ -528,6 +828,19 @@
         "summary": "Read a CMS-published individual card",
         "description": "Available when a matching card has been published through the owner-only CMS. Not all installations or card IDs have a dedicated URL.",
         "parameters": [
+          {
+            "name": "API-Version",
+            "in": "header",
+            "required": false,
+            "description": "HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ],
+              "default": "1"
+            }
+          },
           {
             "name": "id",
             "in": "path",
@@ -548,6 +861,15 @@
                   "$ref": "#/components/schemas/Card"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "404": {
@@ -558,6 +880,15 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
+                }
+              }
             }
           },
           "405": {
@@ -566,6 +897,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "API-Version": {
+                "description": "The effective supported public HTTP API major version.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
