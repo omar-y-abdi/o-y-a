@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const PAGES = ['/', '/verkstad/', '/om/', '/projekt/furl/', '/projekt/blade-blend/', '/projekt/backhaul/', '/kontakt/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html'];
+const PAGES = ['/', '/verkstad/', '/om/', '/projekt/furl/', '/projekt/blade-blend/', '/projekt/backhaul/', '/kontakt/', '/developers/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html'];
 const SIZES = [[320,780], [390,844], [768,1024], [1024,900], [1440,1000], [1920,1080]];
 const SCREENSHOTS = new URL('../artifacts/screenshots/', import.meta.url);
 

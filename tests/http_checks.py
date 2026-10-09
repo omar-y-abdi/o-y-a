@@ -37,7 +37,7 @@ def check(name, fn):
     try: fn();results.append({'name':name,'status':'PASS'});print('PASS',name)
     except Exception as e:results.append({'name':name,'status':'FAIL','error':str(e)});print('FAIL',name,str(e))
 
-routes=['/','/verkstad/','/om/','/projekt/furl/','/projekt/blade-blend/','/projekt/backhaul/','/kontakt/','/integritet/','/kakor/','/villkor/','/tillganglighet/']
+routes=['/','/verkstad/','/om/','/projekt/furl/','/projekt/blade-blend/','/projekt/backhaul/','/kontakt/','/developers/','/integritet/','/kakor/','/villkor/','/tillganglighet/']
 for path in routes:
     def route(path=path):
         status,h,b=fetch(path)
@@ -92,6 +92,58 @@ def xml_and_text():
     for path in ['/robots.txt','/llms.txt']:
         code,h,b=fetch(path);assert code==200 and 'text/plain' in h['content-type'] and b'omaryusuf.se' in b
 check('Sitemap XML parses; robots and llms served as text',xml_and_text)
+
+
+def agent_readiness():
+    for path in routes + ['/404.html']:
+        status, h, markdown = fetch(path, headers={'Accept':'text/markdown'})
+        expected = 404 if path == '/404.html' else 200
+        assert status == expected, (path, status)
+        assert h['content-type'].startswith('text/markdown'), (path, h.get('content-type'))
+        assert 'accept' in h['vary'].lower(), (path, h.get('vary'))
+        assert markdown.startswith(b'# '), path
+        assert len(markdown) >= 100, path
+        assert b'<main' not in markdown and b'<script' not in markdown, path
+        status, headers, head = fetch(path, 'HEAD', {'Accept':'text/markdown'})
+        assert status == expected and not head and headers['content-type'].startswith('text/markdown')
+    code,h,b=fetch('/', headers={'Accept':'text/html'})
+    assert code==200 and h['content-type'].startswith('text/html') and b'<main' in b
+    code,h,b=fetch('/', headers={'Accept':'text/markdown;q=0, text/html;q=1'})
+    assert code==200 and h['content-type'].startswith('text/html')
+    code,h,b=fetch('/', headers={'Accept':'application/json'})
+    assert code==406 and 'accept' in h['vary'].lower()
+    code,h,b=fetch('/', headers={'Accept':'text/markdown','Accept-Encoding':'gzip'})
+    assert code==200 and h['content-encoding']=='gzip'
+    assert {'accept','accept-encoding'} <= {part.strip().lower() for part in h['vary'].split(',')}
+    assert gzip.decompress(b).startswith(b'# ')
+    for src,target in [('/about','/om/'),('/contact','/kontakt/'),('/privacy','/integritet/')]:
+        code,h,b=fetch(src)
+        assert code==308 and h['location']==ORIGIN+target,(src,code,h)
+        code,h,b=fetch(target)
+        assert code==200 and len(b)>500
+    for path in ['/api/unknown','/data/cards/unknown.json']:
+        code,h,b=fetch(path)
+        assert code==404 and 'application/json' in h['content-type'],(path,code,h)
+        data=json.loads(b)
+        assert data.get('code') and data.get('hint') and data.get('error')
+    for path in ['/api/event','/api/contact']:
+        code,h,b=fetch(path)
+        assert code==405 and 'application/json' in h['content-type']
+        data=json.loads(b)
+        assert data.get('code') == 'METHOD_NOT_ALLOWED' and data.get('hint')
+    code,h,b=fetch('/openapi.json')
+    assert code==200 and 'application/json' in h['content-type']
+    spec=json.loads(b)
+    assert spec['openapi'].startswith('3.1.') and spec['servers'][0]['url']=='https://omaryusuf.se'
+    for path in ['/api/config','/api/contact/config','/api/contact','/api/event','/data/cards.json','/data/runtime.json','/data/cards/{id}.json']:
+        assert path in spec['paths'],path
+    for path in ['/api/config','/api/contact/config','/data/cards.json','/data/runtime.json','/openapi.json']:
+        code,h,b=fetch(path)
+        assert code==200 and 'application/json' in h['content-type'],(path,code,h)
+        assert json.loads(b) is not None
+    code,h,b=fetch('/llms.txt')
+    assert code==200 and b'## N' in b and b'/developers/' in b and b'/openapi.json' in b
+check('Agent endpoints: Markdown, HTML, Vary, gzip, OpenAPI, JSON errors, aliases and discovery',agent_readiness)
 
 def compression():
     code,h,b=fetch('/',headers={'Accept-Encoding':'gzip'});assert code==200

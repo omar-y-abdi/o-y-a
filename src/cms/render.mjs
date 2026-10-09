@@ -3,6 +3,7 @@ import { escape } from '../templates/components.mjs';
 import { themeCss, fontCss } from './theme.mjs';
 import { readPublicPage, readPublicData } from './store.mjs';
 import { canonicalPagePath } from './routes.mjs';
+import { routes } from '../content/site.mjs';
 
 export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const safeStyle = css => css.replaceAll('<', '\\3c ');
@@ -16,6 +17,11 @@ export function renderPage(page, built, { version, preview, project, resources =
   if (preview) base = base.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
   let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${page.html}</body>`);
+  // Existing CMS versions store their entire body, including an older footer.
+  // Expose the new public documentation without mutating published CMS content.
+  result = result.replace(/(<nav\b(?=[^>]*aria-label="Sidfotsmeny")[^>]*>)([\s\S]*?)(<\/nav>)/,
+    (full, start, contents, end) => contents.includes('href="/developers/"')
+      ? full : `${start}<a href="/developers/">För utvecklare</a>${contents}${end}`);
   const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
   const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : '';
   return result.replace('</head>', `${styles}${fixture}</head>`);
@@ -43,7 +49,7 @@ export async function publicContent(request, env, built, csp) {
   const exactCard = url.pathname.match(/^\/data\/cards\/([a-z0-9-]{1,80})\.json$/);
   if (exactCard) {
     const row = await readPublicPage(env.CMS_DB, `@card/${exactCard[1]}`);
-    if (!row?.html) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    if (!row?.html) return Response.json({error:'Card not found',code:'NOT_FOUND',hint:'Read /data/cards.json for published card IDs.'}, { status: 404, headers: { 'Cache-Control': 'no-store' } });
     return Response.json(JSON.parse(row.html), { headers: { 'Cache-Control': 'no-store', 'X-CMS-Version': String(row.version) } });
   }
   if (['/data/cards.json', '/data/runtime.json'].includes(url.pathname)) {
@@ -53,11 +59,19 @@ export async function publicContent(request, env, built, csp) {
   if (url.pathname === '/sitemap.xml') {
     const data = await readPublicData(env.CMS_DB, 'manifest');
     if (!data) return null;
-    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${data.value.filter(p => !p.noindex).map(p => `<url><loc>https://omaryusuf.se${p.path}</loc></url>`).join('')}</urlset>`, { headers: { 'Content-Type': 'application/xml', 'Cache-Control': 'no-store' } });
+    const published = data.value.filter(p => !p.noindex).map(p => p.path);
+    // Preserve existing CMS publishing decisions. The new static developers
+    // page is absent from manifests created before this deployment.
+    const developers = routes.find(page => page.path === '/developers/');
+    if (developers && !developers.noindex && !data.value.some(entry => entry.path === developers.path)) published.push(developers.path);
+    return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${published.map(path => `<url><loc>https://omaryusuf.se${path}</loc></url>`).join('')}</urlset>`, { headers: { 'Content-Type': 'application/xml', 'Cache-Control': 'no-store' } });
   }
   const canonical = canonicalPagePath(url.pathname);
   if (!canonical) return null;
   const state = await readPublicPage(env.CMS_DB, canonical);
+  // An existing CMS database may not contain pages added in a later deploy.
+  // Keep the new public documentation reachable via the built static asset.
+  if (canonical === '/developers/' && state?.page === null) return null;
   if (!state) return null;
   if (state.page !== null && url.pathname !== canonical) {
     url.pathname = canonical;

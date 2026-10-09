@@ -16,7 +16,20 @@ for (const [name,data,code] of [
  test(name,async()=>{const handle=await handler(),s=provider();const r=await handle(request(data),env(),s.fetch);assert.equal(r.status,code);assert.equal(s.calls.length,0);});
 test('wrong origin and content-type never call providers',async()=>{const h=await handler();for(const [headers,status] of [[{Origin:'https://evil.example'},403],[{'Content-Type':'text/plain'},415],[{'Sec-Fetch-Site':'cross-site'},403]]){const s=provider();assert.equal((await h(request(valid,headers),env(),s.fetch)).status,status);assert.equal(s.calls.length,0);}});
 test('missing configuration fails closed',async()=>{const h=await handler(),s=provider();for(const key of Object.keys(env())){const e=env();delete e[key];assert.equal((await h(request(),e,s.fetch)).status,503);}assert.equal(s.calls.length,0);});
-test('rate limits and provider exceptions never become success',async()=>{const h=await handler(),s=provider(),e=env();e.CONTACT_RATE_LIMIT.limit=async()=>({success:false});assert.equal((await h(request(),e,s.fetch)).status,429);assert.equal(s.calls.length,0);assert.equal((await h(request(),env(),async()=>{throw Error('secret transport error');})).status,503);});
+test('rate limits and provider exceptions never become success',async()=>{
+ const h=await handler(),s=provider(),e=env();e.CONTACT_RATE_LIMIT.limit=async()=>({success:false});
+ const denied=await h(request(),e,s.fetch);
+ assert.equal(denied.status,429);
+ assert.equal(denied.headers.get('Retry-After'),'60');
+ assert.equal(denied.headers.get('RateLimit-Policy'),'"contact";q=5;w=60');
+ assert.equal(denied.headers.get('RateLimit'),'"contact";r=0;t=60');
+ assert.equal(denied.headers.get('RateLimit-Remaining'),null);
+ const message=await denied.json();
+ assert.equal(message.code,'RATE_LIMITED');
+ assert.ok(message.hint);
+ assert.equal(s.calls.length,0);
+ assert.equal((await h(request(),env(),async()=>{throw Error('secret transport error');})).status,503);
+});
 test('hostname action and Turnstile failure checked before email',async()=>{const h=await handler();for(const options of [{verify:false},{verification:{hostname:'evil.example'}},{verification:{action:'login'}}]){const s=provider(options);assert.equal((await h(request(),env(),s.fetch)).status,403);assert.equal(s.calls.length,1);}});
 test('batch partial response and errors never become success',async()=>{const h=await handler();for(const options of [{status:500},{result:{data:[{id:'only-one'}]}},{result:{data:[{},{}]}},{status:409}]){const s=provider(options);assert.equal((await h(request(),env(),s.fetch)).status,503);}});
 test('retries with new challenge token keep the same send idempotency key',async()=>{const h=await handler(),a=provider(),b=provider();await h(request(),env(),a.fetch);await h(request({...valid,token:'fresh-token'}),env(),b.fetch);assert.equal(a.calls[1].init.headers['Idempotency-Key'],b.calls[1].init.headers['Idempotency-Key']);assert.equal(a.calls[1].init.body,b.calls[1].init.body);});

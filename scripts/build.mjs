@@ -8,6 +8,9 @@ import { home } from '../src/templates/home.mjs';
 import { workshop, about, furl, contact, notFound } from '../src/templates/pages.mjs';
 import { projectDetail } from '../src/templates/expansion.mjs';
 import { legal } from '../src/templates/legal.mjs';
+import { developers } from '../src/templates/developers.mjs';
+import { openApi } from '../src/content/openapi.mjs';
+import { llmsTxt } from '../src/content/llms.mjs';
 import { buildCms } from './build-cms.mjs';
 import { build, transform } from 'esbuild';
 
@@ -43,7 +46,7 @@ for (const template of new Set(routes.map(page => page.template))) {
   await writeFile('dist' + cssPath,css);
   styles[template] = cssPath;
 }
-const renderers = { home, workshop, about, furl, contact, notFound, blade:projectDetail, backhaul:projectDetail };
+const renderers = { home, workshop, about, furl, contact, developers, notFound, blade:projectDetail, backhaul:projectDetail };
 for (const page of routes) {
   const content = (renderers[page.template] || legal)(page);
   const destination = page.noindex ? 'dist/404.html' : `dist${page.path}index.html`;
@@ -54,10 +57,11 @@ const scriptHashes = routes.map(page => `'sha256-${createHash('sha256').update(s
 const csp = ["default-src 'self'", `script-src 'self' https://challenges.cloudflare.com ${scriptHashes.join(' ')}`, "style-src 'self'", "style-src-attr 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self'", "connect-src 'self' https://challenges.cloudflare.com", "frame-src https://challenges.cloudflare.com", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"].join('; ');
 await writeFile('.generated/csp.mjs',`export const CSP = ${JSON.stringify(csp)};\n`);
 await writeFile('dist/_headers',`/*\n  Content-Security-Policy: ${csp}\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n  X-Frame-Options: DENY\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n`);
+await writeFile('dist/openapi.json',JSON.stringify(openApi,null,2)+'\n');
 await writeFile('dist/robots.txt',`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${site.origin}/sitemap.xml\n`);
 const indexed = routes.filter(page => !page.noindex);
 await writeFile('dist/sitemap.xml',`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${indexed.map(page => `  <url><loc>${site.origin}${page.path}</loc></url>`).join('\n')}\n</urlset>\n`);
-await writeFile('dist/llms.txt',`# Omar Yusuf\n\n> Personlig webbplats för Omar Yusuf, maskiningenjör med intresse för kod, automation och mekatronik.\n\n## Sidor\n${indexed.map(page => `- [${page.name}](${site.origin}${page.path}): ${page.description}`).join('\n')}\n\n## Offentliga projekt\n- [Furl](${site.furl}): Projektets egen dokumentation är källan för aktuella funktioner och begränsningar.\n\nGlädjeverkstaden innehåller förskrivna skämt och uppmuntrande texter, inte personlig eller professionell rådgivning. Webbplatsen representerar en person, inte en verifierad lokal verksamhet.\n`);
+await writeFile('dist/llms.txt',llmsTxt(indexed,site));
 const cms = await buildCms({ styles, js });
 await writeFile('.generated/build.json',JSON.stringify({routes:indexed.map(page => page.path),js,styles,cms},null,2));
 console.log(`Built ${routes.length} public pages, ${Object.keys(js).length} native public modules, and the isolated CMS editor.`);
