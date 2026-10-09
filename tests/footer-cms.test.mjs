@@ -51,6 +51,10 @@ test('migration moves key-based CSS with the old control and refuses forged func
   const upgraded = normalizeStoredProject(input, seed, initial);
   assert.ok(upgraded.pages[0].css.includes(`[data-cms-node="${nextKey}"]`));
   assert.ok(!upgraded.pages[0].css.includes(`[data-cms-node="${oldKey}"]`));
+  const migrated = renderPage(upgraded.pages[0], built, {
+    version: 7, migratedCss: upgraded.pages[0].css !== input.pages[0].css,
+  });
+  assert.match(migrated, /home\.css\?footer=1/, 'Changed CSS selectors must bypass the old immutable URL');
   const forged = structuredClone(input);
   forged.pages[0].html = forged.pages[0].html.replace('data-privacy-open=""', 'data-privacy-open="" data-contact-form=""');
   assert.throws(() => validateProject(normalizeStoredProject(forged, seed, initial), seed), /kopplingar|funktions|attribut/);
@@ -114,4 +118,14 @@ test('incremental CMS saves accept a migrated footer page without relaxing unkno
   const forged = structuredClone(changes);
   forged.pages.upsert[0].footerVersion = 2;
   assert.throws(() => validateProjectChanges(forged));
+});
+test('unmodified custom CMS pages retain their original cache-stable CSS paths', () => {
+  const original = structuredClone(initial.pages.find(page => page.id === 'home'));
+  original.id = 'review-clone';
+  original.path = '/review-clone/';
+  original.template = 'custom';
+  original.css = '#review-clone{letter-spacing:1px}';
+  const html = renderPage(original, built, { version: 8 });
+  assert.match(html, /href="\/cms-public\/v8\/review-clone\.css"/);
+  assert.ok(!html.includes('review-clone.css?footer='), 'A nonmigrated resource must keep its existing URL');
 });

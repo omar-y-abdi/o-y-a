@@ -13,12 +13,12 @@ export function renderWinPreview(card, project, built) {
   return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
 }
 
-export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin } = {}) {
+export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin, migratedCss = false } = {}) {
   let base = layout(page, '', { css: built.styles[page.template] ?? built.styles.home, main: built.main, resources, resourceOrigin });
   if (preview) base = base.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
   let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${page.html}</body>`);
-  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css?footer=${FOOTER_VERSION}">`;
+  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css${migratedCss ? `?footer=${FOOTER_VERSION}` : ''}">`;
   const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : '';
   return result.replace('</head>', `${styles}${fixture}</head>`);
 }
@@ -84,5 +84,5 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   if (!page || page.page === null) return new Response('Sidan finns inte.', { status: 404 });
   const definition = seed.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? seed.blank;
   const normalized = normalizeFooterPage(page, definition);
-  return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
+  return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin, migratedCss: normalized.css !== page.css }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
 }

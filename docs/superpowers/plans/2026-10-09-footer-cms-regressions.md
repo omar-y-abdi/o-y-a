@@ -27,7 +27,8 @@ The live homepage at CMS version 183 uses `#iyi2x6{height:282px}`. At 393 px the
 - Authenticated legacy-D1 footer E2E: Chromium 8/8, WebKit 8/8, Firefox 8/8. Includes save/reload, preview and a second footer-link edit.
 - Real saved fixed footer heights tested at 320, 390, 393, 760, 1440 px, including no-JavaScript.
 - New/footer unit tests: 6/6. Real CMS incremental save rejects forged footer schema versions and correctly accepts version 1.
-- Final `TEST_CONCURRENCY=2 npm run check`: 236/236 fast tests, plus 1/1 D1/R2 restoration test. `CMS_MODULE_PROFILE=smoke npm run test:cms:modules`: passed in the project's Python Playwright environment.
+- Final `TEST_CONCURRENCY=2 npm run check`: 237/237 fast tests, plus 1/1 D1/R2 restoration test. `CMS_MODULE_PROFILE=smoke npm run test:cms:modules`: passed in the project's Python Playwright environment.
+- Hosted CI initially identified a CSS-cache URL regression affecting existing clone checks in Chromium, Firefox and WebKit. The new contract keeps ordinary "/review-clone.css" URLs unchanged and adds `?footer=1` **only** when the public CSS bytes were migrated. The existing Firefox clone/browser suite passes 8/8 after this correction.
 - `SKIP_CHECK=1 npm run quality`: 21/21 HTTP, real browser E2E 317 direct passes plus 3 retried passes (320 total), interaction/privacy/revision suites passed. The first full run overlapped other browser suites, so record retry flakiness rather than claiming a perfectly clean first pass.
 - `npm run edge:check:built`: Worker dry-run succeeded.
 - Ora 2026-10-09 scan and Cloudflare 403 diagnostics are in `docs/AGENT-READINESS-2026-10-09.md`. No claims of a post-deployment 100/100 score.
