@@ -81,8 +81,8 @@ export async function readHistory(db, cursor = Number.MAX_SAFE_INTEGER) {
 }
 
 function metadata(page) {
-  const { id, path, name, title, description, template, bodyClass, noindex, sourceId } = page;
-  return { id, path, name, title, description, template, bodyClass, noindex: Boolean(noindex), sourceId };
+  const { id, path, name, title, description, template, bodyClass, noindex, sourceId, footerVersion } = page;
+  return { id, path, name, title, description, template, bodyClass, noindex: Boolean(noindex), sourceId, ...(footerVersion === undefined ? {} : { footerVersion }) };
 }
 
 const utf8Bytes = value => new TextEncoder().encode(value).byteLength;

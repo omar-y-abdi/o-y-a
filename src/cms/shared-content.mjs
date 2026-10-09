@@ -1,6 +1,7 @@
 import { parseFragment, serialize } from 'parse5';
 import { HttpError } from './http.mjs';
 import { validateHtml } from './validation.mjs';
+import { normalizeFooterProject } from './footer.mjs';
 
 export const DEFAULT_SHARED_CONTENT=Object.freeze({'footer.tagline':'Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.'});
 const KEY=/^[a-z][a-z0-9.-]{0,79}$/;
@@ -40,6 +41,7 @@ export function normalizeSharedContent(input,seed={}){
 }
 
 export function normalizeStoredProject(input,seed={},initial={}){
+  input=normalizeFooterProject(input,seed);
   if(!input||input.sharedContent!==undefined&&input.sharedContent!==null)return input;
   const required=Object.keys(seed.sharedContent??{});
   if(!required.length)return input;
