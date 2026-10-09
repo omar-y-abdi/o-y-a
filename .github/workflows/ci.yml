@@ -29,6 +29,8 @@ jobs:
         run: npm run edge:check:built
       - name: Real Worker CMS browser verification
         run: npm run test:cms
+      - name: Legacy footer CMS edit and reload regression
+        run: npm run test:cms:footer
       - name: Retain browser evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -47,6 +49,8 @@ jobs:
             output/cms-modules/results.json
             output/cms-modules/*.png
             output/revision/browser/revision-browser.json
+            output/logs/footer-*.log
+            output/visual/footer/**/*.png
             output/card-export/card-export-report.json
           retention-days: 14
 
@@ -74,6 +78,7 @@ jobs:
       - run: npm run build
       - run: npm run test:cms:modules
       - run: node scripts/test-cms-parallel.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
+      - run: npm run test:cms:footer
       - name: Retain compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -85,4 +90,6 @@ jobs:
             output/visual/review-final/**/*.png
             output/cms-modules/results.json
             output/cms-modules/*.png
+            output/logs/footer-*.log
+            output/visual/footer/**/*.png
           retention-days: 14

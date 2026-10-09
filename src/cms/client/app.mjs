@@ -521,6 +521,7 @@ function newPage(source) {
     const content = source ?? blank;
     const created = { ...content, id, path, sourceId: content.sourceId ?? content.id, name, title: `${name} | Omar Yusuf`, description: `Tankar, idéer och nyfikenhet från Omar Yusuf. ${name}.`, noindex: false };
     delete created.contracts;
+    delete created.footerMigration;
     change({ ...draft.project, pages: [...draft.project.pages, created] }); $('#studio-dialog').close(); openPage(id);
   });
 }

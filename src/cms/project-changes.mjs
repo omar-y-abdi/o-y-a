@@ -3,7 +3,7 @@ const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const validId = (id, kind) => typeof id === 'string' && (kind === 'page' ? /^[a-zA-Z0-9-]{1,80}$/ : /^[a-z0-9-]{1,80}$/).test(id);
 
 const fields = {
-  page: new Set(['id', 'path', 'sourceId', 'name', 'title', 'description', 'html', 'css', 'project', 'template', 'bodyClass', 'noindex']),
+  page: new Set(['id', 'path', 'sourceId', 'name', 'title', 'description', 'html', 'css', 'project', 'template', 'bodyClass', 'noindex', 'footerVersion']),
   card: new Set(['id', 'flavor', 'text', 'state', 'design']),
   design: new Set(['html', 'css', 'project']),
 };
@@ -22,6 +22,7 @@ export function validateProjectChanges(changes) {
     for (const item of upsert) {
       if (!isRecord(item) || !validId(item.id, entity) || !hasOnly(item, fields[entity]) || seen.has(item.id)) throw new TypeError(`Invalid ${entity} upsert.`);
       seen.add(item.id);
+      if (entity === 'page' && item.footerVersion !== undefined && item.footerVersion !== 1) throw new TypeError('Unsupported footer version.');
       if (entity === 'card' && item.design !== undefined && item.design !== null && (!isRecord(item.design) || !hasOnly(item.design, fields.design))) throw new TypeError('Invalid card design.');
     }
     const removed = new Set();

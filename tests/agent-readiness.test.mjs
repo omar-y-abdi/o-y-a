@@ -233,7 +233,7 @@ test('new public developer page works before the owner republishes an older CMS 
   assert.match(await markdown.text(),/^# För utvecklare/m);
 });
 
-test('previously published CMS homepage exposes the new documentation link without republishing', async () => {
+test('published CMS markup remains owner-controlled without injecting untracked footer links', async () => {
   const worker = await app();
   const bindings = env();
   bindings.CMS_DB = {
@@ -249,6 +249,19 @@ test('previously published CMS homepage exposes the new documentation link witho
   const response = await worker.fetch(new Request(origin+'/',{headers:{Accept:'text/html'}}),bindings);
   assert.equal(response.status,200);
   const html = await response.text();
-  assert.match(html,/<nav[^>]*aria-label="Sidfotsmeny"[^>]*>[^<]*<a href="\/developers\/">För utvecklare<\/a>/);
-  assert.equal((html.match(/href="\/developers\/"/g)||[]).length,1);
+  assert.match(html, /<nav[^>]*aria-label="Sidfotsmeny"[^>]*><a href="\/integritet\/">Integritet<\/a><\/nav>/);
+  assert.equal((html.match(/href="\/developers\/"/g)||[]).length,0, "Never inject an untracked public-only footer anchor");
+});
+
+test('crawler identity explains the actual engineer and advertises a Markdown alternate', async () => {
+  const { routes } = await import('../src/content/site.mjs');
+  const { structuredData } = await import('../src/templates/layout.mjs');
+  const graph = JSON.parse(structuredData(routes[0]))['@graph'];
+  const person = graph.find(entry => entry['@type'] === 'Person');
+  assert.ok(person, 'Personal portfolio must represent a Person, not a fabricated company');
+  assert.match(person.description, /maskinteknik|maskiningenjör/i);
+  assert.match(person.description, /automation|mekatronik/i);
+  assert.ok(person.sameAs.includes('https://github.com/omar-y-abdi'));
+  const html = page('/');
+  assert.match(html, /<link rel="alternate" type="text\/markdown" href="https:\/\/omaryusuf\.se\/"/);
 });

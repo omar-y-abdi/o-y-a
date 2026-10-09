@@ -4,7 +4,7 @@ import { resourceSlots } from '../content/resources.mjs';
 export function structuredData(page) {
   const url = site.origin + page.path;
   const graph = [
-    { '@type': 'Person', '@id': site.origin + '/#omar', name: site.name, url: site.origin + '/', jobTitle: 'Maskiningenjör', knowsAbout: ['Maskinteknik', 'Automation', 'Mekatronik', 'Kod', 'AI-verktyg'], sameAs: [site.github] },
+    { '@type': 'Person', '@id': site.origin + '/#omar', name: site.name, url: site.origin + '/', description: 'Maskiningenjör med intresse för automation, mekatronik, kod och AI-verktyg. Visar offentliga projekt på omaryusuf.se.', jobTitle: 'Maskiningenjör', knowsAbout: ['Maskinteknik', 'Automation', 'Mekatronik', 'Kod', 'AI-verktyg'], sameAs: [site.github] },
     { '@type': 'WebSite', '@id': site.origin + '/#website', name: site.name, url: site.origin + '/', inLanguage: 'sv-SE', creator: { '@id': site.origin + '/#omar' } },
     { '@type': page.path === '/om/' ? 'AboutPage' : page.path === '/kontakt/' ? 'ContactPage' : 'WebPage', '@id': url, url, name: page.title, description: page.description, inLanguage: 'sv-SE', isPartOf: { '@id': site.origin + '/#website' }, about: { '@id': site.origin + '/#omar' } },
   ];
@@ -21,7 +21,7 @@ export function layout(page, content, assets) {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(page.title)}</title>
 <meta name="description" content="${escape(page.description)}">
-<link rel="canonical" href="${site.origin + page.path}">
+<link rel="canonical" href="${site.origin + page.path}"><link rel="alternate" type="text/markdown" href="${site.origin + page.path}">
 <meta name="theme-color" content="#fff0b3"><meta name="color-scheme" content="light">
 ${page.noindex ? '<meta name="robots" content="noindex, follow">' : ''}
 <meta property="og:type" content="website"><meta property="og:locale" content="sv_SE"><meta property="og:site_name" content="Omar Yusuf">

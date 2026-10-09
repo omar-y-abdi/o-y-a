@@ -5,6 +5,7 @@ import { resolveSiteLink } from './routes.mjs';
 import { referencedIds } from './id-references.mjs';
 import { validateResources, resourceReferences } from './resources.mjs';
 import { normalizeSharedContent, validateSharedInstances } from './shared-content.mjs';
+import { normalizeFooterProject } from './footer.mjs';
 
 import { validateTheme } from './theme.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
@@ -26,6 +27,7 @@ const attribute = (node, name) => node.attrs.find(item => item.name === name)?.v
 
 export function validateProject(input, seed, baseline, { origins = [], publication = true } = {}) {
   if (!input || input.schemaVersion !== 1 || !Array.isArray(input.pages) || input.pages.length < 1 || input.pages.length > 64) fail('Projektets sidregister är ogiltigt.');
+  input = normalizeFooterProject(input, seed);
   const ids = new Set();
   const paths = new Set();
   const pages = input.pages.map(page => {
@@ -65,7 +67,7 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     // Reconstructing from HTML/CSS removes the editor/public split-brain state.
     if (page.project !== undefined && page.project !== null) validateEditorData(page.project, contracts);
     const project = null;
-    return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts };
+    return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts, ...(page.footerVersion === undefined ? {} : { footerVersion: page.footerVersion }) };
   });
   if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
   const targets = new Map(pages.map(page => [page.path, new Set(page.facts.ids)]));

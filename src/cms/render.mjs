@@ -4,6 +4,7 @@ import { themeCss, fontCss } from './theme.mjs';
 import { readPublicPage, readPublicData } from './store.mjs';
 import { canonicalPagePath } from './routes.mjs';
 import { routes } from '../content/site.mjs';
+import { normalizeFooterPage, FOOTER_VERSION } from './footer.mjs';
 
 export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const safeStyle = css => css.replaceAll('<', '\\3c ');
@@ -12,17 +13,12 @@ export function renderWinPreview(card, project, built) {
   return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
 }
 
-export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin } = {}) {
+export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin, migratedCss = false } = {}) {
   let base = layout(page, '', { css: built.styles[page.template] ?? built.styles.home, main: built.main, resources, resourceOrigin });
   if (preview) base = base.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
   let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${page.html}</body>`);
-  // Existing CMS versions store their entire body, including an older footer.
-  // Expose the new public documentation without mutating published CMS content.
-  result = result.replace(/(<nav\b(?=[^>]*aria-label="Sidfotsmeny")[^>]*>)([\s\S]*?)(<\/nav>)/,
-    (full, start, contents, end) => contents.includes('href="/developers/"')
-      ? full : `${start}<a href="/developers/">För utvecklare</a>${contents}${end}`);
-  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
+  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css${migratedCss ? `?footer=${FOOTER_VERSION}` : ''}">`;
   const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : '';
   return result.replace('</head>', `${styles}${fixture}</head>`);
 }
@@ -33,18 +29,24 @@ async function pageCsp(page, baseCsp) {
   return baseCsp.replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`);
 }
 
-export async function publicContent(request, env, built, csp) {
+export async function publicContent(request, env, built, csp, seed = {}) {
   if (!env.CMS_DB) return null;
   const url = new URL(request.url);
   if (url.pathname === '/login' || url.pathname.startsWith('/login/')) return null;
   const style = url.pathname.match(/^\/cms-public\/v(\d+)\/([a-zA-Z0-9-]+)\.css$/);
   if (style) {
     const [page, theme] = await Promise.all([
-      env.CMS_DB.prepare('SELECT css FROM cms_rendered WHERE version = ? AND json_extract(meta, \'$.id\') = ?').bind(Number(style[1]), style[2]).first(),
+      env.CMS_DB.prepare('SELECT css, html, meta FROM cms_rendered WHERE version = ? AND json_extract(meta, \'$.id\') = ?').bind(Number(style[1]), style[2]).first(),
       env.CMS_DB.prepare("SELECT html FROM cms_rendered WHERE version = ? AND path = '@theme'").bind(Number(style[1])).first(),
     ]);
     if (!page || !theme) return new Response('Not found', { status: 404 });
-    return new Response(themeCss(JSON.parse(theme.html)) + page.css, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' } });
+    // Old immutable URLs retain their original bytes. The new representation
+    // follows the same identity migration as HTML, including CSS selectors.
+    const meta = page.meta ? JSON.parse(page.meta) : {};
+    const definition = seed.pages?.find(item => item.id === meta.id || item.id === meta.sourceId) ?? seed.blank;
+    const normalized = url.searchParams.get('footer') === String(FOOTER_VERSION)
+      ? normalizeFooterPage({ ...page, ...meta }, definition) : page;
+    return new Response(themeCss(JSON.parse(theme.html)) + normalized.css, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' } });
   }
   const exactCard = url.pathname.match(/^\/data\/cards\/([a-z0-9-]{1,80})\.json$/);
   if (exactCard) {
@@ -80,5 +82,7 @@ export async function publicContent(request, env, built, csp) {
   const missing = state.page === null || url.pathname === '/404.html';
   const page = state.page === null ? await readPublicPage(env.CMS_DB, '/404.html') : state;
   if (!page || page.page === null) return new Response('Sidan finns inte.', { status: 404 });
-  return new Response(renderPage(page, built, { version: state.version, resourceOrigin: url.origin }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
+  const definition = seed.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? seed.blank;
+  const normalized = normalizeFooterPage(page, definition);
+  return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin, migratedCss: normalized.css !== page.css }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
 }
