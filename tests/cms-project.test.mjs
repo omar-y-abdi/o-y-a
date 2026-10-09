@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { routes } from '../src/content/site.mjs';
 import { preparePage } from '../src/cms/validation.mjs';
 import { validateProject, defaultTheme, themeCss } from '../src/cms/project.mjs';
 
 const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...preparePage(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null })));
-const seed = { schemaVersion: 1, pages, cards: JSON.parse(await readFile('public/data/cards.json', 'utf8')), runtime: {}, theme: defaultTheme };
+const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
+const seed = { schemaVersion: 1, pages, cards: JSON.parse(await readFile('public/data/cards.json', 'utf8')), runtime: {}, theme: defaultTheme, staticPaths };
 
 test('every existing source page and win card form a valid initial CMS project', () => {
   const result = validateProject(structuredClone(seed), seed);

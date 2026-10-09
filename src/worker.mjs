@@ -7,11 +7,27 @@ import { handleAdmin, assetResponse } from './cms/api.mjs';
 import { ADMIN_CSP, publicContent } from './cms/render.mjs';
 import { errorResponse } from './cms/http.mjs';
 import { reportFailure } from './cms/diagnostics.mjs';
+import { negotiatePublicPage } from './server/markdown.mjs';
 
 const PAGES = new Set(routes.filter(page => !page.noindex).map(page => page.path));
 const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
 const CANONICAL = 'https://omaryusuf.se';
 const MAX_BODY_BYTES = 256;
+const TRUST_ALIASES = new Map([['/about','/om/'],['/contact','/kontakt/'],['/privacy','/integritet/']]);
+const ERROR_GUIDANCE = {
+  'Method not allowed': ['METHOD_NOT_ALLOWED', 'Use an HTTP method listed in the Allow response header.'],
+  'Origin or consent missing': ['CONSENT_REQUIRED', 'Use the first-party webpage with an explicit analytics consent choice.'],
+  'Consent required': ['CONSENT_REQUIRED', 'Enable consent in the webpage; privacy signals always take precedence.'],
+  'JSON required': ['UNSUPPORTED_MEDIA_TYPE', 'Send Content-Type: application/json.'],
+  'Body too large': ['PAYLOAD_TOO_LARGE', 'Send a request body of no more than 256 bytes.'],
+  'Invalid event': ['INVALID_EVENT', 'Send a valid UTF-8 JSON object with event and page.'],
+  'Unknown event data': ['INVALID_EVENT', 'Only predefined event names and known page paths are accepted.'],
+  'Analytics not configured': ['SERVICE_UNAVAILABLE', 'Analytics are optional and currently disabled.'],
+  'Analytics unavailable': ['SERVICE_UNAVAILABLE', 'Do not retry automatically; analytics are optional.'],
+  'Unknown host': ['UNKNOWN_HOST', 'Use https://omaryusuf.se.'],
+  'Non-canonical path': ['NON_CANONICAL_PATH', 'Use a decoded canonical URL without duplicate separators.'],
+  'Unknown public API endpoint': ['NOT_FOUND', 'See /openapi.json or /developers/ for documented public routes.'],
+};
 function secure(response, https = true, policy = CSP) {
   const result = new Response(response.body, response);
   const headers = result.headers;
@@ -24,7 +40,11 @@ function secure(response, https = true, policy = CSP) {
   return result;
 }
 function json(data, status = 200, extra = {}) {
-  return Response.json(data,{ status, headers:{'Cache-Control':'no-store', ...extra} });
+  const details = status >= 400 && typeof data?.error === 'string'
+    ? ERROR_GUIDANCE[data.error] ?? ['REQUEST_REJECTED', 'Check the request and the public API documentation.']
+    : null;
+  return Response.json(details ? {...data, code:details[0], hint:details[1]} : data,
+    { status, headers:{'Cache-Control':'no-store', ...extra} });
 }
 function isLocalPreview(url, env) {
   return url.origin === env.PREVIEW_ORIGIN && ['localhost','127.0.0.1','[::1]'].includes(url.hostname);
@@ -71,6 +91,9 @@ export default {
       return secure(new Response(null,{status:308,headers:{Location:CANONICAL+url.pathname+url.search}}));
     }
     if (url.pathname.includes('%') || url.pathname.includes('\\') || url.pathname.includes('//')) return secure(json({error:'Non-canonical path'},400),url.protocol === 'https:');
+    if (['GET','HEAD'].includes(request.method) && TRUST_ALIASES.has(url.pathname)) {
+      return secure(new Response(null, { status:308, headers:{Location:(local || stage ? url.origin : CANONICAL) + TRUST_ALIASES.get(url.pathname) + url.search} }),url.protocol === 'https:');
+    }
     let response;
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       response = await handleAdmin(request,env,{seed,initial,built});
@@ -89,7 +112,10 @@ export default {
       response = request.method === 'GET' || request.method === 'HEAD'
         ? json({analytics:Boolean(env.ANALYTICS) && env.ANALYTICS_ENABLED === 'true'})
         : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
-    } else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
+    } else if (/^\/data\/cards\/[a-z0-9-]{1,80}\.json$/.test(url.pathname) && !env.CMS_DB) {
+      response = json({error:'Card not found',code:'NOT_FOUND',hint:'Read /data/cards.json for published card IDs.'},404);
+    } else if (url.pathname === '/api' || url.pathname.startsWith('/api/')) response = json({error:'Unknown public API endpoint'},404);
+    else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
       try { response = await publicContent(request,env,built,CSP) ?? await env.ASSETS.fetch(request); }
@@ -98,6 +124,7 @@ export default {
     if (url.pathname === '/404.html' && response.status === 200) {
       response = new Response(response.body,{status:404,headers:response.headers});
     }
+    response = await negotiatePublicPage(request, response);
     const secured = secure(response,url.protocol === 'https:');
     if (stage || url.pathname.startsWith('/login')) secured.headers.set('X-Robots-Tag','noindex, nofollow');
     if (request.method === 'HEAD') return new Response(null,secured);

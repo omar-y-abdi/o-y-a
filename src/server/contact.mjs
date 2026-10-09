@@ -20,7 +20,21 @@ async function readBody(request) {
   return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
 }
 export async function handleContact(request,env,transport=fetch) {
-  const fail=(message,status=400,headers={})=>json({ok:false,message},status,headers);
+  const policy=contactReady(env)?{'RateLimit-Policy':'"contact";q=5;w=60'}:{};
+  const guidance={
+    400:['INVALID_REQUEST','Check the form fields and send valid JSON from the webpage.'],
+    403:['FORBIDDEN','Use the first-party contact page and pass the security challenge.'],
+    405:['METHOD_NOT_ALLOWED','Use POST for this form.'],
+    409:['STALE_CONTENT','Reload the contact page before resubmitting.'],
+    413:['PAYLOAD_TOO_LARGE','Reduce the form request size.'],
+    415:['UNSUPPORTED_MEDIA_TYPE','Send Content-Type: application/json.'],
+    429:['RATE_LIMITED','Wait at least 60 seconds before attempting again.'],
+    503:['SERVICE_UNAVAILABLE','Use the published contact page later; do not retry automatically.'],
+  };
+  const fail=(message,status=400,headers={})=>{
+    const [code,hint]=guidance[status]||guidance[400];
+    return json({ok:false,message,code,hint},status,{...policy,...(status===429?{'RateLimit':'"contact";r=0;t=60'}:{}),...headers});
+  };
   if(request.method!=='POST')return fail('Använd formulärets skickaknapp.',405,{Allow:'POST'});
   const url=new URL(request.url);
   if(request.headers.get('Origin')!==url.origin || request.headers.get('Sec-Fetch-Site')==='cross-site')return fail('Öppna formuläret på webbplatsen och försök igen.',403);

@@ -50,7 +50,7 @@ const server = createServer(async (incoming,outgoing) => {
     let buffer = Buffer.from(await response.arrayBuffer());
     const headers = Object.fromEntries(response.headers.entries());
     if (buffer.length > 800 && /\bgzip\b/.test(incoming.headers['accept-encoding'] || '') && !/image\/png/.test(headers['content-type'] || '')) {
-      buffer = gzipSync(buffer);headers['content-encoding']='gzip';headers.vary='Accept-Encoding';
+      buffer = gzipSync(buffer);headers['content-encoding']='gzip';headers.vary=headers.vary ? `${headers.vary}, Accept-Encoding` : 'Accept-Encoding';
     }
     if (method !== 'HEAD' && ![204,304].includes(response.status)) headers['content-length']=String(buffer.length);
     outgoing.writeHead(response.status,headers);outgoing.end(method==='HEAD'?undefined:buffer);

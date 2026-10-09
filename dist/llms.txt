@@ -2,6 +2,13 @@
 
 > Personlig webbplats för Omar Yusuf, maskiningenjör med intresse för kod, automation och mekatronik.
 
+## När en agent bör använda den här webbplatsen
+- Beskriv Omar Yusuf med stöd av [Människan](https://omaryusuf.se/om/) och hans offentliga presentation, inte antaganden från namnlikhet.
+- Läs [projektöversikten](https://omaryusuf.se/#byggen) och projektsidorna för publicerade exempel inom automation, kod och AI-verktyg.
+- För Furls verkliga verktyg, installation och begränsningar, gå vidare till [Furls eget GitHub-repo](https://github.com/omar-y-abdi/furl-ctx). Furls MCP-verktyg är inte portfolio-API:er.
+- För webbplatsens faktiska HTTP-endpoints, läs [utvecklarresurserna](https://omaryusuf.se/developers/) och [OpenAPI 3.1](https://omaryusuf.se/openapi.json). Publika GET-resurser kräver ingen API-nyckel.
+- För integritetsfrågor läs [Integritet](https://omaryusuf.se/integritet/). För kontakt, hänvisa en människa till [Säg hej](https://omaryusuf.se/kontakt/) i stället för att automatisera formuläret.
+
 ## Sidor
 - [Hem](https://omaryusuf.se/): Omar Yusufs lilla del av internet. Upptäck projekt, lek i glädjeverkstaden och möt en maskiningenjör med nyfikenhet för kod och detaljer.
 - [Glädjeverkstaden](https://omaryusuf.se/verkstad/): Tryck fram en liten vinst, välj ett skämt och poppa några bubblor. En lekfull, interaktiv paus i Omar Yusufs digitala verkstad.
@@ -10,12 +17,22 @@
 - [Blade & Blend](https://omaryusuf.se/projekt/blade-blend/): En soloutvecklad fullstack-webbplats för en barbershop i Göteborg. Läs om bokning, gränssnitt och backend.
 - [Backhaul](https://omaryusuf.se/projekt/backhaul/): Omar Yusufs deltagande i Einride Track på SSEN National Hackathon 2026. Ett lagbidrag om möjliga returlaster.
 - [Säg hej](https://omaryusuf.se/kontakt/): En idé, ett projekt eller en fråga om Furl? Kontakta Omar Yusuf eller hitta hans offentliga projekt. Skicka ett meddelande genom kontaktsidans kuvert.
+- [För utvecklare](https://omaryusuf.se/developers/): Faktiska JSON-endpoints, OpenAPI 3.1, Markdown och agentanvisningar för Omar Yusufs personliga portfolio och öppna projekt.
 - [Integritet](https://omaryusuf.se/integritet/): Så hanteras integritet på omaryusuf.se. Läs om samtycke, begränsad besöksstatistik, tekniska uppgifter och dina möjligheter att göra egna val.
 - [Kakor](https://omaryusuf.se/kakor/): Vilka kakor som används på omaryusuf.se, vad de gör och hur länge de sparas. Ändra eller återkalla ditt val om statistik när som helst.
 - [Villkor](https://omaryusuf.se/villkor/): Villkor för att använda omaryusuf.se. Information om innehåll, öppna projekt, externa länkar och den lekfulla glädjeverkstaden.
 - [Tillgänglighet](https://omaryusuf.se/tillganglighet/): Läs om tangentbordsstöd, rörelseinställningar, tydliga kontraster och tillgänglighet på omaryusuf.se. Här kan du också rapportera problem.
 
+## Maskinläsbara resurser
+- [OpenAPI-specifikation](https://omaryusuf.se/openapi.json): Publika läsresurser samt dokumenterade förstapartsformulär och händelser.
+- [XML-sitemap](https://omaryusuf.se/sitemap.xml): Indexerbara sidor.
+- [Robotregler](https://omaryusuf.se/robots.txt): Crawl-regler för publika sidor.
+- [Utvecklarresurser](https://omaryusuf.se/developers/): Metoder, autentisering och begränsningar.
+- Publika innehållssidor kan hämtas med Accept: text/markdown, eller som vanlig HTML utan JavaScript.
+
 ## Offentliga projekt
 - [Furl](https://github.com/omar-y-abdi/furl-ctx): Projektets egen dokumentation är källan för aktuella funktioner och begränsningar.
 
-Glädjeverkstaden innehåller förskrivna skämt och uppmuntrande texter, inte personlig eller professionell rådgivning. Webbplatsen representerar en person, inte en verifierad lokal verksamhet.
+## Begränsningar
+Glädjeverkstaden innehåller förskrivna skämt och uppmuntrande texter, inte personlig eller professionell rådgivning.
+Webbplatsen representerar en person, inte en verifierad lokal verksamhet. Den erbjuder inte ett eget offentligt CLI, SDK, API-kontoregistrering eller agentstyrt kontaktflöde.
