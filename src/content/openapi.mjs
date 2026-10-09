@@ -17,7 +17,7 @@ export const openApi = {
   info: {
     title: 'Omar Yusuf portfolio public HTTP endpoints',
     version: '1.0.0',
-    description: 'A personal portfolio, not an open automation platform. Public read-only routes require no API key. Contact and analytics writes are first-party, anti-abuse protected functionality, not unrestricted agent actions. The owner-only CMS is deliberately excluded.',
+    description: 'A personal portfolio, not an open automation platform. HTTP API major version 1 is supported via the optional API-Version: 1 request header; omission selects v1 for backward compatibility. See /developers/ for the deprecation and sunset policy. Public reads require no API key. Contact and analytics writes are first-party, anti-abuse protected functionality, not unrestricted agent actions. The owner-only CMS is deliberately excluded.',
   },
   servers: [{ url: 'https://omaryusuf.se', description: 'Public portfolio' }],
   tags: [
@@ -145,3 +145,24 @@ export const openApi = {
     },
   },
 };
+
+// Every documented operation accepts an optional typed major-version header.
+// No fictitious /v1 path or API-key scheme is advertised; the Worker enforces
+// this header and echoes the effective version for real public operations.
+const apiVersionHeader = {
+  name: 'API-Version', in: 'header', required: false,
+  description: 'HTTP API major version. Omit for backwards-compatible version 1, or explicitly send API-Version: 1. Other versions return a structured HTTP 400 error. See /developers/ for deprecation and Sunset policy.',
+  schema: { type: 'string', enum: ['1'], default: '1' },
+};
+const currentApiVersion = {
+  description: 'The effective supported public HTTP API major version.',
+  schema: { type: 'string', const: '1' },
+};
+for (const pathMethods of Object.values(openApi.paths)) {
+  for (const [method, operation] of Object.entries(pathMethods)) {
+    if (!['get','post','put','patch','delete'].includes(method)) continue;
+    operation.parameters = [apiVersionHeader, ...(operation.parameters ?? [])];
+    for (const response of Object.values(operation.responses))
+      response.headers = { ...(response.headers ?? {}), 'API-Version': currentApiVersion };
+  }
+}
