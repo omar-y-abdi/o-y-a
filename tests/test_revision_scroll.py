@@ -64,5 +64,22 @@ class ScrollWaitTests(unittest.TestCase):
         self.assertEqual(revision.wait_at_top(page), 0)
 
 
+class FikaCommentTests(unittest.TestCase):
+    def test_measured_five_seconds_requires_target_comment(self):
+        self.assertEqual(revision.fika_comment_candidates(5.00), {"äggklocka"})
+
+    def test_slightly_late_real_time_accepts_correct_near_comment(self):
+        # This exact duration passed the browser's 4.7-5.8s timing assertion
+        # but the old test falsely required the 5.00s precision comment.
+        self.assertEqual(revision.fika_comment_candidates(5.30), {"Lagom bryggt"})
+
+    def test_late_time_requires_pour_another_comment(self):
+        self.assertEqual(revision.fika_comment_candidates(5.70), {"påtår"})
+
+    def test_rounding_boundaries_allow_adjacent_valid_categories_only(self):
+        self.assertEqual(revision.fika_comment_candidates(5.15), {"äggklocka", "Lagom bryggt"})
+        self.assertEqual(revision.fika_comment_candidates(5.60), {"Lagom bryggt", "påtår"})
+
+
 if __name__ == "__main__":
     unittest.main()

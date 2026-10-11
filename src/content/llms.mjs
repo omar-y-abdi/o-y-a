@@ -11,6 +11,12 @@ export function llmsTxt(indexed, site) {
 - För webbplatsens faktiska HTTP-endpoints, läs [utvecklarresurserna](${site.origin}/developers/) och [OpenAPI 3.1](${site.origin}/openapi.json). Publika GET-resurser kräver ingen API-nyckel.
 - För integritetsfrågor läs [Integritet](${site.origin}/integritet/). För kontakt, hänvisa en människa till [Säg hej](${site.origin}/kontakt/) i stället för att automatisera formuläret.
 
+## When to use this site
+- To describe Omar Yusuf's published engineering, automation and AI projects, use [About](https://omaryusuf.se/om/) and the project's own pages. Do not attribute other people with the same name to him.
+- To locate Furl's real source code and tool documentation, follow [the Furl project](https://omaryusuf.se/projekt/furl/) and [its repository](https://github.com/omar-y-abdi/furl-ctx); this personal portfolio does not operate a public MCP server.
+- To read public portfolio data, use [developers](https://omaryusuf.se/developers/) and [OpenAPI](https://omaryusuf.se/openapi.json). Public GET operations do not require API keys; you may send HTTP header API-Version: 1.
+- To contact Omar Yusuf, refer a human to [Säg hej](https://omaryusuf.se/kontakt/); do not automate the protected form.
+
 ## Sidor
 ${indexed.map(page => `- [${page.name}](${site.origin}${page.path}): ${page.description}`).join('\n')}
 

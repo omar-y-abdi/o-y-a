@@ -43,10 +43,13 @@ class LibraryNavigationTests(unittest.TestCase):
 
     def setUp(self):
         self.page = self.browser.new_page()
-        self.page.set_default_timeout(700)
+        # DOM fixture setup is not the feature under test. Waiting for "load"
+        # with the assertion budget (700 ms) races Firefox startup on CI.
+        # Keep that strict budget for the library interaction assertions only.
         self.page.set_content('''<button data-library="pages" aria-selected="true">Sidor</button>
             <button data-library="assets" aria-selected="false">Resurser</button>
-            <div id="library-list"></div><div id="special-stage"></div><div id="custom-inspector"></div>''')
+            <div id="library-list"></div><div id="special-stage"></div><div id="custom-inspector"></div>''',
+            wait_until='domcontentloaded', timeout=5000)
         self.page.add_script_tag(path=str(self.bundle))
         self.page.evaluate('''() => {
           window.fixture={requests:0,view:'pages'};
@@ -67,6 +70,7 @@ class LibraryNavigationTests(unittest.TestCase):
             }
           });
         }''')
+        self.page.set_default_timeout(700)
 
     def tearDown(self):
         self.page.close()
@@ -90,7 +94,8 @@ class LibraryNavigationTests(unittest.TestCase):
         self.assertEqual(self.page.evaluate('fixture.requests'), 1)
 
     def preview_fixture(self, previous=True, new_script=True, replace=True):
-        self.page.set_content('<button data-action="lock">Lock</button><div id="preview-stage"></div>')
+        self.page.set_content('<button data-action="lock">Lock</button><div id="preview-stage"></div>',
+                              wait_until='domcontentloaded', timeout=5000)
         self.page.evaluate("""options => {
           const stage=document.querySelector('#preview-stage');
           const frame=(name, script)=>{
