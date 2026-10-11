@@ -675,6 +675,28 @@ def check_bubbles_and_memory(browser: Browser, results: list[dict]) -> None:
     run_check(results, "SSR 12 memory cards hydrate, reset, pair and preserve style", memory)
 
 
+
+def fika_comment_candidates(seconds: float) -> set[str]:
+    # The UI rounds performance.now() elapsed time to centiseconds. The
+    # original timer classifies *unrounded* milliseconds, so a displayed
+    # boundary may legitimately fall in either adjacent comment tier.
+    def comment(elapsed_ms: float) -> str:
+        error_ms = abs(elapsed_ms - 5000)
+        if error_ms <= 150:
+            return "äggklocka"
+        if error_ms <= 600:
+            return "Lagom bryggt"
+        if elapsed_ms < 3500:
+            return "espresso"
+        if elapsed_ms < 5000:
+            return "tjuvstart"
+        if elapsed_ms < 7500:
+            return "påtår"
+        return "kallna"
+
+    displayed_ms = seconds * 1000
+    return {comment(displayed_ms - 5), comment(displayed_ms), comment(displayed_ms + 5)}
+
 def check_fika(browser: Browser, results: list[dict]) -> None:
     def fika():
         context, page, errors, _requests = make_page(browser, 1440)
@@ -691,13 +713,23 @@ def check_fika(browser: Browser, results: list[dict]) -> None:
             started = time.monotonic()
             time.sleep(5.0)
             page.keyboard.press("Enter")
-            wait_until(lambda: "?" not in text(page.locator("[data-fika-result]")), timeout=3, description="fikaresultat")
+            wait_until(
+                lambda: re.fullmatch(r"\d+,\d{2} s", text(page.locator("[data-fika-result]")))
+                and "En fika till" in text(button),
+                timeout=3,
+                description="numeriskt fikaresultat och färdig tidtagning",
+            )
             value = float(text(page.locator("[data-fika-result]")).replace(",", ".").replace(" s", ""))
             elapsed = time.monotonic() - started
             if not 4.7 <= value <= 5.8:
                 raise CheckFailure(f"fikaresultat {value} s ligger utanför väntat intervall")
-            if "äggklocka" not in text(page.locator("[data-fika-status]")):
-                raise CheckFailure("fikaresultatet saknar äggklockekommentar")
+            note = text(page.locator("[data-fika-status]"))
+            expected = fika_comment_candidates(value)
+            if not any(fragment in note for fragment in expected):
+                raise CheckFailure(
+                    f"fikaresultat {value:.2f} s gav fel kommentar {note!r}; "
+                    f"väntade någon av {sorted(expected)}"
+                )
             save_screenshot(page, "fika-result-1440", selector=".fika-section")
             button.click()
             page.evaluate(
