@@ -37,16 +37,18 @@ for (const name of ['privacy','previewdata','copy','cards','playlogic','memory',
   await writeFile(`dist/assets/${filename}`,code);
   js[name] = filename;
 }
-const skiftBootstrap = (await readFile('src/client/skift.mjs', 'utf8')).replace("'./copy.mjs'", `'/assets/${js.copy}'`);
-await writeFile('dist/play/skift/assets/bootstrap.js', (await transform(skiftBootstrap, { minify: true, format: 'esm', target: 'es2022' })).code);
-const baseCss = (await Promise.all(['base','home','pages'].map(name => readFile(`src/styles/${name}.css`,'utf8')))).join('\n').trim();
+await writeFile('dist/play/skift/assets/bootstrap.js', `import { loadCopy } from '/assets/${js.copy}';
+globalThis.__OY_SKIFT_COPY__ = await loadCopy();
+await import('./app.js');
+`);
+const baseStyles = await Promise.all(['base','home','pages'].map(name => readFile(`src/styles/${name}.css`,'utf8')));
+const baseCss = baseStyles.join('\n').trim();
 const additions = { home:['showcase','toys'], workshop:['toys','games'], skift:['skift'], about:['showcase'], blade:['showcase'], backhaul:['showcase'], contact:['postbox'] };
 const styles = {};
 for (const template of new Set(routes.map(page => page.template))) {
   const extra = await Promise.all((additions[template] || []).map(name => readFile(`src/styles/${name}.css`,'utf8')));
-  const gameCss = template === 'skift' ? await readFile('public/play/skift/assets/app.css', 'utf8') : '';
-  const sharedCss = template === 'skift' ? await readFile('src/styles/base.css', 'utf8') : baseCss;
-  const css = [gameCss,sharedCss,...extra].join('\n');
+  const shared = template === 'skift' ? [await readFile('public/play/skift/assets/app.css', 'utf8'), baseStyles[0]] : [baseCss];
+  const css = [...shared, ...extra].join('\n');
   const cssPath = `/assets/site.${hash(css)}.css`;
   await writeFile('dist' + cssPath,css);
   styles[template] = cssPath;

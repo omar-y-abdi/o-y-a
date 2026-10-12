@@ -2,32 +2,23 @@ import { parseFragment, serialize } from 'parse5';
 import { validateHtml } from './validation.mjs';
 import { HttpError } from './http.mjs';
 import { SKIFT_PATH, shiftLink } from '../content/skift.mjs';
-
-const attr = (node, name) => node.attrs?.find(item => item.name === name)?.value;
-function elements(root) {
-  const result = [];
-  const visit = node => { if (node.tagName) result.push(node); for (const child of node.childNodes ?? []) visit(child); };
-  visit(root); return result;
-}
+import { attribute as attr, elements, setInner } from './html-tree.mjs';
 
 // The link uses a stable identity outside the numbered source nodes. Adding
 // it never shifts owner styles or the historical footer migration's key map.
 export function normalizeSkiftPage(page, definition) {
-  if (!definition?.contracts?.some(contract => contract.key === 'skift-nav') || typeof page.html !== 'string') return page;
+  const links = definition?.contracts?.filter(contract => ['skift-nav', 'skift-nav-mobile'].includes(contract.key)) ?? [];
+  if (!links.length || typeof page.html !== 'string') return page;
   const tree = parseFragment(page.html, { scriptingEnabled: true });
   const nodes = elements(tree);
-  const slots = [
-    { marker: 'data-skift-link', key: 'skift-nav', container: 'primary-nav', mobile: false },
-    { marker: 'data-skift-mobile-link', key: 'skift-nav-mobile', container: 'mobile-menu', mobile: true },
-  ];
-  const missing = slots.filter(slot => !nodes.some(node => attr(node, slot.marker) !== undefined));
+  const missing = links.filter(link => !nodes.some(node => attr(node, 'data-cms-node') === link.key));
   if (!missing.length) return page;
-  validateHtml(page.html, definition.contracts.filter(contract => !missing.some(slot => slot.key === contract.key)));
-  for (const slot of missing) {
-    const menu = nodes.find(node => (attr(node, 'class') ?? '').split(/\s+/).includes(slot.container));
+  validateHtml(page.html, definition.contracts.filter(contract => !missing.some(link => link.key === contract.key)));
+  for (const link of missing) {
+    const menu = nodes.find(node => (attr(node, 'class') ?? '').split(/\s+/).includes(link.containerClass));
     if (!menu) throw new HttpError(422, 'Sidans toppmeny saknas.');
-    const anchor = parseFragment(shiftLink(false, slot.mobile)).childNodes[0];
-    anchor.attrs.push({ name: 'data-cms-node', value: slot.key });
+    const anchor = parseFragment(shiftLink(false, link.key === 'skift-nav-mobile')).childNodes[0];
+    anchor.attrs.push({ name: 'data-cms-node', value: link.key });
     anchor.parentNode = menu;
     const workshop = menu.childNodes.findIndex(node => node.tagName === 'a' && attr(node, 'href') === '/verkstad/');
     menu.childNodes.splice(workshop < 0 ? menu.childNodes.length : workshop + 1, 0, anchor);
@@ -49,8 +40,7 @@ export function normalizeSkiftProject(input, seed) {
     for (const node of elements(tree)) {
       const value = input.sharedContent?.[attr(node, 'data-cms-shared')];
       if (typeof value !== 'string') continue;
-      node.childNodes = parseFragment(value).childNodes;
-      node.childNodes.forEach(child => { child.parentNode = node; });
+      setInner(node, value);
     }
     game.html = serialize(tree);
     // Source facts describe the default footer, not the owner's inserted HTML.

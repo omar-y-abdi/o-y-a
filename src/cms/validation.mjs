@@ -3,6 +3,7 @@ import * as css from 'css-tree';
 import { HttpError } from './http.mjs';
 import { ID_REFERENCES } from './id-references.mjs';
 import { validateEditorShape } from './editor-schema.mjs';
+import { attribute as attr, walk as traverse } from './html-tree.mjs';
 
 export const VALIDATION_POLICY = 'cms-policy-3-canonical-editor-widget-preview';
 
@@ -18,12 +19,6 @@ const RESERVED = new Set(['admin', 'login', 'api', 'assets', 'media', 'data', 'c
 
 function invalid(message) { throw new HttpError(422, message); }
 function plainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
-function traverse(node, visit, depth = 0, counter = { value: 0 }) {
-  if (depth > 64 || ++counter.value > 12000) invalid('Innehållet har för många eller för djupt nästlade element.');
-  visit(node);
-  for (const child of node.childNodes ?? []) traverse(child, visit, depth + 1, counter);
-}
-function attr(node, name) { return node.attrs?.find(item => item.name === name)?.value; }
 
 export function validatePagePath(value) {
   if (typeof value !== 'string' || value.length > 160 || !/^\/(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)*$/.test(value)

@@ -72,7 +72,7 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
   const page = await context.newPage();
   const errors = [], audio = [];
-  await page.clock.install();
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   page.on('pageerror', error => errors.push(String(error)));
   page.on('response', response => { if (response.url().includes('/play/skift/audio/')) audio.push({ url: response.url(), status: response.status() }); });
   await page.goto(runtime.url + '/admin/');
@@ -82,6 +82,7 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await page.locator('#page-title').dispatchEvent('change');
   await page.locator('[data-action="runtime"]').click();
   await page.locator('#copy-search').fill('SKIFT');
+  await expect(page.locator('[data-copy-key^="runtime.skift."][data-copy-key$=".footer"]')).toHaveCount(0);
   const intro = page.locator('[data-copy-key="runtime.skift.sv.intro"]');
   await intro.fill('CMS-intro <img src=x onerror="window.injected=true">');
   await page.locator('[data-action="save"]').click();
@@ -92,6 +93,8 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await expect(preview.locator('#start-button')).toBeEnabled();
   await expect(preview.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
   await expect(preview.locator('.intro img')).toHaveCount(0);
+  // Stop automatic ticks before driving every game frame deterministically.
+  await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'));
   await preview.locator('#start-button').click();
   await expect(preview.locator('#game-screen')).toBeVisible();
   await expect.poll(() => audio.some(response => response.url.endsWith('/audio/shift.mp3') && response.status === 200)).toBe(true);

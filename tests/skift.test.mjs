@@ -64,18 +64,41 @@ test('old CMS state gains the game and navigation without changing owner content
   const legacy = withoutGame(initial);
   legacy.pages[0].description = 'Ägarens beskrivning';
   legacy.pages[0].css = '[data-cms-node="n0"]{color:#123456}';
+  legacy.runtime['runtime.skift.sv.footer'] = 'Ägarens äldre skifttext.';
   const untouched = structuredClone(legacy);
   const upgraded = normalizeStoredProject(legacy, seed, initial);
   assert.ok(upgraded.pages.some(page => page.path === '/play/skift/'));
   assert.match(upgraded.pages[0].html, /data-skift-link/);
   assert.equal(upgraded.pages[0].description, 'Ägarens beskrivning');
   assert.equal(upgraded.pages[0].css, untouched.pages[0].css);
+  assert.equal(upgraded.runtime['runtime.skift.sv.footer'], 'Ägarens äldre skifttext.');
   assert.deepEqual(legacy, untouched);
   assert.deepEqual(normalizeStoredProject(upgraded, seed, initial), upgraded);
   assert.doesNotThrow(() => validateProject(upgraded, seed));
   const forged = withoutGame(initial);
   forged.pages[0].html = forged.pages[0].html.replace('data-motion-toggle=""', 'data-motion-toggle="" data-contact-form=""');
   assert.throws(() => normalizeStoredProject(forged, seed, initial), /koppling|funktion|attribut/);
+});
+
+test('legacy navigation migration rejects excessive nesting with a bounded validation error', () => {
+  const legacy = withoutGame(initial);
+  legacy.pages[0].html += '<div>'.repeat(8000) + '</div>'.repeat(8000);
+  assert.throws(() => normalizeStoredProject(legacy, seed, initial), { status: 422, message: /för många eller för djupt nästlade/ });
+});
+
+test('partial navigation upgrades retain owner labels and reject forged identities in both menus', () => {
+  for (const marker of ['data-skift-link', 'data-skift-mobile-link']) {
+    const project = structuredClone(initial);
+    const anchor = new RegExp(`<a\\b[^>]*${marker}=""[^>]*>[\\s\\S]*?</a>`);
+    project.pages[0].html = project.pages[0].html.replace(anchor, '').replaceAll('Starta ditt arbetsskift', 'Ägarens spellänk');
+    const normalized = normalizeStoredProject(project, seed, initial);
+    assert.match(normalized.pages[0].html, new RegExp(marker));
+    assert.match(normalized.pages[0].html, /Ägarens spellänk/);
+    assert.doesNotThrow(() => validateProject(normalized, seed));
+    const forged = structuredClone(initial);
+    forged.pages[0].html = forged.pages[0].html.replace(anchor, match => match.replace(/data-cms-node="[^"]+"/, 'data-cms-node="forged-nav"'));
+    assert.throws(() => validateProject(forged, seed), /koppling|funktion|attribut/);
+  }
 });
 
 test('adding SKIFT preserves a custom shared footer from a pre-shared-content backup', () => {

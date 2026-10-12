@@ -16,6 +16,8 @@ test.describe('public responsive matrix', () => {
       const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
       const page = await context.newPage();
       const errors = [];
+      const gameRequests = [];
+      page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/play/skift/assets/')) gameRequests.push(request.url()); });
       page.on('pageerror', error => errors.push(String(error)));
       page.on('console', message => {
         if (message.type() === 'error' && !(path === '/404.html' && message.text().includes('404'))) errors.push(message.text());
@@ -49,6 +51,7 @@ test.describe('public responsive matrix', () => {
       if (!mobileMenu) expect(appearance.border).toBe('0px');
       if (mobileMenu) await page.locator('[data-menu-toggle]').click();
       expect(errors).toEqual([]);
+      if (path !== '/play/skift/') expect(gameRequests).toEqual([]);
       if ([390, 1440].includes(width)) await page.screenshot({ path: join(SCREENSHOTS.pathname, screenshotName(path, width)), fullPage: true, animations: 'disabled' });
       await context.close();
     });

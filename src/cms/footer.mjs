@@ -2,18 +2,9 @@ import { parseFragment, serialize } from 'parse5';
 import * as css from 'css-tree';
 import { validateHtml } from './validation.mjs';
 import { HttpError } from './http.mjs';
+import { attribute, elements } from './html-tree.mjs';
 
 export const FOOTER_VERSION = 1;
-const attribute = (node, name) => node.attrs?.find(item => item.name === name)?.value;
-function elements(root) {
-  const result = [];
-  function visit(node) {
-    if (node.tagName) result.push(node);
-    for (const child of node.childNodes ?? []) visit(child);
-  }
-  visit(root);
-  return result;
-}
 function remapCss(source, keys) {
   if (!source?.includes('data-cms-node')) return source;
   const tree = css.parse(source);

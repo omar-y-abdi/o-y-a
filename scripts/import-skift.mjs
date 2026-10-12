@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { parse, parseFragment, serialize } from 'parse5';
 import * as css from 'css-tree';
+import { walk } from '../src/cms/html-tree.mjs';
 
 // Import a verified standalone release. No game dependencies enter the site's
 // public bundle or CMS editor; gameplay stays in the released runtime.
@@ -47,8 +48,7 @@ code = code.replace(/\s*\/\/[#@] sourceMappingURL=.*$/gm, '').replace(/[\t ]+$/g
 await writeFile(`${target}/assets/app.js`, code);
 const document = parse(await readFile(`${release}/index.html`, 'utf8'), { scriptingEnabled: false });
 const body = document.childNodes.find(node => node.tagName === 'html').childNodes.find(node => node.tagName === 'body');
-const visit = (node, fn) => { fn(node); for (const child of node.childNodes ?? []) visit(child, fn); };
-visit(body, node => {
+walk(body, node => {
   node.childNodes = node.childNodes?.filter(child => !['script', 'header'].includes(child.tagName));
   if (node.tagName === 'main') node.tagName = 'section';
   const id = node.attrs?.find(attr => attr.name === 'id')?.value;

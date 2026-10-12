@@ -49,7 +49,7 @@ export async function buildCms({ styles, js }) {
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
   const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
-  const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), skiftPage: pages.find(page => page.path === '/play/skift/'), runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
+  const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
   await writeFile('dist/data/runtime.json', JSON.stringify(seed.runtime));
   const initial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
   // Introduced pages enter old drafts as ordinary persisted pages, without

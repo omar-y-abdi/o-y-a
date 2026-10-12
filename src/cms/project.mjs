@@ -7,6 +7,7 @@ import { validateResources, resourceReferences } from './resources.mjs';
 import { normalizeSharedContent, validateSharedInstances } from './shared-content.mjs';
 import { normalizeFooterProject } from './footer.mjs';
 import { normalizeSkiftProject } from './skift.mjs';
+import { attribute, elements } from './html-tree.mjs';
 
 import { validateTheme } from './theme.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
@@ -18,13 +19,6 @@ function text(value, name, max = 200, min = 1) {
   if (typeof value !== 'string' || value.trim().length < min || value.length > max || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value)) fail(`${name} saknas eller har ogiltig längd.`);
   return value.trim();
 }
-function elements(html) {
-  const found = [];
-  function visit(node) { if (node.tagName) found.push(node); for (const child of node.childNodes ?? []) visit(child); }
-  visit(parseFragment(html, { scriptingEnabled: true }));
-  return found;
-}
-const attribute = (node, name) => node.attrs.find(item => item.name === name)?.value;
 
 export function validateProject(input, seed, baseline, { origins = [], publication = true } = {}) {
   if (!input || input.schemaVersion !== 1 || !Array.isArray(input.pages) || input.pages.length < 1 || input.pages.length > 64) fail('Projektets sidregister är ogiltigt.');
@@ -96,9 +90,10 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     const result = { id: card.id, flavor: card.flavor, text: text(card.text, 'Vinsttext', 500, publication ? 1 : 0), state };
     if (card.design) {
       const html = validateHtml(card.design.html);
-      const roots = parseFragment(html).childNodes.filter(node => node.tagName || node.nodeName === '#text' && node.value.trim());
+      const tree = parseFragment(html, { scriptingEnabled: true });
+      const roots = tree.childNodes.filter(node => node.tagName || node.nodeName === '#text' && node.value.trim());
       if (roots.length !== 1 || !roots[0].tagName) fail('Vinstens design behöver en enda rotbehållare. Lägg nya delar inuti den.');
-      const slots = elements(html).filter(node => attribute(node, 'data-card-text') !== undefined);
+      const slots = elements(tree).filter(node => attribute(node, 'data-card-text') !== undefined);
       const containers = new Set('div span p h1 h2 h3 h4 h5 h6 section article blockquote pre strong em b i'.split(' '));
       if (slots.length !== 1 || !containers.has(slots[0].tagName) || slots[0].namespaceURI !== 'http://www.w3.org/1999/xhtml') fail('Vinstdesignen behöver exakt en textbehållare som kan visa vinstens text.');
       for (let node = slots[0]; node?.tagName; node = node.parentNode) {

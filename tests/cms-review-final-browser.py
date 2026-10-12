@@ -48,8 +48,11 @@ def saved(page):
     qa.CMSBrowserQA.wait_saved(page)
 
 
+READ_RECORDS = """()=>new Promise((resolve,reject)=>{const q=indexedDB.open('oy-portfolio-studio',1);q.onerror=()=>reject(q.error);q.onsuccess=()=>{const db=q.result;const tx=db.transaction('drafts');const r=tx.objectStore('drafts').getAll();r.onsuccess=()=>{resolve(r.result);db.close()}}})"""
+
+
 def records(page):
-    return page.evaluate("""()=>new Promise((resolve,reject)=>{const q=indexedDB.open('oy-portfolio-studio',1);q.onerror=()=>reject(q.error);q.onsuccess=()=>{const db=q.result;const tx=db.transaction('drafts');const r=tx.objectStore('drafts').getAll();r.onsuccess=()=>{resolve(r.result);db.close()}}})""")
+    return page.evaluate(READ_RECORDS)
 
 
 with sync_playwright() as pw:
@@ -91,7 +94,7 @@ with sync_playwright() as pw:
             assert target.evaluate('el=>el.isContentEditable')
             # The status can describe an earlier generation while the final
             # keystrokes are still being persisted. Wait for their actual data.
-            page.wait_for_function("""()=>new Promise((resolve,reject)=>{const q=indexedDB.open('oy-portfolio-studio',1);q.onerror=()=>reject(q.error);q.onsuccess=()=>{const db=q.result;const tx=db.transaction('drafts');const r=tx.objectStore('drafts').getAll();r.onsuccess=()=>{resolve(r.result.some(row=>(row.project?.pages??[]).some(page=>page.html.includes('Still typing before blur')&&page.html.includes('Second line'))));db.close()}}})""", timeout=10000)
+            page.wait_for_function(f"() => ({READ_RECORDS})().then(rows => rows.some(row => (row.project?.pages ?? []).some(page => page.html.includes('Still typing before blur') && page.html.includes('Second line'))))", timeout=10000)
             page.reload(); ready(page)
             expect(page.locator('#dialog-content')).to_contain_text('En idé väntar')
             page.locator('[data-confirm=yes]').click(); expect(page.locator('#studio-dialog')).to_be_hidden(timeout=20000); ready(page)

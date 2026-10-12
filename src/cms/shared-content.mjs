@@ -3,22 +3,16 @@ import { HttpError } from './http.mjs';
 import { validateHtml } from './validation.mjs';
 import { normalizeFooterProject } from './footer.mjs';
 import { normalizeSkiftProject } from './skift.mjs';
+import { attribute as attr, walk, setInner } from './html-tree.mjs';
 
 export const DEFAULT_SHARED_CONTENT=Object.freeze({'footer.tagline':'Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.'});
 const KEY=/^[a-z][a-z0-9.-]{0,79}$/;
 function fail(message){throw new HttpError(422,message);}
-function attr(node,name){return node.attrs?.find(item=>item.name===name)?.value;}
 function setAttr(node,name,value){
   node.attrs??=[]; const current=node.attrs.find(item=>item.name===name);
   if(current)current.value=value; else node.attrs.push({name,value});
 }
-function walk(node,visit){visit(node);for(const child of node.childNodes??[])walk(child,visit);}
 function findNode(root,name,value){let found=null;walk(root,node=>{if(!found&&attr(node,name)===value)found=node;});return found;}
-function setInner(node,value){
-  const fragment=parseFragment(value);
-  node.childNodes=fragment.childNodes??[];
-  for(const child of node.childNodes)child.parentNode=node;
-}
 function sharedLabel(value){
   const root=parseFragment(value); let text='';
   walk(root,node=>{if(node.nodeName==='#text')text+=node.value; else if(node.tagName==='br')text+=' ';});

@@ -34,8 +34,7 @@ html:has(.page-skift){height:auto;overflow:auto}
 .page-skift #main{height:max(720px,calc(100svh - 91px));position:relative;overflow:hidden}
 .page-skift #title-screen{background:linear-gradient(90deg,var(--paper) 0%,#fffdf6ed 24%,#fffdf633 44%,transparent 62%)}
 .page-skift .hero-copy{top:clamp(80px,11vh,120px);left:max(64px,calc((100vw - 1264px)/2));max-width:42vw}
-.page-skift .hero-copy h1{letter-spacing:-.065em}
-.page-skift .hero-copy h2{letter-spacing:-.065em}
+.page-skift .hero-copy h1,.page-skift .hero-copy h2,.page-skift .modal-inner h2{letter-spacing:-.065em}
 .page-skift .skift-tools{position:absolute;top:24px;right:max(64px,calc((100vw - 1264px)/2));display:flex;gap:24px;pointer-events:auto;font-size:13px;font-weight:700}
 .page-skift .skift-tools button{min-height:44px;padding:8px 0}
 .page-skift .skift-tools button:hover{color:var(--blue)}
@@ -43,12 +42,10 @@ html:has(.page-skift){height:auto;overflow:auto}
 .page-skift .site-footer{position:relative;z-index:1;background:var(--butter)}
 .page-skift:not([data-mode="play"]) #world{pointer-events:none}
 .page-skift[data-mode]:not([data-mode="menu"]){height:100dvh;overflow:hidden}
-.page-skift[data-mode]:not([data-mode="menu"])>.site-header,
-.page-skift[data-mode]:not([data-mode="menu"])>.site-footer{display:none}
+.page-skift[data-mode]:not([data-mode="menu"])>:is(.site-header,.site-footer){display:none}
 .page-skift[data-mode]:not([data-mode="menu"]) #main{height:100dvh}
 html:has(.page-skift[data-mode]:not([data-mode="menu"])){overflow:hidden}
 .page-skift #modal{border-radius:22px;background:var(--paper)}
-.page-skift .modal-inner h2{letter-spacing:-.065em}
 @media(max-width:1100px){.page-skift .hero-copy{left:40px}.page-skift .skift-tools{right:40px}}
 @media(max-width:760px){
   .page-skift #main{height:max(700px,calc(100svh - 78px))}
