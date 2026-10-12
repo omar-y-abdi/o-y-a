@@ -53,6 +53,8 @@ Memorykortens grundmarkup finns i editorn. Kort, fram-/baksida och SVG-behållar
 
 Reservutkast sparas lokalt i IndexedDB och kan återupptas vid nästa inloggning. Exportera utkast ger en JSON-reservkopia vid nätverks- eller sessionsproblem. Den innehåller HTML, CSS, övrigt innehåll och resursreferenser, inga inloggningsuppgifter. Äldre editor-JSON används inte som en separat innehållskälla. Vid öppning av en sådan version visas en möjlighet att exportera originalet; granska det kanoniska utkastet före Save.
 
+Under återställning visas **Återställer utkastet** medan reservkopian kontrolleras, läses in och reservlagringen uppdateras för den nya sessionen. Dialogen håller arbetsytan låst under tiden. Vid fel finns originalkopian kvar och kan exporteras.
+
 Två flikar kan inte tyst skriva över varandra. Vid konflikt kan utkast exporteras, historik granskas eller ändringar sammanföras. Oberoende sidor, vinstkort, temavärden och funktionstexter sammanförs. Har båda flikarna ändrat samma sida krävs uttryckligt val; vald sidversion behålls som helhet. Granska sedan och välj Save.
 
 Save visar valideringsfel utan att kasta bort arbetet. Trasiga interna länkar, saknade alternativtexter, ändrade funktionskopplingar och otillåten kod måste rättas. Godtycklig HTML-/JavaScript-körning ingår inte i studion.

@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
 let runtime;
+// Each case renders a live 3D world. Share one fixture and run these cases in
+// order so software-rendered CI does not run three worlds concurrently.
+test.describe.configure({ mode: 'default' });
 test.beforeAll(async () => { runtime = await cmsRuntime(); });
 test.afterAll(async () => { await runtime?.close(); });
 const snapshot = page => page.evaluate(() => window.__SKIFT__.snapshot());
@@ -18,13 +21,17 @@ test('integrated game supports input, pause, persisted settings and district che
   await expect(page.locator('.site-header .brand')).toHaveAttribute('aria-label', 'Omar Yusuf, startsida');
   await page.locator('#start-button').click();
   const first = await snapshot(page);
-  await page.keyboard.down('d'); await page.waitForTimeout(350); await page.keyboard.up('d');
-  const moved = await snapshot(page);
-  expect(Math.hypot(moved.player.x - first.player.x, moved.player.z - first.player.z)).toBeGreaterThan(1);
-  await page.keyboard.press('Space'); await page.waitForTimeout(70);
-  expect((await snapshot(page)).dashCooldown).toBeGreaterThan(0);
-  await page.keyboard.press('j'); await page.waitForTimeout(70);
-  expect((await snapshot(page)).pulseCooldown).toBeGreaterThan(0);
+  await page.keyboard.down('d');
+  try {
+    await expect.poll(async () => {
+      const moved = await snapshot(page);
+      return Math.hypot(moved.player.x - first.player.x, moved.player.z - first.player.z);
+    }).toBeGreaterThan(1);
+  } finally { await page.keyboard.up('d'); }
+  await page.keyboard.press('Space');
+  await expect.poll(async () => (await snapshot(page)).dashCooldown).toBeGreaterThan(0);
+  await page.keyboard.press('j');
+  await expect.poll(async () => (await snapshot(page)).pulseCooldown).toBeGreaterThan(0);
   await page.keyboard.press('Escape'); await expect(page.locator('#modal')).toBeVisible();
   const paused = await snapshot(page); await page.waitForTimeout(300);
   expect((await snapshot(page)).time).toBe(paused.time);
@@ -44,12 +51,17 @@ test('mobile game keeps touch controls visible and plays after resize', async ({
   await openGame(page); await page.locator('#start-button').tap();
   await expect(page.locator('#joystick')).toBeVisible();
   await page.locator('#dash-control').tap();
-  await page.waitForTimeout(100); expect((await snapshot(page)).dashCooldown).toBeGreaterThan(0);
+  await expect.poll(async () => (await snapshot(page)).dashCooldown).toBeGreaterThan(0);
   await page.setViewportSize({ width: 844, height: 390 });
   expect((await snapshot(page)).mode).toBe('play');
-  for (const selector of ['.district-card', '.run-card', '#dash-control', '#pulse-control']) {
-    const box = await page.locator(selector).boundingBox();
+  const controls = await page.evaluate(() => ['.district-card', '.run-card', '#dash-control', '#pulse-control'].map(selector => {
+    const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
+    return { x, y, width, height };
+  }));
+  for (const box of controls) {
+    expect(box.width).toBeGreaterThan(0); expect(box.height).toBeGreaterThan(0);
     expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(844);
+    expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.y + box.height).toBeLessThanOrEqual(390);
   }
   await context.close();

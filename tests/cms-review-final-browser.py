@@ -89,7 +89,9 @@ with sync_playwright() as pw:
             expect(page.locator('[data-action=save]')).to_be_enabled()
             expect(page.locator('#backup-status')).to_contain_text('sparat för denna flik', timeout=10000)
             assert target.evaluate('el=>el.isContentEditable')
-            assert any('Still typing before blur' in json.dumps(row.get('project', {})) for row in records(page))
+            # The status can describe an earlier generation while the final
+            # keystrokes are still being persisted. Wait for their actual data.
+            page.wait_for_function("""()=>new Promise((resolve,reject)=>{const q=indexedDB.open('oy-portfolio-studio',1);q.onerror=()=>reject(q.error);q.onsuccess=()=>{const db=q.result;const tx=db.transaction('drafts');const r=tx.objectStore('drafts').getAll();r.onsuccess=()=>{resolve(r.result.some(row=>(row.project?.pages??[]).some(page=>page.html.includes('Still typing before blur')&&page.html.includes('Second line'))));db.close()}}})""", timeout=10000)
             page.reload(); ready(page)
             expect(page.locator('#dialog-content')).to_contain_text('En idé väntar')
             page.locator('[data-confirm=yes]').click(); expect(page.locator('#studio-dialog')).to_be_hidden(timeout=20000); ready(page)
@@ -101,6 +103,32 @@ with sync_playwright() as pw:
             assert public.locator('#live-copy br').count() == 1
             public.screenshot(path=str(OUT/'active-text-public.png')); public.close()
         finally: ctx.close()
+
+    def pending_recovery():
+        ctx, page = setup('<p id="recovered-copy">Recovered page body</p>')
+        held = []
+        try:
+            page.locator('#page-title').fill('Recovered draft title')
+            expect(page.locator('#backup-status')).to_contain_text('sparat för denna flik', timeout=10000)
+            page.reload(); ready(page)
+            expect(page.locator('#dialog-content')).to_contain_text('En idé väntar')
+            page.route('**/admin/api/recover', lambda route: held.append(route))
+            with page.expect_request('**/admin/api/recover'):
+                page.locator('[data-confirm=yes]').click()
+            expect(page.locator('#studio-dialog')).to_be_visible()
+            expect(page.locator('#dialog-content')).to_contain_text('Återställer utkastet')
+            assert page.evaluate('document.querySelector("#studio-dialog").contains(document.activeElement)')
+            assert len(held) == 1
+            page.keyboard.press('Escape')
+            expect(page.locator('#studio-dialog')).to_be_visible()
+            held.pop().continue_()
+            expect(page.locator('#studio-dialog')).to_be_hidden(timeout=20000); ready(page)
+            page.locator('[data-page-id=final-acceptance]').click(); ready(page)
+            expect(page.locator('#page-title')).to_have_value('Recovered draft title')
+            expect(frame(page).locator('#recovered-copy')).to_have_text('Recovered page body')
+        finally:
+            for route in held: route.abort()
+            ctx.close()
 
     def rich_inspector():
         markup = '<p id="rich-copy">Hello <span id="accent-word" class="accent">world</span>, <em>today</em> <a href="/om/">about</a>.<br>Next line</p>'
@@ -256,7 +284,7 @@ with sync_playwright() as pw:
             page.screenshot(path=str(OUT/'storage-quota-visible.png'))
         finally: ctx.close()
 
-    for name, case in [('active-input-backup-reload-publish', active_text), ('active-input-forward-delete-backup-reload-publish', lambda: active_text('Delete')), ('rich-inspector-structure-reload-public', rich_inspector), ('preview-srcdoc-script-readiness', locked_preview), ('custom-card-visible-transform-export', card_preview_export), ('distinct-font-replacement-and-history', font_replacement), ('managed-svg-dirty-navigation-unload-recovery', managed_svg_dirty_lifecycle), ('storage-quota-visible-export', quota_export)]:
+    for name, case in [('active-input-backup-reload-publish', active_text), ('active-input-forward-delete-backup-reload-publish', lambda: active_text('Delete')), ('pending-recovery-keeps-studio-blocked-until-installed', pending_recovery), ('rich-inspector-structure-reload-public', rich_inspector), ('preview-srcdoc-script-readiness', locked_preview), ('custom-card-visible-transform-export', card_preview_export), ('distinct-font-replacement-and-history', font_replacement), ('managed-svg-dirty-navigation-unload-recovery', managed_svg_dirty_lifecycle), ('storage-quota-visible-export', quota_export)]:
         report.run(name, case)
     browser.close()
 raise SystemExit(report.summary())

@@ -36,6 +36,8 @@ The bottom command bar contains Edit, Save, Revert, Restore, History and Lock vi
 
 New sections, text, images, links and layout containers can be added, duplicated, moved and resized. Pages can be created and managed. Reserved system routes and required accessibility/navigation anchors remain protected. Unsaved state survives page switches and has a recoverable local draft. Failed saves, expired login and conflicts keep the draft and explain the next action. Two open tabs cannot silently overwrite each other.
 
+Recovery keeps a modal progress dialog open while server validation, base-revision loading, draft installation and local persistence are pending. Native cancel cannot expose the previous canvas during recovery. The success dialog closes only after installation; failures retain the original recovery record and offer its export.
+
 ## Interactive content and assets
 
 The media library includes existing public artwork and uploads with meaningful names, dimensions, type, alt text and usage. Replace a used asset through a new immutable object; keep older objects needed by history. Validate file type and bounds on the server. Arbitrary active documents, remote scripts and executable SVG uploads are not accepted as image assets.
