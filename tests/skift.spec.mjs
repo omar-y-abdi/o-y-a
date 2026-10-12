@@ -72,6 +72,7 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
   const page = await context.newPage();
   const errors = [], audio = [];
+  await page.clock.install();
   page.on('pageerror', error => errors.push(String(error)));
   page.on('response', response => { if (response.url().includes('/play/skift/audio/')) audio.push({ url: response.url(), status: response.status() }); });
   await page.goto(runtime.url + '/admin/');
@@ -93,12 +94,13 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await expect(preview.locator('.intro img')).toHaveCount(0);
   await preview.locator('#start-button').click();
   await expect(preview.locator('#game-screen')).toBeVisible();
-  expect(errors).toEqual([]);
   await expect.poll(() => audio.some(response => response.url.endsWith('/audio/shift.mp3') && response.status === 200)).toBe(true);
+  await page.clock.runFor(1500);
   await expect(preview.locator('#clock')).not.toHaveText('00:00');
   const live = await context.newPage();
   await live.goto(runtime.url + '/play/skift/');
   await expect(live).toHaveTitle('CMS-testat skift | Omar Yusuf');
   await expect(live.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
+  expect(errors).toEqual([]);
   await context.close();
 });
