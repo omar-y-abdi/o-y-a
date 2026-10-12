@@ -35,8 +35,8 @@
     "verify:fast": "npm run check:fast && npm run test:cms:smoke",
     "verify:full": "npm run check && npm run quality:after-check && npm run test:cms && npm run test:cms:footer && npm run test:cms:compat && npm run edge:check:built",
     "test:cms:modules:single": "node scripts/test-cms-modules.mjs",
-    "test:public-pages": "playwright test tests/public-pages.spec.mjs --project=chromium",
-    "test:web:e2e": "playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs tests/skift.spec.mjs --project=chromium",
+    "test:public-pages": "playwright test tests/public-pages.spec.mjs",
+    "test:web:e2e": "playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs tests/skift.spec.mjs",
     "test:fast": "node scripts/run-node-tests.mjs fast",
     "test:slow": "node scripts/run-node-tests.mjs slow",
     "check:fast": "npm run build && npm run lint && npm run test:fast"

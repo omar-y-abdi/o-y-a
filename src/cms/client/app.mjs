@@ -214,7 +214,7 @@ function openPage(id, hash = '') {
       applyTheme(); $('#loading-state').hidden = true; setDevice(device, false);
       if (!restorePendingView(editor)) { fit(); inspect(null, editor); }
       if (hash) editor.Canvas.getDocument().getElementById(hash.slice(1))?.scrollIntoView();
-      if (locked || device === 'compare') preview().catch(showError);
+      if ((locked || device === 'compare') && $('#preview-stage').hidden) preview().catch(showError);
     },
   });
   status();

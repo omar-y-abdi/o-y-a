@@ -15,6 +15,8 @@ npm run verify:full
 
 `verify:full` is the release/CI gate. It reuses the completed build/check, starts the public and analytics fixtures, runs the public responsive matrix and all 240 production card exports with Playwright Test workers, runs the CMS browser suites in independent Worker runtimes, executes Firefox and WebKit compatibility in parallel, and finishes with a Wrangler dry-run. Set `PUBLIC_TEST_PORT` and `ANALYTICS_TEST_PORT` when needed. Activate `.test-venv` first so the remaining Python browser scenarios resolve to the installed Playwright environment.
 
+The public Playwright run keeps all 329 cases. Its nine `@webgl` layout/game cases run in the `chromium-webgl` project with one worker after the ordinary `chromium` cases, so software rendering does not compete with another game world. Test deadlines, assertions and retry policies are unchanged. Focused game commands use `--project=chromium-webgl --no-deps` to avoid starting the HTTP-dependent public suites; the full quality gate always runs both projects and their dependency.
+
 `test:cms` prepares the real editor/public module fixtures once, runs their cases in isolated parallel browser processes, then runs the authenticated CMS navigation suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself is verified separately in remote staging.
 
 Additional public regressions, with the public preview running:

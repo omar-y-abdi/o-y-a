@@ -12,7 +12,7 @@ test.beforeAll(async () => mkdir(SCREENSHOTS, { recursive: true }));
 
 test.describe('public responsive matrix', () => {
   for (const path of PAGES) for (const [width, height] of SIZES) {
-    test(`${path} at ${width}px`, async ({ browser }) => {
+    test(`${path} at ${width}px`, { tag: path === '/play/skift/' ? '@webgl' : [] }, async ({ browser }) => {
       const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
       const page = await context.newPage();
       const errors = [];

@@ -45,7 +45,7 @@ Import the complete standalone release from its source project, then rebuild:
 node scripts/import-skift.mjs '/path/to/SKIFT project'
 npm run build
 npm run check
-npx playwright test tests/skift.spec.mjs --workers=1
+npx playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps
 ```
 
 The importer needs source `src/i18n.js` and built `dist/play/skift/`. It copies

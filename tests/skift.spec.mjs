@@ -14,7 +14,7 @@ async function openGame(page) {
   await expect(page.locator('#start-button')).toBeEnabled();
 }
 
-test('integrated game supports input, pause, persisted settings and district checkpoint', async ({ page }) => {
+test('integrated game supports input, pause, persisted settings and district checkpoint', { tag: '@webgl' }, async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(String(error)));
   await page.setViewportSize({ width: 1440, height: 900 });
   await openGame(page);
@@ -45,7 +45,7 @@ test('integrated game supports input, pause, persisted settings and district che
   expect(errors).toEqual([]);
 });
 
-test('mobile game keeps touch controls visible and plays after resize', async ({ browser }) => {
+test('mobile game keeps touch controls visible and plays after resize', { tag: '@webgl' }, async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' });
   const page = await context.newPage();
   await openGame(page); await page.locator('#start-button').tap();
@@ -67,10 +67,9 @@ test('mobile game keeps touch controls visible and plays after resize', async ({
   await context.close();
 });
 
-test('CMS page settings, visual editing, Save and interactive preview work for SKIFT', async ({ browser }) => {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+test('CMS page settings, visual editing, Save and interactive preview work for SKIFT', { tag: '@webgl' }, async ({ page, context }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
-  const page = await context.newPage();
   const errors = [], audio = [];
   await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
   page.on('pageerror', error => errors.push(String(error)));
@@ -87,10 +86,25 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await intro.fill('CMS-intro <img src=x onerror="window.injected=true">');
   await page.locator('[data-action="save"]').click();
   await expect(page.locator('#save-status')).toContainText(/Sparat|Sparad|Alla ändringar/i);
+  // Lock view must retain its running preview when a slow editor becomes ready.
+  let releaseCanvas;
+  const canvasStyles = new Promise(resolve => { releaseCanvas = resolve; });
+  await page.route('**/assets/site.*.css', async route => {
+    const frame = route.request().frame();
+    if (frame.parentFrame() && (await (await frame.frameElement()).getAttribute('class'))?.includes('gjs-frame')) await canvasStyles;
+    await route.continue();
+  });
+  const previewRequests = [];
+  page.on('request', request => { if (new URL(request.url()).pathname === '/admin/api/preview') previewRequests.push(request.url()); });
   await page.locator('[data-page-id="skift"]').click();
-  await page.locator('[data-action="lock"]').click();
   const preview = page.frameLocator('[data-cms-preview-frame]').first();
-  await expect(preview.locator('#start-button')).toBeEnabled();
+  try {
+    await page.locator('[data-action="lock"]').click();
+    await expect(preview.locator('#start-button')).toBeEnabled();
+  } finally { releaseCanvas(); }
+  const shown = await page.locator('[data-cms-preview-frame]').first().elementHandle();
+  await expect(page.locator('#loading-state')).toBeHidden();
+  expect(previewRequests).toHaveLength(1);
   await expect(preview.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
   await expect(preview.locator('.intro img')).toHaveCount(0);
   // Stop automatic ticks before driving every game frame deterministically.
@@ -98,12 +112,13 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await preview.locator('#start-button').click();
   await expect(preview.locator('#game-screen')).toBeVisible();
   await expect.poll(() => audio.some(response => response.url.endsWith('/audio/shift.mp3') && response.status === 200)).toBe(true);
-  await page.clock.runFor(1500);
+  // Advance only the first full second needed by the clock assertion.
+  await page.clock.runFor(1100);
   await expect(preview.locator('#clock')).not.toHaveText('00:00');
   const live = await context.newPage();
   await live.goto(runtime.url + '/play/skift/');
   await expect(live).toHaveTitle('CMS-testat skift | Omar Yusuf');
   await expect(live.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
+  expect(await shown.evaluate(frame => frame.isConnected)).toBe(true);
   expect(errors).toEqual([]);
-  await context.close();
 });
