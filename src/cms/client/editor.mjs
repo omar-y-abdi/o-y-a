@@ -88,6 +88,12 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   editor.on('load', () => {
     if (disposed) return;
     const doc = editor.Canvas.getDocument();
+    // Native text deletion/undo must not reach the editor's structural shortcuts.
+    // Keep the browser's default editing action, caret and native undo stack.
+    doc.addEventListener('keydown', event => {
+      const textHistory = (event.metaKey || event.ctrlKey) && ['z', 'y'].includes(event.key.toLowerCase());
+      if (!event.isComposing && event.target.isContentEditable && (['Backspace', 'Delete'].includes(event.key) || textHistory)) event.stopPropagation();
+    }, true);
     const fontStyle = doc.createElement('style');
     fontStyle.textContent = assetFontCss(assets);
     doc.head.append(fontStyle);

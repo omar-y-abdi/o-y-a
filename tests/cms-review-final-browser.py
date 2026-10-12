@@ -72,12 +72,19 @@ with sync_playwright() as pw:
             page.locator('[data-page-id=final-acceptance]').click(); ready(page)
         return ctx, page
 
-    def active_text():
+    def active_text(delete_key='Backspace'):
         ctx, page = setup('<p id="live-copy">Original editable paragraph</p>')
         try:
             target = frame(page).locator('#live-copy'); target.dblclick()
             expect(target).to_have_attribute('contenteditable', 'true')
-            target.press('ControlOrMeta+A'); target.press('Backspace'); target.press_sequentially('Still typing before blur', delay=20)
+            target.evaluate('el=>{el.ownerDocument.defaultView.caretHost=el}')
+            target.press('ControlOrMeta+A'); target.press(delete_key)
+            expect(page).to_have_url(BASE+'/admin/')
+            expect(target).to_have_text('')
+            assert target.evaluate('el=>el===el.ownerDocument.defaultView.caretHost && el.isContentEditable')
+            target.press('ControlOrMeta+z'); expect(target).to_have_text('Original editable paragraph')
+            target.press('ControlOrMeta+Shift+z'); expect(target).to_have_text('')
+            target.press_sequentially('Still typing before blur', delay=20)
             target.press('Shift+Enter'); target.press_sequentially('Second line', delay=20)
             expect(page.locator('[data-action=save]')).to_be_enabled()
             expect(page.locator('#backup-status')).to_contain_text('sparat för denna flik', timeout=10000)
@@ -249,7 +256,7 @@ with sync_playwright() as pw:
             page.screenshot(path=str(OUT/'storage-quota-visible.png'))
         finally: ctx.close()
 
-    for name, case in [('active-input-backup-reload-publish', active_text), ('rich-inspector-structure-reload-public', rich_inspector), ('preview-srcdoc-script-readiness', locked_preview), ('custom-card-visible-transform-export', card_preview_export), ('distinct-font-replacement-and-history', font_replacement), ('managed-svg-dirty-navigation-unload-recovery', managed_svg_dirty_lifecycle), ('storage-quota-visible-export', quota_export)]:
+    for name, case in [('active-input-backup-reload-publish', active_text), ('active-input-forward-delete-backup-reload-publish', lambda: active_text('Delete')), ('rich-inspector-structure-reload-public', rich_inspector), ('preview-srcdoc-script-readiness', locked_preview), ('custom-card-visible-transform-export', card_preview_export), ('distinct-font-replacement-and-history', font_replacement), ('managed-svg-dirty-navigation-unload-recovery', managed_svg_dirty_lifecycle), ('storage-quota-visible-export', quota_export)]:
         report.run(name, case)
     browser.close()
 raise SystemExit(report.summary())

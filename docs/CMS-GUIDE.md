@@ -17,6 +17,8 @@
 
 Dubbelklicka för direktredigering. **Shift+Enter** skapar synlig radbrytning, exempelvis `Omar` följt av `Yusuf.` på nästa rad. Textfältet till höger stöder samma radbrytning. Typografi innehåller typsnitt, storlek, vikt, radavstånd, teckenavstånd, färg och justering.
 
+Under direktredigering använder Backspace/Delete och Cmd/Ctrl+Z webbläsarens textredigering och texthistorik. Ångra/gör om i kommandofältet gäller hela utkastet när textredigeringen är avslutad.
+
 När inget element är valt ändrar **Webbplatsens stil** webbplatsens gemensamma färger, grundtypsnitt, storlek och hörnradie. När ett element är valt blir samma läge en färg- och effektpanel för just det elementet: textfärg, bakgrund/gradient, opacitet, kant/outline, SVG fill/stroke, skuggor och säkra filter som blur, brightness, contrast, saturate och hue-rotate. Layout, marginaler och typografisk storlek ligger kvar i vanliga Design-läget, så färgändringar flyttar inte strukturen av misstag. Egna WOFF2-filer laddas upp i Resurser och kan väljas globalt eller på ett element. Explicita komponentstilar har CSS-företräde framför globala grundvärden.
 
 Layout, rutnät/flex, avstånd, position, transformering, bakgrund, kanter och skuggor finns i Design-panelen. Vanliga visuella text-, länk-, bild- och behållarelement visar GrapesJS-resizehandtag där det är säkert; funktionskontroller och lågnivå-SVG-former skyddas. Fler stilegenskaper accepterar giltiga CSS-egenskaper; servern kontrollerar även dessa vid Save.

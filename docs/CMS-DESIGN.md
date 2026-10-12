@@ -20,6 +20,8 @@ The application opens on the actual home page. The collapsible left rail lists p
 
 The workspace itself adapts to narrow devices with drawers and touch-sized controls. The editor does not pretend a scaled desktop canvas is a mobile layout: mobile CSS changes are breakpoint-specific.
 
+Active rich-text fields retain native deletion and undo/redo. The canvas stops those key events before they reach structural editor shortcuts, without cancelling the browser's editing action or replacing the live DOM. Other keys, IME composition and the explicit Save shortcut retain their existing handlers.
+
 The bottom command bar contains Edit, Save, Revert, Restore, History and Lock view, plus undo/redo. Commands have explicit behavior:
 
 | Command | Contract |
