@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, cp } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { parse, serialize } from 'parse5';
+import { parse, parseFragment, serialize } from 'parse5';
 import * as css from 'css-tree';
 
 // Import a verified standalone release. No game dependencies enter the site's
@@ -13,7 +13,7 @@ const release = resolve(source, 'dist/play/skift');
 const target = 'public/play/skift';
 await mkdir(`${target}/assets`, { recursive: true });
 await cp(`${release}/audio`, `${target}/audio`, { recursive: true });
-for (const name of ['THIRD-PARTY-LICENSES.txt', 'assets/app.css', 'assets/app.js.LEGAL.txt']) {
+for (const name of ['THIRD-PARTY-LICENSES.txt', 'assets/app.js.LEGAL.txt']) {
   await writeFile(`${target}/${name}`, (await readFile(`${release}/${name}`, 'utf8')).replace(/\s*\/\/[#@] sourceMappingURL=.*$/gm, '').replace(/\s*\/\*[#@] sourceMappingURL=.*?\*\//gs, '').replace(/[\t ]+$/gm, ''));
 }
 // The standalone header was replaced by the real portfolio shell. Its styles
@@ -46,9 +46,8 @@ for (const [before, after] of [
 code = code.replace(/\s*\/\/[#@] sourceMappingURL=.*$/gm, '').replace(/[\t ]+$/gm, '');
 await writeFile(`${target}/assets/app.js`, code);
 const document = parse(await readFile(`${release}/index.html`, 'utf8'), { scriptingEnabled: false });
-let body;
+const body = document.childNodes.find(node => node.tagName === 'html').childNodes.find(node => node.tagName === 'body');
 const visit = (node, fn) => { fn(node); for (const child of node.childNodes ?? []) visit(child, fn); };
-visit(document, node => { if (node.tagName === 'body') body = node; });
 visit(body, node => {
   node.childNodes = node.childNodes?.filter(child => !['script', 'header'].includes(child.tagName));
   if (node.tagName === 'main') node.tagName = 'section';
@@ -56,13 +55,11 @@ visit(body, node => {
   if (id) node.attrs.push({ name: 'data-skift-part', value: id });
   if (id === 'title-screen') {
     node.attrs.push({ name: 'data-skift-root', value: '' });
-    const tools = parse('<body><nav class="skift-tools" data-skift-menu aria-label="Spelmeny"><button data-action="how" data-t="how">Så spelar du</button><button data-action="settings" data-t="settings">Inställningar</button></nav></body>');
-    let nav; visit(tools, element => { if (element.tagName === 'nav') nav = element; });
+    const nav = parseFragment('<nav class="skift-tools" data-skift-menu aria-label="Spelmeny"><button data-action="how" data-t="how">Så spelar du</button><button data-action="settings" data-t="settings">Inställningar</button></nav>').childNodes[0];
     nav.parentNode = node; node.childNodes.unshift(nav);
   }
   if (id === 'modal') {
-    const label = parse('<body><h2 id="modal-title" hidden>Spelmeny</h2></body>');
-    let heading; visit(label, element => { if (element.tagName === 'h2') heading = element; });
+    const heading = parseFragment('<h2 id="modal-title" hidden>Spelmeny</h2>').childNodes[0];
     heading.parentNode = node; node.childNodes.push(heading);
   }
 });

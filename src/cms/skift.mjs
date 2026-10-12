@@ -2,7 +2,6 @@ import { parseFragment, serialize } from 'parse5';
 import { validateHtml } from './validation.mjs';
 import { HttpError } from './http.mjs';
 import { SKIFT_PATH, shiftLink } from '../content/skift.mjs';
-import { normalizeFooterPage } from './footer.mjs';
 
 const attr = (node, name) => node.attrs?.find(item => item.name === name)?.value;
 function elements(root) {
@@ -44,7 +43,7 @@ export function normalizeSkiftProject(input, seed) {
     return normalizeSkiftPage(page, definition);
   });
   if (!pages.some(page => page?.id === 'skift')) {
-    const game = normalizeFooterPage(structuredClone(seed.skiftPage), seed.skiftPage);
+    const game = structuredClone(seed.skiftPage);
     // Newly introduced page inherits the owner's current shared footer.
     const tree = parseFragment(game.html, { scriptingEnabled: false });
     for (const node of elements(tree)) {
