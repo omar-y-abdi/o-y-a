@@ -51,8 +51,8 @@ npx playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps
 The importer needs source `src/i18n.js` and built `dist/play/skift/`. It copies
 audio, bundled JavaScript, CSS and licenses; generates CMS markup and landing
 defaults; and adapts same-origin audio URLs for CMS previews, an isolated game
-menu selector, safe landing-copy overrides and ownership of header/brand
-styles by the portfolio shell. It fails if the released runtime no longer
+menu selector, safe landing-copy overrides, dismissible Help/Settings during
+loading and ownership of header/brand styles by the portfolio shell. It fails if the released runtime no longer
 matches its checked adapters.
 No new runtime dependencies enter the portfolio or CMS bundles. Source maps
 are excluded. `public/play/skift/RELEASE.json` records upstream and adapted

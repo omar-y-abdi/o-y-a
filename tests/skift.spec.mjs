@@ -14,6 +14,37 @@ async function openGame(page) {
   await expect(page.locator('#start-button')).toBeEnabled();
 }
 
+test('loading and title menus remain dismissible and error recovery stays available', { tag: '@webgl' }, async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'));
+  await page.goto(runtime.url + '/play/skift/?qa=1');
+  await expect(page.locator('#world canvas')).toHaveCount(1);
+  await expect(page.locator('#start-button')).toBeDisabled();
+  for (const loading of [true, false]) {
+    for (const [menu, exit] of [['how', 'Escape'], ['settings', 'back'], ['how', 'close']]) {
+      await page.locator(`[data-skift-menu] [data-action="${menu}"]`).click();
+      await expect(page.locator('#modal')).toBeVisible();
+      if (exit === 'Escape') await page.keyboard.press('Escape');
+      else await page.locator(exit === 'back' ? '#modal .primary[data-action="close"]' : '#modal .modal-close').click();
+      await expect(page.locator('#modal')).toBeHidden();
+      await expect(page.locator('#title-screen')).toBeVisible();
+      if (loading) await expect(page.locator('#start-button')).toBeDisabled();
+    }
+    if (loading) { await page.clock.resume(); await page.waitForFunction(() => window.__SKIFT__); }
+  }
+  await page.locator('#start-button').click();
+  expect((await snapshot(page)).mode).toBe('play');
+  await page.evaluate(() => document.querySelector('#world canvas').getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
+  await expect(page.locator('#modal [data-action="reload"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#modal [data-action="reload"]')).toBeVisible();
+  await page.locator('#modal [data-action="reload"]').click();
+  await page.waitForFunction(() => window.__SKIFT__);
+  await expect(page.locator('#start-button')).toBeEnabled();
+  expect((await snapshot(page)).mode).toBe('menu');
+});
+
 test('integrated game supports input, pause, persisted settings and district checkpoint', { tag: '@webgl' }, async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(String(error)));
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -87,11 +118,14 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await page.locator('[data-action="save"]').click();
   await expect(page.locator('#save-status')).toContainText(/Sparat|Sparad|Alla ändringar/i);
   // Lock view must retain its running preview when a slow editor becomes ready.
-  let releaseCanvas;
+  let releaseCanvas, canvasBlocked = false;
   const canvasStyles = new Promise(resolve => { releaseCanvas = resolve; });
   await page.route('**/assets/site.*.css', async route => {
     const frame = route.request().frame();
-    if (frame.parentFrame() && (await (await frame.frameElement()).getAttribute('class'))?.includes('gjs-frame')) await canvasStyles;
+    if (frame.parentFrame() && (await (await frame.frameElement()).getAttribute('class'))?.includes('gjs-frame')) {
+      canvasBlocked = true;
+      await canvasStyles;
+    }
     await route.continue();
   });
   const previewRequests = [];
@@ -99,11 +133,14 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await page.locator('[data-page-id="skift"]').click();
   const preview = page.frameLocator('[data-cms-preview-frame]').first();
   try {
+    await expect.poll(() => canvasBlocked).toBe(true);
     await page.locator('[data-action="lock"]').click();
-    await expect(preview.locator('#start-button')).toBeEnabled();
+    await expect(page.locator('[data-action="lock"]')).toHaveAttribute('aria-pressed', 'true');
+    expect(previewRequests).toHaveLength(0);
   } finally { releaseCanvas(); }
-  const shown = await page.locator('[data-cms-preview-frame]').first().elementHandle();
   await expect(page.locator('#loading-state')).toBeHidden();
+  await expect(preview.locator('#start-button')).toBeEnabled();
+  const shown = await page.locator('[data-cms-preview-frame]').first().elementHandle();
   expect(previewRequests).toHaveLength(1);
   await expect(preview.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
   await expect(preview.locator('.intro img')).toHaveCount(0);

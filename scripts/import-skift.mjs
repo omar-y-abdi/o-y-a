@@ -37,6 +37,10 @@ await writeFile('src/content/skift-copy.mjs', `// Landing copy uses textContent 
 const translation = code.match(/t\(e\)\{return (\w+)\[this\.settings\.language\]\[e\]\|\|e\}/);
 if (!translation) throw new Error('Release adapter cannot locate the translation method.');
 code = code.replace(translation[0], `t(e){return (${JSON.stringify(copyKeys)}.includes(e)?globalThis.__OY_SKIFT_COPY__?.["runtime.skift."+this.settings.language+"."+e]:undefined)??(${translation[1]}[this.settings.language][e]||e)}`);
+const readiness = code.match(/if\((\w+)\)if\((\w+)==="start"\)/);
+if (!readiness || code.split(readiness[0]).length !== 2) throw new Error('Release adapter cannot locate the unique gameplay readiness guard.');
+// Closing Help/Settings only changes UI; gameplay still requires completed startup.
+code = code.replace(readiness[0], `if(${readiness[1]}||${readiness[2]}==="close")if(${readiness[2]}==="start")`);
 for (const [before, after] of [
   ['new URL("./audio/",document.baseURI)', 'new URL("/play/skift/audio/",document.baseURI)'],
   ['".site-header nav"', '"[data-skift-menu]"'],
@@ -66,5 +70,5 @@ walk(body, node => {
 const html = serialize(body).replaceAll('\u2014', '-').replace(/[\t ]+$/gm, '');
 await writeFile('src/templates/skift.mjs', `// Imported by scripts/import-skift.mjs; gameplay hooks belong to SKIFT.\nexport const skift = () => ${JSON.stringify(html)};\n`);
 const { version } = JSON.parse(await readFile(resolve(source, 'package.json'), 'utf8'));
-await writeFile(`${target}/RELEASE.json`, JSON.stringify({ version, upstreamBundleSha256: createHash('sha256').update(original).digest('hex'), bundleSha256: createHash('sha256').update(code).digest('hex'), adapters: ['same-origin audio URLs for CMS previews', 'game menu selector isolated from portfolio navigation', 'CMS landing text via textContent', 'portfolio shell owns header and brand styles'] }, null, 2) + '\n');
+await writeFile(`${target}/RELEASE.json`, JSON.stringify({ version, upstreamBundleSha256: createHash('sha256').update(original).digest('hex'), bundleSha256: createHash('sha256').update(code).digest('hex'), adapters: ['same-origin audio URLs for CMS previews', 'game menu selector isolated from portfolio navigation', 'CMS landing text via textContent', 'portfolio shell owns header and brand styles', 'loading Help and Settings remain dismissible'] }, null, 2) + '\n');
 console.log('Imported SKIFT release, licenses, audio and CMS page markup.');
