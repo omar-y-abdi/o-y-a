@@ -8,6 +8,7 @@ import { home } from '../src/templates/home.mjs';
 import { workshop, about, furl, contact, notFound } from '../src/templates/pages.mjs';
 import { projectDetail } from '../src/templates/expansion.mjs';
 import { legal } from '../src/templates/legal.mjs';
+import { skift } from '../src/templates/skift.mjs';
 import { developers } from '../src/templates/developers.mjs';
 import { openApi } from '../src/content/openapi.mjs';
 import { llmsTxt } from '../src/content/llms.mjs';
@@ -36,17 +37,23 @@ for (const name of ['privacy','previewdata','copy','cards','playlogic','memory',
   await writeFile(`dist/assets/${filename}`,code);
   js[name] = filename;
 }
-const baseCss = (await Promise.all(['base','home','pages'].map(name => readFile(`src/styles/${name}.css`,'utf8')))).join('\n').trim();
-const additions = { home:['showcase','toys'], workshop:['toys','games'], about:['showcase'], blade:['showcase'], backhaul:['showcase'], contact:['postbox'] };
+await writeFile('dist/play/skift/assets/bootstrap.js', `import { loadCopy } from '/assets/${js.copy}';
+globalThis.__OY_SKIFT_COPY__ = await loadCopy();
+await import('./app.js');
+`);
+const baseStyles = await Promise.all(['base','home','pages'].map(name => readFile(`src/styles/${name}.css`,'utf8')));
+const baseCss = baseStyles.join('\n').trim();
+const additions = { home:['showcase','toys'], workshop:['toys','games'], skift:['skift'], about:['showcase'], blade:['showcase'], backhaul:['showcase'], contact:['postbox'] };
 const styles = {};
 for (const template of new Set(routes.map(page => page.template))) {
   const extra = await Promise.all((additions[template] || []).map(name => readFile(`src/styles/${name}.css`,'utf8')));
-  const css = [baseCss,...extra].join('\n');
+  const shared = template === 'skift' ? [await readFile('public/play/skift/assets/app.css', 'utf8'), baseStyles[0]] : [baseCss];
+  const css = [...shared, ...extra].join('\n');
   const cssPath = `/assets/site.${hash(css)}.css`;
   await writeFile('dist' + cssPath,css);
   styles[template] = cssPath;
 }
-const renderers = { home, workshop, about, furl, contact, developers, notFound, blade:projectDetail, backhaul:projectDetail };
+const renderers = { home, workshop, skift, about, furl, contact, developers, notFound, blade:projectDetail, backhaul:projectDetail };
 for (const page of routes) {
   const content = (renderers[page.template] || legal)(page);
   const destination = page.noindex ? 'dist/404.html' : `dist${page.path}index.html`;

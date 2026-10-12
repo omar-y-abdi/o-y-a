@@ -11,6 +11,8 @@ export default defineConfig({
   maxFailures: process.env.CI ? 20 : 5,
   reporter: process.env.CI ? [['line'], ['json', { outputFile: 'output/playwright/results.json' }]] : 'line',
   use: {
+    browserName: 'chromium',
+    ...(process.env.CHROMIUM_PATH ? {} : { channel: process.env.PW_CHANNEL || 'chrome' }),
     headless: true,
     viewport: { width: 390, height: 844 },
     reducedMotion: 'reduce',
@@ -19,5 +21,9 @@ export default defineConfig({
     launchOptions: process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH, args: ['--no-sandbox'] } : undefined,
   },
   outputDir: 'output/playwright/artifacts',
-  projects: [{ name: 'chromium', use: { browserName: 'chromium', ...(process.env.CHROMIUM_PATH ? {} : { channel: process.env.PW_CHANNEL || 'chrome' }) } }],
+  projects: [
+    { name: 'chromium', grepInvert: /@webgl/ },
+    // Software-rendered worlds share CI's CPU; finish other cases first.
+    { name: 'chromium-webgl', grep: /@webgl/, workers: 1, dependencies: ['chromium'] },
+  ],
 });

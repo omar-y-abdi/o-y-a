@@ -22,3 +22,7 @@ html[data-motion=off]{scroll-behavior:auto}html[data-motion=off] *,html[data-mot
 /* Firefox does not expand fixed-height flex-wrap footers for intrinsic min-height.
    On narrow screens, readable controls take priority over the owner-set height. */
 @supports (-moz-appearance:none){@media(max-width:760px){.site-footer{height:auto!important}}}
+/* Four ordinary menu links use the existing mobile menu on smaller widths. */
+.primary-nav .shift-link{white-space:nowrap}
+@media(min-width:761px) and (max-width:1000px){.primary-nav{display:none}.menu-toggle{display:flex}html:not(.js-ready) .header-inner{flex-wrap:wrap}html:not(.js-ready) .primary-nav{display:flex;order:3;flex-basis:100%;justify-content:space-between;gap:12px}html:not(.js-ready) .primary-nav a{font-size:12px}}
+@media(max-width:1000px){html:not(.js-ready) .primary-nav{flex-wrap:wrap}}

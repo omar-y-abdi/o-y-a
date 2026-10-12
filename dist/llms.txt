@@ -18,6 +18,7 @@
 ## Sidor
 - [Hem](https://omaryusuf.se/): Omar Yusufs lilla del av internet. Upptäck projekt, lek i glädjeverkstaden och möt en maskiningenjör med nyfikenhet för kod och detaljer.
 - [Glädjeverkstaden](https://omaryusuf.se/verkstad/): Tryck fram en liten vinst, välj ett skämt och poppa några bubblor. En lekfull, interaktiv paus i Omar Yusufs digitala verkstad.
+- [SKIFT](https://omaryusuf.se/play/skift/): Starta ditt arbetsskift i SKIFT. Ett mekaniskt actionäventyr med tre distrikt, en liten robot och ett maskinhjärta att väcka.
 - [Människan](https://omaryusuf.se/om/): Möt Omar Yusuf. Maskinteknik, kod, automation och en stor dos nyfikenhet. Här finns människan bakom projekten och glädjeverkstaden.
 - [Furl](https://omaryusuf.se/projekt/furl/): Furl komprimerar stora verktygssvar för AI-agenter och gör originalinnehållet tillgängligt för senare hämtning. Läs om Omar Yusufs öppna projekt.
 - [Blade & Blend](https://omaryusuf.se/projekt/blade-blend/): En soloutvecklad fullstack-webbplats för en barbershop i Göteborg. Läs om bokning, gränssnitt och backend.

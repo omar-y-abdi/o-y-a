@@ -5,6 +5,7 @@ import { readPublicPage, readPublicData } from './store.mjs';
 import { canonicalPagePath } from './routes.mjs';
 import { routes } from '../content/site.mjs';
 import { normalizeFooterPage, FOOTER_VERSION } from './footer.mjs';
+import { normalizeSkiftPage, isSkiftPath, skiftCsp } from './skift.mjs';
 
 export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const safeStyle = css => css.replaceAll('<', '\\3c ');
@@ -26,7 +27,8 @@ export function renderPage(page, built, { version, preview, project, resources =
 async function pageCsp(page, baseCsp) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(structuredData(page)));
   const hash = btoa(String.fromCharCode(...new Uint8Array(bytes)));
-  return baseCsp.replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`);
+  const policy = baseCsp.replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`);
+  return page.template === 'skift' ? skiftCsp(policy) : policy;
 }
 
 export async function publicContent(request, env, built, csp, seed = {}) {
@@ -64,8 +66,10 @@ export async function publicContent(request, env, built, csp, seed = {}) {
     const published = data.value.filter(p => !p.noindex).map(p => p.path);
     // Preserve existing CMS publishing decisions. The new static developers
     // page is absent from manifests created before this deployment.
-    const developers = routes.find(page => page.path === '/developers/');
-    if (developers && !developers.noindex && !data.value.some(entry => entry.path === developers.path)) published.push(developers.path);
+    for (const path of ['/developers/', '/play/skift/']) {
+      const added = routes.find(page => page.path === path);
+      if (added && !added.noindex && !data.value.some(entry => entry.path === path)) published.push(path);
+    }
     return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${published.map(path => `<url><loc>https://omaryusuf.se${path}</loc></url>`).join('')}</urlset>`, { headers: { 'Content-Type': 'application/xml', 'Cache-Control': 'no-store' } });
   }
   const canonical = canonicalPagePath(url.pathname);
@@ -73,7 +77,7 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   const state = await readPublicPage(env.CMS_DB, canonical);
   // An existing CMS database may not contain pages added in a later deploy.
   // Keep the new public documentation reachable via the built static asset.
-  if (canonical === '/developers/' && state?.page === null) return null;
+  if ((canonical === '/developers/' || isSkiftPath(canonical)) && state?.page === null) return null;
   if (!state) return null;
   if (state.page !== null && url.pathname !== canonical) {
     url.pathname = canonical;
@@ -83,6 +87,6 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   const page = state.page === null ? await readPublicPage(env.CMS_DB, '/404.html') : state;
   if (!page || page.page === null) return new Response('Sidan finns inte.', { status: 404 });
   const definition = seed.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? seed.blank;
-  const normalized = normalizeFooterPage(page, definition);
+  const normalized = normalizeSkiftPage(normalizeFooterPage(page, definition), definition);
   return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin, migratedCss: normalized.css !== page.css }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
 }

@@ -44,6 +44,10 @@ export class Backups {
   async restore(record) {
     this.flush();
     const before = this.snapshot();
+    const modal = $('#studio-dialog');
+    const keepOpen = event => event.preventDefault();
+    modal.addEventListener('cancel', keepOpen);
+    dialog('<span class="dialog-eyebrow">RESERVUTKAST</span><h2>Återställer utkastet</h2><p role="status">Kontrollerar och läser in din reservkopia. Vänta tills utkastet är redo.</p>');
     try {
       const verified = await api('recover', { project: record.project, pendingSave: record.pendingSave });
       if (verified.pendingSave && verified.pendingSave.baseVersion !== record.version) throw new Error('Reservutkastet hör till en annan version.');
@@ -60,7 +64,7 @@ export class Backups {
     } catch (error) {
       dialog(`<span class="dialog-eyebrow">RESERVKOPIAN FINNS KVAR</span><h2>Utkastet kunde inte läsas säkert.</h2><p class="inline-error" role="alert">${escape(error.message)}</p><p>Originalet behålls tills du uttryckligen återställer eller tar bort det. Exportera för att rätta filen och importera igen. Vid utgången session: logga in i en ny flik och försök här igen.</p><div class="dialog-buttons"><button class="small-button" id="export-rejected">Exportera originalutkast</button><button class="small-button" data-action="close-dialog">Behåll och stäng</button></div>`);
       $('#export-rejected').onclick = () => this.export(record);
-    }
+    } finally { modal.removeEventListener('cancel', keepOpen); }
   }
   async offer() {
     if (this.failed) return;

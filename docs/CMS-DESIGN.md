@@ -20,6 +20,8 @@ The application opens on the actual home page. The collapsible left rail lists p
 
 The workspace itself adapts to narrow devices with drawers and touch-sized controls. The editor does not pretend a scaled desktop canvas is a mobile layout: mobile CSS changes are breakpoint-specific.
 
+Active rich-text fields retain native deletion and undo/redo. The canvas stops those key events before they reach structural editor shortcuts, without cancelling the browser's editing action or replacing the live DOM. Other keys, IME composition and the explicit Save shortcut retain their existing handlers.
+
 The bottom command bar contains Edit, Save, Revert, Restore, History and Lock view, plus undo/redo. Commands have explicit behavior:
 
 | Command | Contract |
@@ -33,6 +35,8 @@ The bottom command bar contains Edit, Save, Revert, Restore, History and Lock vi
 | Undo/redo | Reverse draft changes without silently publishing. |
 
 New sections, text, images, links and layout containers can be added, duplicated, moved and resized. Pages can be created and managed. Reserved system routes and required accessibility/navigation anchors remain protected. Unsaved state survives page switches and has a recoverable local draft. Failed saves, expired login and conflicts keep the draft and explain the next action. Two open tabs cannot silently overwrite each other.
+
+Recovery keeps a modal progress dialog open while server validation, base-revision loading, draft installation and local persistence are pending. Native cancel cannot expose the previous canvas during recovery. The success dialog closes only after installation; failures retain the original recovery record and offer its export.
 
 ## Interactive content and assets
 

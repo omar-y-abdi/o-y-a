@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "upstreamBundleSha256": "466be1d4aca66a080b10751ac425b7f3cd2ec98df243cc0fcadfb054302402d7",
+  "bundleSha256": "a6a41d4ad5809f5692d23da4be5428bd572c481882ab8853e09bc00296ce8aa9",
+  "adapters": [
+    "same-origin audio URLs for CMS previews",
+    "game menu selector isolated from portfolio navigation",
+    "CMS landing text via textContent",
+    "portfolio shell owns header and brand styles",
+    "loading Help and Settings remain dismissible"
+  ]
+}

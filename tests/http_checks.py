@@ -37,7 +37,7 @@ def check(name, fn):
     try: fn();results.append({'name':name,'status':'PASS'});print('PASS',name)
     except Exception as e:results.append({'name':name,'status':'FAIL','error':str(e)});print('FAIL',name,str(e))
 
-routes=['/','/verkstad/','/om/','/projekt/furl/','/projekt/blade-blend/','/projekt/backhaul/','/kontakt/','/developers/','/integritet/','/kakor/','/villkor/','/tillganglighet/']
+routes=['/','/verkstad/','/play/skift/','/om/','/projekt/furl/','/projekt/blade-blend/','/projekt/backhaul/','/kontakt/','/developers/','/integritet/','/kakor/','/villkor/','/tillganglighet/']
 for path in routes:
     def route(path=path):
         status,h,b=fetch(path)

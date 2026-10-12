@@ -3,6 +3,9 @@ import { loadCopy, t } from './copy.mjs';
 
 await loadCopy();
 
+// The 3D runtime is fetched only on its own page, including CMS previews.
+if (document.querySelector('[data-skift-root]')) await import('/play/skift/assets/bootstrap.js');
+
 document.documentElement.classList.add('js-ready');
 document.querySelectorAll('.js-only').forEach(element => { element.hidden = false; });
 const root = document.documentElement;
@@ -32,7 +35,7 @@ menuButton?.addEventListener('click', () => {
 });
 menu?.addEventListener('click', event => { if (event.target.closest('a')) closeMenu(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu && !menu.hidden) closeMenu(true); });
-matchMedia('(min-width: 761px)').addEventListener('change', event => { if (event.matches && menu) closeMenu(); });
+matchMedia('(min-width: 1001px)').addEventListener('change', event => { if (event.matches && menu) closeMenu(); });
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const motionButton = document.querySelector('[data-motion-toggle]');

@@ -158,7 +158,7 @@ function inspect(component, editor) {
     if (current.type === 'win') { $('#custom-inspector').innerHTML = winFields(card()); $('#styles-panel').hidden = true; winInputEvents(); }
     else if (current.type === 'svg') { $('#custom-inspector').innerHTML = '<section class="inspector-section"><h2>SVG-källa</h2><button type="button" class="small-button primary" data-action="save-managed-svg">Spara SVG + PNG-derivat</button><button type="button" class="small-button" data-action="back-to-asset">Till resursen</button></section>'; }
     else if (themeMode) themeInspector(draft.project.theme, assets, updateTheme);
-    else pageInspector(page(), { update: (key, value) => updatePage(lastPage, { [key]: value }), addPage: () => newPage(page()), removePage: deletePage, protectedPage: ['/', '/404.html'].includes(page().path) });
+    else pageInspector(page(), { update: (key, value) => updatePage(lastPage, { [key]: value }), addPage: () => newPage(page()), removePage: deletePage, protectedPage: ['/', '/404.html', '/play/skift/'].includes(page().path) });
   } else if (themeMode && current.type === 'page') {
     active?.setStyleMode('website');
     componentColorInspector(component, { change: () => active?.flush() });
@@ -411,6 +411,7 @@ function editView() {
 }
 
 async function preview(project = null, id = lastPage, label = '') {
+  if (project === null && current.type === 'page' && !$('#loading-state').hidden) return;
   active?.flush();
   project ??= draft.project;
   const seq = ++previewSequence;

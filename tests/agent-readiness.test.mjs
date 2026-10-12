@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parse } from 'parse5';
+import { initial } from '../.generated/cms-seed.mjs';
 
 const origin = 'https://omaryusuf.se';
 const file = path => readFileSync('dist' + path, 'utf8');
@@ -167,7 +168,7 @@ test('published CMS HTML is the Markdown source, not an outdated static snapshot
             async first() {
               return {
                 version: 12,
-                html: '<main><h1>CMS published heading</h1><p>The owner changed this body in the editor. Real published content.</p></main>',
+                html: initial.pages[0].html.replace(/<h1\b[^>]*>[\s\S]*?<\/h1>/, '<h1>CMS published heading</h1><p>The owner changed this body in the editor. Real published content.</p>'),
                 css: '',
                 meta: JSON.stringify({id:'home',path:'/',name:'Hem',title:'CMS page | Omar Yusuf',description:'Owner published updated content.',template:'home',bodyClass:'page-home'}),
               };
@@ -182,7 +183,7 @@ test('published CMS HTML is the Markdown source, not an outdated static snapshot
   const body = await response.text();
   assert.match(body,/^# CMS published heading/m);
   assert.match(body,/The owner changed this body/);
-  assert.ok(!body.includes('Alla bästa saker börjar'));
+  assert.doesNotMatch(body, /^# Omar Yusuf/m);
   assert.equal(response.headers.get('x-cms-version'),'12');
   assert.match(response.headers.get('vary'),/Accept/);
 });
@@ -240,7 +241,7 @@ test('published CMS markup remains owner-controlled without injecting untracked 
     prepare() { return { bind() { return { async first() {
       return {
         version: 5,
-        html: '<main id="main"><h1>CMS portfolio</h1></main><footer><nav aria-label="Sidfotsmeny"><a href="/integritet/">Integritet</a></nav></footer>',
+        html: initial.pages[0].html.replace(/<a href="\/developers\/"[^>]*>[\s\S]*?<\/a>/, ''),
         css: '',
         meta: JSON.stringify({id:'home',path:'/',name:'Hem',title:'CMS portfolio | Omar Yusuf',description:'A published personal portfolio page.',template:'home',bodyClass:'page-home'}),
       };
@@ -249,7 +250,7 @@ test('published CMS markup remains owner-controlled without injecting untracked 
   const response = await worker.fetch(new Request(origin+'/',{headers:{Accept:'text/html'}}),bindings);
   assert.equal(response.status,200);
   const html = await response.text();
-  assert.match(html, /<nav[^>]*aria-label="Sidfotsmeny"[^>]*><a href="\/integritet\/">Integritet<\/a><\/nav>/);
+  assert.match(html, /<nav[^>]*aria-label="Sidfotsmeny"[^>]*><a href="\/integritet\/"[^>]*>Integritet<\/a>/);
   assert.equal((html.match(/href="\/developers\/"/g)||[]).length,0, "Never inject an untracked public-only footer anchor");
 });
 

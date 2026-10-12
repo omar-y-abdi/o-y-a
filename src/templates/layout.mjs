@@ -1,6 +1,7 @@
 import { site } from '../content/site.mjs';
 import { escape, icon, flower } from './components.mjs';
 import { resourceSlots } from '../content/resources.mjs';
+import { shiftLink } from '../content/skift.mjs';
 export function structuredData(page) {
   const url = site.origin + page.path;
   const graph = [
@@ -37,9 +38,9 @@ ${page.noindex ? '<meta name="robots" content="noindex, follow">' : ''}
 <a class="skip-link" href="#main">Hoppa till innehållet</a>
 <header class="site-header"><div class="header-inner">
 <a class="brand" href="/" aria-label="Omar Yusuf, startsida">${flower('brand-mark')}<span>omar yusuf<span class="brand-dot">.</span></span></a>
-<nav class="primary-nav" aria-label="Huvudmeny"><a href="/#byggen">Byggen</a><a href="/om/" ${page.path === '/om/' ? 'aria-current="page"' : ''}>Människan</a><a href="/verkstad/" ${page.path === '/verkstad/' ? 'aria-current="page"' : ''}>Lek en stund <span aria-hidden="true">↗</span></a></nav>
+<nav class="primary-nav" aria-label="Huvudmeny"><a href="/#byggen">Byggen</a><a href="/om/" ${page.path === '/om/' ? 'aria-current="page"' : ''}>Människan</a><a href="/verkstad/" ${page.path === '/verkstad/' ? 'aria-current="page"' : ''}>Lek en stund <span aria-hidden="true">↗</span></a>${shiftLink(page.template === 'skift')}</nav>
 <div class="header-actions"><button class="motion-toggle js-only" data-motion-toggle aria-label="Pausa rörelser" aria-pressed="false" title="Pausa rörelser" hidden>${icon('pause')}</button><a class="hello-link" href="/kontakt/">Säg hej ${icon('diagonal')}</a><button class="menu-toggle js-only" data-menu-toggle aria-label="Öppna menyn" aria-expanded="false" aria-controls="mobile-menu" hidden><span></span><span></span></button></div>
-</div><nav class="mobile-menu" id="mobile-menu" aria-label="Mobilmeny" hidden><a href="/#byggen">Byggen ${icon('arrow')}</a><a href="/om/">Människan ${icon('arrow')}</a><a href="/verkstad/">Lek en stund ${icon('arrow')}</a><a href="/kontakt/">Säg hej ${icon('arrow')}</a></nav>
+</div><nav class="mobile-menu" id="mobile-menu" aria-label="Mobilmeny" hidden><a href="/#byggen">Byggen ${icon('arrow')}</a><a href="/om/">Människan ${icon('arrow')}</a><a href="/verkstad/">Lek en stund ${icon('arrow')}</a>${shiftLink(page.template === 'skift', true)}<a href="/kontakt/">Säg hej ${icon('arrow')}</a></nav>
 </header>
 <main id="main" tabindex="-1">${content}</main>
 <footer class="site-footer"><div class="footer-main"><a class="brand footer-brand" href="/">${flower('brand-mark')}<span>omar yusuf.</span></a><p data-cms-shared="footer.tagline">Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.</p><a class="footer-back" href="#top" data-back-top>Upp igen ${icon('down')}</a></div>

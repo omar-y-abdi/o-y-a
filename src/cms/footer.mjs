@@ -2,18 +2,9 @@ import { parseFragment, serialize } from 'parse5';
 import * as css from 'css-tree';
 import { validateHtml } from './validation.mjs';
 import { HttpError } from './http.mjs';
+import { attribute, elements } from './html-tree.mjs';
 
 export const FOOTER_VERSION = 1;
-const attribute = (node, name) => node.attrs?.find(item => item.name === name)?.value;
-function elements(root) {
-  const result = [];
-  function visit(node) {
-    if (node.tagName) result.push(node);
-    for (const child of node.childNodes ?? []) visit(child);
-  }
-  visit(root);
-  return result;
-}
 function remapCss(source, keys) {
   if (!source?.includes('data-cms-node')) return source;
   const tree = css.parse(source);
@@ -40,7 +31,7 @@ export function normalizeFooterPage(page, definition) {
 
   // Do not repair or erase a forged hook, duplicate identity, or moved control.
   // Only HTML satisfying the complete pre-change security contract is eligible.
-  validateHtml(page.html, migration.contracts);
+  validateHtml(page.html, migration.contracts.filter(contract => !['skift-nav', 'skift-nav-mobile'].includes(contract.key) || nodes.some(node => attribute(node, contract.key === 'skift-nav' ? 'data-skift-link' : 'data-skift-mobile-link') !== undefined)));
   for (const node of nodes) {
     const identity = node.attrs.find(item => item.name === 'data-cms-node');
     if (identity && migration.keys[identity.value]) identity.value = migration.keys[identity.value];

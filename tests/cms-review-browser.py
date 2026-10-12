@@ -183,6 +183,8 @@ with sync_playwright() as pw:
             marker=f'RAPID-{uuid.uuid4().hex[:6]}'
             editable.press('ControlOrMeta+A')
             editable.press('Backspace')
+            expect(page).to_have_url(BASE+'/admin/')
+            expect(editable).to_have_attribute('contenteditable', 'true')
             editable.type(marker)
             with page.expect_response(lambda response:response.url.endswith('/admin/api/save')) as response:
                 page.locator('[data-action=save]').click()
