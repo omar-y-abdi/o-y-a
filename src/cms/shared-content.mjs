@@ -2,6 +2,7 @@ import { parseFragment, serialize } from 'parse5';
 import { HttpError } from './http.mjs';
 import { validateHtml } from './validation.mjs';
 import { normalizeFooterProject } from './footer.mjs';
+import { normalizeSkiftProject } from './skift.mjs';
 
 export const DEFAULT_SHARED_CONTENT=Object.freeze({'footer.tagline':'Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.'});
 const KEY=/^[a-z][a-z0-9.-]{0,79}$/;
@@ -42,7 +43,7 @@ export function normalizeSharedContent(input,seed={}){
 
 export function normalizeStoredProject(input,seed={},initial={}){
   input=normalizeFooterProject(input,seed);
-  if(!input||input.sharedContent!==undefined&&input.sharedContent!==null)return input;
+  if(!input||input.sharedContent!==undefined&&input.sharedContent!==null)return normalizeSkiftProject(input,seed);
   const required=Object.keys(seed.sharedContent??{});
   if(!required.length)return input;
   const project=structuredClone(input);
@@ -84,7 +85,7 @@ export function normalizeStoredProject(input,seed={},initial={}){
   }
   project.sharedContent=normalizeSharedContent(values,seed);
   if(conflicts.length)project.sharedContentConflicts=conflicts;
-  return project;
+  return normalizeSkiftProject(project,seed);
 }
 export function validateSharedInstances(pages,sharedContent,{publication=true,requiredEverywhere=[]}={}){
   const seen=new Map();

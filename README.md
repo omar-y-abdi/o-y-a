@@ -2,7 +2,7 @@
 
 **Teknik med hjärna. Lite bus i systemet.**
 
-Personlig portfolio med tolv ursprungliga sidor, fyra lekstationer och en visuell redigeringsstudio. Publika sidan använder statisk HTML och små native ES-moduler. Cloudflare Worker publicerar CMS-innehåll från D1; GrapesJS laddas endast i den autentiserade studion. Bilder och typsnitt lagras i R2.
+Personlig portfolio med projekt, fyra lekstationer, SKIFT och en visuell redigeringsstudio. Publika sidan använder statisk HTML och små native ES-moduler. Cloudflare Worker publicerar CMS-innehåll från D1; GrapesJS laddas endast i den autentiserade studion. Bilder och typsnitt lagras i R2. [SKIFT](docs/SKIFT.md) har egen sida på `/play/skift/`, vanlig menylänk efter ”Lek en stund” och vanliga sidinställningar i CMS.
 
 ## Kom igång
 

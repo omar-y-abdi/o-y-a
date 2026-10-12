@@ -102,7 +102,9 @@ export function preparePage(document) {
   let index = 0;
   traverse(body, node => {
     if (!node.tagName || node === body) return;
-    const key = `n${index++}`;
+    const skiftDesktop = attr(node, 'data-skift-link') !== undefined;
+    const skiftMobile = attr(node, 'data-skift-mobile-link') !== undefined;
+    const key = skiftDesktop ? 'skift-nav' : skiftMobile ? 'skift-nav-mobile' : `n${index++}`;
     node.attrs.push({ name: 'data-cms-node', value: key });
     const functional = node.attrs.some(a => a.name.startsWith('data-') && !a.name.startsWith('data-cms-'));
     const classes = (attr(node, 'class') ?? '').split(/\s+/);
@@ -112,6 +114,7 @@ export function preparePage(document) {
       contracts.push({ key, tag: node.tagName, attrs: Object.fromEntries(node.attrs.filter(a => FIXED.has(a.name) || a.name === 'value' && semanticValue(node) || a.name.startsWith('data-') && !a.name.startsWith('data-cms-')).map(a => [a.name, a.value])), classes: classes.filter(Boolean) });
       // The print control reads its first span as the live button label.
       if (functional && attr(node, 'data-print') !== undefined) contracts.at(-1).span = true;
+      if (skiftDesktop || skiftMobile) Object.assign(contracts.at(-1), { containerClass: skiftDesktop ? 'primary-nav' : 'mobile-menu', attrs: { ...contracts.at(-1).attrs, href: '/play/skift/' } });
     }
   });
   // Fallback HTML belongs to the trusted source template, not authored markup.
@@ -183,6 +186,7 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
   for (const contract of contracts) {
     const node = nodes.get(contract.key);
     if (!node || node.tagName !== contract.tag) invalid('Ett element som behövs för navigation, formulär eller lekar saknas.');
+    if (contract.containerClass && !(attr(node.parentNode, 'class') ?? '').split(/\s+/).includes(contract.containerClass)) invalid('Spellänken måste ligga kvar i toppmenyn.');
     if (Object.hasOwn(contract, 'parent')) {
       let parent = node.parentNode;
       while (parent && !protectedKeys.has(attr(parent, 'data-cms-node'))) parent = parent.parentNode;

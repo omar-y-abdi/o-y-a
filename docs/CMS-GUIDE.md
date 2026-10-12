@@ -9,7 +9,7 @@
 - **Sidor:** välj hela sidan, inklusive sidhuvud, illustrationer och sidfot. Fäll in panelen vid behov. Ny sida ger tom grundstruktur; Duplicera sida utgår från vald sida.
 - **Design:** sidmetadata visas när inget element är valt. Klicka på ett element för text, länkar, bilder, SVG-egenskaper och stil. Välj förälder flyttar markeringen uppåt. Piltangenterna i placeringskontrollen flyttar valt element 1 px utan att byta förälder; håll Shift för 10 px. Strukturell omordning görs i Lager.
 - **Lager:** välj nästlade komponenter. **Lägg till:** dra in sektion, kolumner, text, rubrik, bild, länk, avdelare eller behållare.
-- **Dator/Mobil:** verkliga arbetsytor på 1440 respektive 390 px. Mobilstilar gäller vid högst 760 px. Zoom ändrar bara arbetsytans visning. Mobilramen hålls centrerad även efter zoom, paneländringar, undo/redo och Lock view.
+- **Dator/Mobil:** verkliga arbetsytor på 1440 respektive 390 px. Mobilstilar gäller vid högst 760 px; toppmenyn använder mobilmenyn upp till 1000 px. Zoom ändrar bara arbetsytans visning. Mobilramen hålls centrerad även efter zoom, paneländringar, undo/redo och Lock view.
 - **Jämför:** validerad sida i två förhandsvisningar. **Lock view:** prova sidan utan redigering. Kontakt och statistik har inga externa effekter i förhandsvisningen.
 - **Telefon:** Sidor och Egenskaper öppnar paneler. Alla kommandon finns under canvasen.
 
@@ -29,7 +29,9 @@ Uppladdade och inbyggda resurser visas i **Aktiva / Arkiverade / Papperskorg**. 
 
 Små vinster har sökning, kategorier och **Aktiva / Arkiverade / Papperskorg**. Kryssrutor kan markera enstaka kort, alla synliga eller alla träffar i aktuell sökning/filter. Markerade kort kan arkiveras, återställas, flyttas till papperskorg, raderas permanent, byta kategori eller exporteras tillsammans i `omar-wins/v1` JSON. Import validerar hela paketet före ändring och hanterar ID-krock med Skip, Replace eller Import as copy. Aktiva kort används i den vanliga slumpningen; arkiverade kort kan fortfarande nås via sina stabila direkta ID-länkar; kort i papperskorgen visas inte publikt.
 
-Lekarnas texter samlar JavaScript-styrda meddelanden för maskin, memory, fika, bubblor och kontakt. Behåll dynamiska värden inom klamrar, exempelvis `{number}`. Servern avvisar ändringar som tar bort eller skapar sådana värden.
+Lekarnas texter samlar JavaScript-styrda meddelanden för maskin, memory, fika, bubblor, SKIFT och kontakt. SKIFT-gruppen innehåller starttexter på svenska och engelska. Behåll dynamiska värden inom klamrar, exempelvis `{number}`. Servern avvisar ändringar som tar bort eller skapar sådana värden.
+
+**SKIFT** finns under Sidor med sidmetadata, visuell redigering, Dator/Mobil, Lock view och samma Save-/historik-/backupflöde som övriga sidor. Spelet använder webbplatsens gemensamma sidhuvud och sidfot. Spelkontroller och funktionskopplingar skyddas; språk, ljud, musik, rörelse, kvalitet och svårighetsgrad väljs av spelaren i spelets egna inställningar. [Integrationsguiden](SKIFT.md) beskriver sidan och uppdateringar.
 
 Memorykortens grundmarkup finns i editorn. Kort, fram-/baksida och SVG-behållare behåller sina stilar efter omblandning. Spelets sex symboler och matchningslogik styrs av koden. Funktionselement får inte flyttas ut ur sin funktion; flytta hela gruppen. Vanliga komponenter kan flyttas, dupliceras och tas bort. Direkt nudge ändrar bara visuell `translate` och byter aldrig komponentens parent/index; strukturell omordning görs uttryckligen i Lager.
 

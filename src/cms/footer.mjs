@@ -40,7 +40,7 @@ export function normalizeFooterPage(page, definition) {
 
   // Do not repair or erase a forged hook, duplicate identity, or moved control.
   // Only HTML satisfying the complete pre-change security contract is eligible.
-  validateHtml(page.html, migration.contracts);
+  validateHtml(page.html, migration.contracts.filter(contract => !['skift-nav', 'skift-nav-mobile'].includes(contract.key) || nodes.some(node => attribute(node, contract.key === 'skift-nav' ? 'data-skift-link' : 'data-skift-mobile-link') !== undefined)));
   for (const node of nodes) {
     const identity = node.attrs.find(item => item.name === 'data-cms-node');
     if (identity && migration.keys[identity.value]) identity.value = migration.keys[identity.value];

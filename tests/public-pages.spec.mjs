@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const PAGES = ['/', '/verkstad/', '/om/', '/projekt/furl/', '/projekt/blade-blend/', '/projekt/backhaul/', '/kontakt/', '/developers/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html'];
+const PAGES = ['/', '/verkstad/', '/play/skift/', '/om/', '/projekt/furl/', '/projekt/blade-blend/', '/projekt/backhaul/', '/kontakt/', '/developers/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html'];
 const SIZES = [[320,780], [390,844], [768,1024], [1024,900], [1440,1000], [1920,1080]];
 const SCREENSHOTS = new URL('../artifacts/screenshots/', import.meta.url);
 
@@ -36,6 +36,18 @@ test.describe('public responsive matrix', () => {
         expect(label, await control.evaluate(element => element.outerHTML)).not.toBe('');
       }
       await expect(page.locator('iframe')).toHaveCount(0);
+      await expect(page.locator('.header-actions .shift-link')).toHaveCount(0);
+      const mobileMenu = width <= 1000;
+      if (mobileMenu) await page.locator('[data-menu-toggle]').click();
+      const shift = page.locator(mobileMenu ? '.mobile-menu .shift-link' : '.primary-nav .shift-link');
+      await expect(shift).toBeVisible();
+      await expect(shift).toHaveAttribute('href', '/play/skift/');
+      const shiftBox = await shift.boundingBox();
+      expect(shiftBox.x + shiftBox.width).toBeLessThanOrEqual(width);
+      const appearance = await shift.evaluate(element => ({ background: getComputedStyle(element).backgroundColor, border: getComputedStyle(element).borderTopWidth }));
+      expect(appearance.background).toBe('rgba(0, 0, 0, 0)');
+      if (!mobileMenu) expect(appearance.border).toBe('0px');
+      if (mobileMenu) await page.locator('[data-menu-toggle]').click();
       expect(errors).toEqual([]);
       if ([390, 1440].includes(width)) await page.screenshot({ path: join(SCREENSHOTS.pathname, screenshotName(path, width)), fullPage: true, animations: 'disabled' });
       await context.close();

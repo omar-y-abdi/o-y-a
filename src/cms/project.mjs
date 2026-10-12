@@ -6,6 +6,7 @@ import { referencedIds } from './id-references.mjs';
 import { validateResources, resourceReferences } from './resources.mjs';
 import { normalizeSharedContent, validateSharedInstances } from './shared-content.mjs';
 import { normalizeFooterProject } from './footer.mjs';
+import { normalizeSkiftProject } from './skift.mjs';
 
 import { validateTheme } from './theme.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
@@ -28,6 +29,8 @@ const attribute = (node, name) => node.attrs.find(item => item.name === name)?.v
 export function validateProject(input, seed, baseline, { origins = [], publication = true } = {}) {
   if (!input || input.schemaVersion !== 1 || !Array.isArray(input.pages) || input.pages.length < 1 || input.pages.length > 64) fail('Projektets sidregister är ogiltigt.');
   input = normalizeFooterProject(input, seed);
+  input = normalizeSkiftProject(input, seed);
+  if (input.pages.length > 64) fail('Projektets sidregister är för stort.');
   const ids = new Set();
   const paths = new Set();
   const pages = input.pages.map(page => {

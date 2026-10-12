@@ -8,10 +8,10 @@ const developerLink = '<a href="/developers/">För utvecklare</a>';
 export async function preAgentFooterProject() {
   // PR #10 inserted exactly this anchor. Prepare the actual preceding source
   // before numbering, independently of the production migration code.
-  const pages = await Promise.all(routes.filter(page => page.path !== '/developers/').map(async page => {
+  const pages = await Promise.all(routes.filter(page => !['/developers/', '/play/skift/'].includes(page.path)).map(async page => {
     const raw = await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8');
     if (!raw.includes(developerLink)) throw new Error('The legacy fixture needs an explicit template update.');
-    const old = preparePage(raw.replace(developerLink, ''));
+    const old = preparePage(raw.replace(developerLink, '').replace(/<a class="shift-link"[^>]*>[\s\S]*?<\/a>/g, ''));
     validateHtml(old.html, old.contracts);
     const { contracts: _ephemeralTemplateContracts, ...stored } = old;
     return { ...page, id: page.template, sourceId: page.template, ...stored, css: '', project: null };

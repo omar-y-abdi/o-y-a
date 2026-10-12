@@ -13,6 +13,7 @@ const origin = `http://127.0.0.1:${port}`;
 const analyticsTest = process.argv.includes('--analytics-test');
 const types = {'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8','.gif':'image/gif','.png':'image/png','.txt':'text/plain; charset=utf-8','.xml':'application/xml; charset=utf-8','.ico':'image/x-icon'};
 const points = [];
+Object.assign(types, { '.mp3': 'audio/mpeg', '.wav': 'audio/wav' });
 const env = {
   PREVIEW_ORIGIN:origin,
   ...(analyticsTest ? {ANALYTICS_ENABLED:'true',ANALYTICS:{ writeDataPoint(point) { points.push(point);if(points.length>1000)points.shift(); } }} : {}),

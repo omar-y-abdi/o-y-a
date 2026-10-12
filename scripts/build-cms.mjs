@@ -9,6 +9,7 @@ import { prepareFooterSource } from './prepare-footer-migration.mjs';
 import { validateProject, defaultTheme } from '../src/cms/project.mjs';
 import { adminPage, loginPage } from '../src/cms/templates.mjs';
 import { defaultCopy } from '../src/client/copy.mjs';
+import { skiftCopy } from '../src/content/skift-copy.mjs';
 import { resourceSlots } from '../src/content/resources.mjs';
 import { sanitizeManagedSvg } from '../src/cms/svg.mjs';
 
@@ -48,9 +49,12 @@ export async function buildCms({ styles, js }) {
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
   const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
-  const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), runtime: defaultCopy, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
-  await writeFile('dist/data/runtime.json', JSON.stringify(defaultCopy));
+  const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), skiftPage: pages.find(page => page.path === '/play/skift/'), runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
+  await writeFile('dist/data/runtime.json', JSON.stringify(seed.runtime));
   const initial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
+  // Introduced pages enter old drafts as ordinary persisted pages, without
+  // ephemeral source contracts leaking into incremental save payloads.
+  seed.skiftPage = initial.pages.find(page => page.id === 'skift');
   await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const built = ${JSON.stringify(built)};\n`);
   await writeFile('dist/admin/index.html', adminPage({ css, vendorCss, js: built.studio }));
   await writeFile('dist/login/index.html', loginPage(loginCss));

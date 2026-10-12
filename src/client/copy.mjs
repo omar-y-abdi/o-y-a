@@ -105,6 +105,10 @@ function copyFromRuntime(runtime) {
   for (const key of Object.keys(defaultCopy)) {
     if (typeof runtime[key] === 'string') next[key] = runtime[key];
   }
+  // SKIFT's isolated adapter owns the allowlist of textContent-only labels.
+  for (const [key, value] of Object.entries(runtime)) {
+    if (key.startsWith('runtime.skift.') && typeof value === 'string') next[key] = value;
+  }
   activeCopy = Object.freeze(next);
 }
 

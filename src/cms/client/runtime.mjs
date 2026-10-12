@@ -1,6 +1,6 @@
 import { defaultCopy } from '../../client/copy.mjs';
 import { $, escape } from './dom.mjs';
-const groups = { nav: 'Menyn', motion: 'Rörelser', privacy: 'Dataval och integritet', fold: 'Furl-demonstrationen', error: 'Om något inte startar', joy: 'Glädjemaskinen och bubblorna', memory: 'Memory', bubble: 'Bubblornas kommentarer', fika: 'Fikapausen', contact: 'Kontaktformuläret' };
+const groups = { nav: 'Menyn', motion: 'Rörelser', privacy: 'Dataval och integritet', fold: 'Furl-demonstrationen', error: 'Om något inte startar', joy: 'Glädjemaskinen och bubblorna', memory: 'Memory', bubble: 'Bubblornas kommentarer', fika: 'Fikapausen', skift: 'SKIFT · svenska och engelska', contact: 'Kontaktformuläret' };
 
 export function runtimeView(copy) {
   $('#special-stage').innerHTML = '<div class="special-heading"><div><p class="special-kicker">NÄR WEBBPLATSEN SVARAR</p><h1>Lite röst i maskinen<span style="color:#234ce7">.</span></h1><p>Från första knapptrycket till sista bubblan. Ge svaren din egen röst.</p></div></div><div class="copy-search"><input type="search" id="copy-search" aria-label="Sök funktionstexter" placeholder="Sök ett ord eller ett meddelande…"></div><div id="copy-groups"></div>';

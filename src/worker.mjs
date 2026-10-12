@@ -5,6 +5,7 @@ import { CSP } from '../.generated/csp.mjs';
 import { seed, initial, built } from '../.generated/cms-seed.mjs';
 import { handleAdmin, assetResponse } from './cms/api.mjs';
 import { ADMIN_CSP, publicContent } from './cms/render.mjs';
+import { isSkiftPath, skiftCsp } from './cms/skift.mjs';
 import { errorResponse } from './cms/http.mjs';
 import { reportFailure } from './cms/diagnostics.mjs';
 import { negotiatePublicPage } from './server/markdown.mjs';
@@ -132,6 +133,10 @@ export default {
       response = new Response(response.body,{status:404,headers:response.headers});
     }
     response = await negotiatePublicPage(request, response);
+    if (isSkiftPath(url.pathname) && response.headers.get('Content-Type')?.includes('text/html')) {
+      response = new Response(response.body, response);
+      response.headers.set('Content-Security-Policy', skiftCsp(response.headers.get('Content-Security-Policy') || CSP));
+    }
     const secured = versionedApi
       ? withApiVersion(secure(response,url.protocol === 'https:'))
       : secure(response,url.protocol === 'https:');

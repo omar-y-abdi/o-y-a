@@ -1,0 +1,27 @@
+// Landing copy uses textContent only. Modal HTML stays code-owned.
+export const skiftCopy = {
+  "runtime.skift.sv.workshop": "ETT SPEL FRÅN VERKSTADEN",
+  "runtime.skift.sv.line1": "Sista skiftet.",
+  "runtime.skift.sv.line2": "Full fart.",
+  "runtime.skift.sv.intro": "En liten robot. En stor kortslutning. Växla upp, slå tillbaka och få verkstaden att leva igen.",
+  "runtime.skift.sv.start": "Starta skiftet",
+  "runtime.skift.sv.resumeRun": "Fortsätt skiftet",
+  "runtime.skift.sv.newRun": "Börja från början",
+  "runtime.skift.sv.noInstall": "Tre distrikt. Ett maskinhjärta. Bara du.",
+  "runtime.skift.sv.saving": "Framsteg sparas på den här enheten.",
+  "runtime.skift.sv.loading": "Bygger upp verkstaden",
+  "runtime.skift.sv.ready": "VERKSTADEN ÄR ÖPPEN",
+  "runtime.skift.sv.footer": "TEKNIK MED HJÄRNA. LITE BUS I SYSTEMET.",
+  "runtime.skift.en.workshop": "A GAME FROM THE WORKSHOP",
+  "runtime.skift.en.line1": "Last shift.",
+  "runtime.skift.en.line2": "Full tilt.",
+  "runtime.skift.en.intro": "One small robot. One enormous short circuit. Shift up, strike back and bring the workshop to life.",
+  "runtime.skift.en.start": "Start your shift",
+  "runtime.skift.en.resumeRun": "Continue your shift",
+  "runtime.skift.en.newRun": "Start from the beginning",
+  "runtime.skift.en.noInstall": "Three districts. One machine heart. Just you.",
+  "runtime.skift.en.saving": "Progress stays on this device.",
+  "runtime.skift.en.loading": "Waking up the workshop",
+  "runtime.skift.en.ready": "THE WORKSHOP IS OPEN",
+  "runtime.skift.en.footer": "ENGINEERED WITH CARE. A LITTLE MISCHIEF INCLUDED."
+};
