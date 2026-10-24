@@ -1,6 +1,5 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { initial, seed } from '../.generated/cms-seed.mjs';
 import { validateProject } from '../src/cms/project.mjs';
@@ -16,13 +15,19 @@ import { Draft } from '../src/cms/client/draft.mjs';
 const v185 = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
 const developers = project => project.pages.find(page => page.id === 'developers');
 const UPDATED = 'API-versioner och kodexempel';
-const nodeSha256 = text => createHash('sha256').update(text, 'utf8').digest('hex');
 
-test('A1a: the synchronous SHA-256 matches node:crypto and reproduces the listed v185 seed hash', () => {
-  for (const text of ['', 'abc', 'a'.repeat(55), 'a'.repeat(56), 'a'.repeat(64), 'å'.repeat(1000), developers(v185).html]) assert.equal(shared.sha256(text), nodeSha256(text), `length ${text.length}`);
-  assert.equal(shared.sha256(''), 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
-  assert.equal(nodeSha256(developers(v185).html), 'd0be9a8b08f08e548ad938bd730d236350af1bab3f93e37742f5aca5ef2e097e');
-  assert.deepEqual([...shared.STALE_DEVELOPERS_HTML], [nodeSha256(developers(v185).html)]);
+test('A1a: the fixture /developers/ matches the listed v185 fingerprint and a one-character edit does not', () => {
+  // Published cyrb53 reference values pin the hash function itself.
+  for (const [text, hash] of [['a', 7929297801672961], ['b', 8684336938537663], ['revenge', 4051478007546757], ['revenue', 8309097637345594]]) assert.deepEqual(shared.fingerprint(text), { length: text.length, hash });
+  const html = developers(v185).html;
+  assert.deepEqual(shared.STALE_DEVELOPERS_HTML, [shared.fingerprint(html)]);
+  assert.deepEqual(shared.fingerprint(html), { length: 15246, hash: 8298929461772957 });
+  const template = { id: 'developers', html: '<main id="main"><h1>Mall</h1></main>' };
+  assert.notEqual(shared.refreshDevelopersPage(developers(v185), template), developers(v185));
+  const edited = { ...developers(v185), html: (html[0] === '<' ? '>' : '<') + html.slice(1) };
+  assert.equal(edited.html.length, html.length);
+  assert.notEqual(shared.fingerprint(edited.html).hash, shared.fingerprint(html).hash);
+  assert.equal(shared.refreshDevelopersPage(edited, template), edited, 'A one-character edit is not a known seed copy');
 });
 
 test('A1a: v185 normalizes, validates as a save and keeps every owner page', () => {
@@ -59,6 +64,9 @@ test('A14: stored SKIFT pages are dropped and a CMS page cannot take the game ad
   const custom = structuredClone(initial);
   custom.pages.push({ ...structuredClone(seed.blank), id: 'custom-game', sourceId: 'blank', path: '/play/skift/' });
   assert.throws(() => validateProject(custom, seed), /Adressen \/play\/skift\/ används redan/);
+  const copy = structuredClone(initial);
+  copy.pages.push({ ...structuredClone(developers(initial)), id: 'game-copy', path: '/spel-kopia/', sourceId: 'skift' });
+  assert.throws(() => validateProject(copy, seed), /Spelets sida kan inte redigeras i studion/);
 });
 
 let runtime;

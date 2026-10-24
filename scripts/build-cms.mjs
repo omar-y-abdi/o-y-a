@@ -52,9 +52,6 @@ export async function buildCms({ styles, js }) {
   const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
   await writeFile('dist/data/runtime.json', JSON.stringify(seed.runtime));
   const initial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
-  // Introduced pages enter old drafts as ordinary persisted pages, without
-  // ephemeral source contracts leaking into incremental save payloads.
-  seed.skiftPage = initial.pages.find(page => page.id === 'skift');
   await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const built = ${JSON.stringify(built)};\n`);
   await writeFile('dist/admin/index.html', adminPage({ css, vendorCss, js: built.studio }));
   await writeFile('dist/login/index.html', loginPage(loginCss));

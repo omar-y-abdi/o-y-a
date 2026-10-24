@@ -35,41 +35,23 @@ export function normalizeSharedContent(input,seed={}){
   return base;
 }
 
-// Synchronous SHA-256 (FIPS 180-4): read-time normalizers are synchronous and
-// crypto.subtle only resolves a Promise. Constants derive from the first primes.
-const SHA_INITIAL=new Uint32Array(8),SHA_ROUND=new Uint32Array(64);
-for(let n=2,count=0;count<64;n++){
-  let prime=true;for(let d=2;d*d<=n;d++)if(n%d===0)prime=false;
-  if(!prime)continue;
-  if(count<8)SHA_INITIAL[count]=n**0.5*2**32|0;
-  SHA_ROUND[count++]=n**(1/3)*2**32|0;
-}
-export function sha256(text){
-  const bytes=new TextEncoder().encode(text),length=Math.ceil((bytes.length+9)/64)*64;
-  const data=new Uint8Array(length);data.set(bytes);data[bytes.length]=0x80;
-  const view=new DataView(data.buffer);
-  view.setUint32(length-8,Math.floor(bytes.length/2**29));view.setUint32(length-4,bytes.length*8>>>0);
-  const hash=SHA_INITIAL.slice(),w=new Uint32Array(64),rotr=(x,n)=>x>>>n|x<<32-n;
-  for(let offset=0;offset<length;offset+=64){
-    for(let i=0;i<16;i++)w[i]=view.getUint32(offset+i*4);
-    for(let i=16;i<64;i++){const x=w[i-15],y=w[i-2];w[i]=w[i-16]+(rotr(x,7)^rotr(x,18)^x>>>3)+w[i-7]+(rotr(y,17)^rotr(y,19)^y>>>10);}
-    let [a,b,c,d,e,f,g,h]=hash;
-    for(let i=0;i<64;i++){
-      const t1=h+(rotr(e,6)^rotr(e,11)^rotr(e,25))+(e&f^~e&g)+SHA_ROUND[i]+w[i]|0;
-      const t2=(rotr(a,2)^rotr(a,13)^rotr(a,22))+(a&b^a&c^b&c)|0;
-      h=g;g=f;f=e;e=d+t1|0;d=c;c=b;b=a;a=t1+t2|0;
-    }
-    [a,b,c,d,e,f,g,h].forEach((value,i)=>{hash[i]+=value;});
-  }
-  return [...hash].map(word=>word.toString(16).padStart(8,'0')).join('');
+// Fingerprint of a known seed copy: exact UTF-16 length plus a 53-bit cyrb53
+// hash. Synchronous, because every read-time normalizer is synchronous.
+export function fingerprint(text){
+  let h1=0xdeadbeef,h2=0x41c6ce57;
+  for(let i=0;i<text.length;i++){const ch=text.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}
+  h1=Math.imul(h1^h1>>>16,2246822507)^Math.imul(h2^h2>>>13,3266489909);
+  h2=Math.imul(h2^h2>>>16,2246822507)^Math.imul(h1^h1>>>13,3266489909);
+  return {length:text.length,hash:4294967296*(2097151&h2)+(h1>>>0)};
 }
 
-// SHA-256 of /developers/ HTML exactly as earlier releases seeded it. The owner
-// never edited such a copy, so reads serve the current template instead (A1a).
+// /developers/ HTML exactly as earlier releases seeded it. The owner never
+// edited such a copy, so reads serve the current template instead (A1a).
 // v185 (production head since 2026-10-11), proven by tests/cms-template-drift.
-export const STALE_DEVELOPERS_HTML=new Set(['d0be9a8b08f08e548ad938bd730d236350af1bab3f93e37742f5aca5ef2e097e']);
+export const STALE_DEVELOPERS_HTML=[{length:15246,hash:8298929461772957}];
+const isStaleDevelopers=html=>STALE_DEVELOPERS_HTML.some(entry=>entry.length===html.length&&entry.hash===fingerprint(html).hash);
 export function refreshDevelopersPage(page,template){
-  if(!template?.html||!page||page.id!==template.id||typeof page.html!=='string'||!STALE_DEVELOPERS_HTML.has(sha256(page.html)))return page;
+  if(!template?.html||!page||page.id!==template.id||typeof page.html!=='string'||!isStaleDevelopers(page.html))return page;
   // Publication kept shared values equal on every page; carry the copy's own.
   const stale=parseFragment(page.html),tree=parseFragment(template.html);
   walk(tree,node=>{

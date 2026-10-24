@@ -5,7 +5,7 @@ import { readPublicPage, readPublicData } from './store.mjs';
 import { canonicalPagePath } from './routes.mjs';
 import { routes } from '../content/site.mjs';
 import { normalizeFooterPage, FOOTER_VERSION } from './footer.mjs';
-import { normalizeSkiftPage, isSkiftPath, skiftCsp } from './skift.mjs';
+import { normalizeSkiftPage, isSkiftPath } from './skift.mjs';
 import { refreshDevelopersPage } from './shared-content.mjs';
 import { reportFailure } from './diagnostics.mjs';
 
@@ -29,8 +29,7 @@ export function renderPage(page, built, { version, preview, project, resources =
 async function pageCsp(page, baseCsp) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(structuredData(page)));
   const hash = btoa(String.fromCharCode(...new Uint8Array(bytes)));
-  const policy = baseCsp.replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`);
-  return page.template === 'skift' ? skiftCsp(policy) : policy;
+  return baseCsp.replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`);
 }
 
 export async function publicContent(request, env, built, csp, seed = {}) {

@@ -42,6 +42,8 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     if (original && path !== original.path) fail('Befintliga adresser behålls så delade länkar fortsätter fungera.');
     const source = original ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank;
     if (page.sourceId && page.sourceId !== 'blank' && !seed.pages.some(item => item.id === page.sourceId)) fail('Sidans källmall finns inte.');
+    // A14: the game template is code-owned and never becomes a CMS page.
+    if (source?.template === 'skift') fail('Spelets sida kan inte redigeras i studion.');
     const contracts = source?.contracts ?? [];
     // An exact cache key avoids hash collisions and follows live contracts.
     // Only facts loaded from the trusted database may satisfy this comparison.
