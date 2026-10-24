@@ -93,3 +93,8 @@ test('page paths cannot shadow admin, API, media or traversal routes', () => {
   assert.equal(validatePagePath('/projekt/nytt/'), '/projekt/nytt/');
   for (const path of ['/admin/', '/admin/api/save/', '/api/', '/assets/x/', '/media/x/', '/login/', '/data/x/', '/a/../b/', '//evil.test/', '/bad?x=1/', '/bad%2fpath/', '/bad\\path/']) assert.throws(() => validatePagePath(path), undefined, path);
 });
+
+test('A8: social and mail are reserved from the one shared list and the 422 names the address', () => {
+  for (const path of ['/social/x/', '/mail/x/']) assert.throws(() => validatePagePath(path), { status: 422, message: new RegExp(`Adressen ${path} är reserverad`) });
+  assert.equal(validatePagePath('/socialt/'), '/socialt/');
+});

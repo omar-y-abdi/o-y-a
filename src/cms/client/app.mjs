@@ -14,6 +14,7 @@ import { synchronizeSharedPageClient } from './shared-project.mjs';
 import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorView, restoreInspectorScroll } from './view-state.mjs';
 import { materializeManagedSvg } from './managed-svg-source.mjs';
 import { saveManagedSvgOperation } from './managed-svg-save.mjs';
+import { RESERVED } from '../routes.mjs';
 
 let draft, identity, definitions, blank, assets = [], built;
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
@@ -520,7 +521,8 @@ function newPage(source) {
   dialog(`<span class="dialog-eyebrow">PLATS FÖR NÅGOT NYTT</span><h2>${source ? 'En ny version av en idé.' : 'Din nästa sida.'}</h2>${field('Sidnamn', 'new-page-name', source ? `${source.name} kopia` : '')}${field('Adress, till exempel /ny-sida/', 'new-page-path', '')}<p id="page-dialog-error" class="inline-error" hidden></p><div class="dialog-buttons"><button type="button" class="small-button" data-action="close-dialog">Avbryt</button><button type="button" class="small-button primary" id="create-page">Skapa sida</button></div>`);
   $('#create-page').addEventListener('click', () => {
     const name = $('#new-page-name').value.trim(), path = $('#new-page-path').value.trim();
-    if (!name || !/^\/(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)+$/.test(path) || /^\/(admin|api|login|assets|media|data|cdn-cgi|cms-public)\//.test(path) || draft.project.pages.some(item => item.path === path)) { $('#page-dialog-error').hidden = false; $('#page-dialog-error').textContent = 'Ange ett namn och en ledig adress med avslutande snedstreck.'; return; }
+    const rejected = !name || !/^\/(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)+$/.test(path) || draft.project.pages.some(item => item.path === path) ? 'Ange ett namn och en ledig adress med avslutande snedstreck.' : RESERVED.has(path.split('/')[1]) ? 'Adressen är reserverad.' : '';
+    if (rejected) { $('#page-dialog-error').hidden = false; $('#page-dialog-error').textContent = rejected; return; }
     const id = crypto.randomUUID();
     const content = source ?? blank;
     const created = { ...content, id, path, sourceId: content.sourceId ?? content.id, name, title: `${name} | Omar Yusuf`, description: `Tankar, idéer och nyfikenhet från Omar Yusuf. ${name}.`, noindex: false };

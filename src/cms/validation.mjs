@@ -4,6 +4,7 @@ import { HttpError } from './http.mjs';
 import { ID_REFERENCES } from './id-references.mjs';
 import { validateEditorShape } from './editor-schema.mjs';
 import { attribute as attr, walk as traverse } from './html-tree.mjs';
+import { RESERVED } from './routes.mjs';
 
 export const VALIDATION_POLICY = 'cms-policy-3-canonical-editor-widget-preview';
 
@@ -15,14 +16,13 @@ const CONTROLS = new Set(['input', 'textarea', 'select', 'button', 'fieldset', '
 const semanticValue = node => ['option', 'button'].includes(node.tagName) || node.tagName === 'input' && ['radio', 'checkbox', 'hidden'].includes(attr(node, 'type'));
 const AT_RULES = new Set(['media', 'supports', 'keyframes', '-webkit-keyframes', 'font-face', 'layer', 'container', 'starting-style']);
 const LOCKED_CLASSES = new Set(['fika-board', 'repeat-line', 'folded-line', 'eye', 'memory-card', 'memory-front', 'memory-back']);
-const RESERVED = new Set(['admin', 'login', 'api', 'assets', 'media', 'data', 'cdn-cgi', 'cms-public']);
 
 function invalid(message) { throw new HttpError(422, message); }
 function plainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
 
 export function validatePagePath(value) {
-  if (typeof value !== 'string' || value.length > 160 || !/^\/(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)*$/.test(value)
-    || RESERVED.has(value.split('/')[1])) invalid('Sidans adress måste vara en ledig, vanlig sökväg, till exempel /projekt/nytt/.');
+  if (typeof value !== 'string' || value.length > 160 || !/^\/(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)*$/.test(value)) invalid('Sidans adress måste vara en ledig, vanlig sökväg, till exempel /projekt/nytt/.');
+  if (RESERVED.has(value.split('/')[1])) invalid(`Adressen ${value} är reserverad.`);
   return value;
 }
 
