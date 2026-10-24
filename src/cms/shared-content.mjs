@@ -51,7 +51,8 @@ export function fingerprint(text){
 export const STALE_DEVELOPERS_HTML=[{length:15246,hash:8298929461772957}];
 const isStaleDevelopers=html=>STALE_DEVELOPERS_HTML.some(entry=>entry.length===html.length&&entry.hash===fingerprint(html).hash);
 export function refreshDevelopersPage(page,template){
-  if(!template?.html||!page||page.id!==template.id||typeof page.html!=='string'||!isStaleDevelopers(page.html))return page;
+  // Seeded copies have empty CSS; owner CSS targets the stale copy's node keys.
+  if(!template?.html||!page||page.id!==template.id||typeof page.html!=='string'||page.css||!isStaleDevelopers(page.html))return page;
   // Publication kept shared values equal on every page; carry the copy's own.
   const stale=parseFragment(page.html),tree=parseFragment(template.html);
   walk(tree,node=>{

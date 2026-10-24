@@ -7,6 +7,7 @@ import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVe
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
 import { applyProjectChanges, validateProjectChanges } from './project-changes.mjs';
+import { SKIFT_PATH } from '../content/skift.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 
@@ -178,6 +179,8 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, changes: body.changes }));
         const replay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
         if (replay) return json(replay);
+        // A14: an explicit game-page edit is refused, never silently dropped.
+        if (changes.pages?.upsert.some(page => page.id === 'skift' || page.path === SKIFT_PATH)) throw new HttpError(422, 'Spelets sida kan inte redigeras i studion.');
         if (body.baseVersion === 0) throw new HttpError(422, 'Första sparningen kräver hela webbplatsen.');
         if (await readCurrentVersion(env.CMS_DB) !== body.baseVersion) {
           const racedReplay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });

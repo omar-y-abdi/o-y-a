@@ -12,6 +12,9 @@ import { defaultCopy } from '../src/client/copy.mjs';
 import { skiftCopy } from '../src/content/skift-copy.mjs';
 import { resourceSlots } from '../src/content/resources.mjs';
 import { sanitizeManagedSvg } from '../src/cms/svg.mjs';
+import { parseFragment } from 'parse5';
+import { attribute, elements } from '../src/cms/html-tree.mjs';
+import { SKIFT_PATH } from '../src/content/skift.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
 export async function buildCms({ styles, js }) {
@@ -49,7 +52,9 @@ export async function buildCms({ styles, js }) {
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
   const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
-  const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
+  // Anchor targets of the code-owned game build, for links like /play/skift/#main.
+  const skiftIds = elements(parseFragment(pages.find(page => page.path === SKIFT_PATH).html)).map(node => attribute(node, 'id')).filter(Boolean);
+  const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), skiftIds, runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
   await writeFile('dist/data/runtime.json', JSON.stringify(seed.runtime));
   const initial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
   await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const built = ${JSON.stringify(built)};\n`);

@@ -71,7 +71,7 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts, ...(page.footerVersion === undefined ? {} : { footerVersion: page.footerVersion }) };
   });
   if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
-  const targets = new Map([[SKIFT_PATH, new Set()], ...pages.map(page => [page.path, new Set(page.facts.ids)])]);
+  const targets = new Map([[SKIFT_PATH, new Set(seed.skiftIds ?? [])], ...pages.map(page => [page.path, new Set(page.facts.ids)])]);
   for (const page of publication ? pages : []) for (const href of page.facts.links) {
     let link;
     try { link = resolveSiteLink(href, page.path, origins); } catch { fail('Länkens adress eller ankare är ogiltigt.'); }

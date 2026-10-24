@@ -55,6 +55,25 @@ test('A1a: an edited /developers/ is kept and still fails loudly on validation',
   assert.throws(() => validateProject(shared.normalizeStoredProject(edited, seed, initial), seed), { status: 422 });
 });
 
+test('A1a: a seed-HTML /developers/ with owner CSS is kept and still fails loudly', () => {
+  assert.equal(developers(v185).css, '', 'Seeded copies have empty CSS');
+  const styled = structuredClone(v185);
+  // In v185 n93 is the footer; the same key names another node in the template.
+  developers(styled).css = '[data-cms-node="n93"]{color:#123456}';
+  assert.equal(shared.refreshDevelopersPage(developers(styled), seed.footerPage), developers(styled));
+  assert.throws(() => validateProject(shared.normalizeStoredProject(styled, seed, initial), seed), { status: 422 });
+});
+
+test('A14: links to anchors in the built game resolve against the build', () => {
+  assert.ok(seed.skiftIds.includes('main'));
+  const linked = structuredClone(initial);
+  linked.pages[0].html = linked.pages[0].html.replace('</main>', '<p><a href="/play/skift/#main">Spela</a></p></main>');
+  assert.doesNotThrow(() => validateProject(linked, seed));
+  const broken = structuredClone(initial);
+  broken.pages[0].html = broken.pages[0].html.replace('</main>', '<p><a href="/play/skift/#saknas">Spela</a></p></main>');
+  assert.throws(() => validateProject(broken, seed), { status: 422, message: /saknar ett mål/ });
+});
+
 test('A14: stored SKIFT pages are dropped and a CMS page cannot take the game address', () => {
   assert.ok(!initial.pages.some(page => page.id === 'skift'));
   const stored = structuredClone(initial);
@@ -111,6 +130,18 @@ test('A1a + A14: published v185 serves every page, opens the studio, saves, rest
   const restored = await admin('save', { project: historical.project, baseVersion: 2, requestId: crypto.randomUUID() });
   assert.equal(restored.status, 200, await restored.clone().text());
   assert.equal((await checkCompatibility(runtime.db, { seed, initial })).compatible, true);
+  // A14: an old tab's explicit game-page edit is refused, not silently dropped.
+  const gamePage = { id: 'skift', path: '/play/skift/', sourceId: 'skift', name: 'SKIFT', title: 'SKIFT | Omar Yusuf', description: 'Spelet.', html: '<main id="main"><h1>SKIFT</h1></main>', css: '' };
+  const head = (await readSite(runtime.db)).version;
+  const upsert = await admin('save', { changes: { pages: { upsert: [gamePage] } }, baseVersion: head, requestId: crypto.randomUUID() });
+  assert.equal(upsert.status, 422);
+  assert.match(await upsert.text(), /Spelets sida kan inte redigeras i studion\./);
+  // A full pre-A14 project still saves; its unchanged game page is not stored.
+  const full = structuredClone((await (await admin('state')).json()).project);
+  full.pages.push(gamePage);
+  const legacySave = await admin('save', { project: full, baseVersion: head, requestId: crypto.randomUUID() });
+  assert.equal(legacySave.status, 200, await legacySave.clone().text());
+  assert.ok(!(await readSite(runtime.db)).project.pages.some(page => page.id === 'skift'));
 });
 
 test('A1a: a public read-time migration failure serves the stored page instead of 503', async () => {
