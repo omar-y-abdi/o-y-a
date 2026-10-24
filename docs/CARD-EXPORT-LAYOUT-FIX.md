@@ -60,7 +60,7 @@ unzip -o ~/Downloads/o-y-a-card-export-layout-fix-20260914.zip -d . &&
 source .test-venv/bin/activate &&
 npm run quality &&
 npm run test:cms &&
-npm run test:cms:compat &&
+node scripts/test-cms-compat.mjs &&
 npm run edge:check
 ```
 
@@ -73,7 +73,9 @@ and `output/cms-modules/`.
 For a quick check of just the new guard (not a substitute for the full chain):
 
 ```sh
-npm run build && CMS_MODULE_CASE=export-layout npm run test:cms:modules
+npm run build &&
+CMS_MODULE_CASE=export-layout-scaled-card-not-fitting-wrapper node scripts/test-cms-modules.mjs &&
+CMS_MODULE_CASE=export-layout-rejects-real-clipping node scripts/test-cms-modules.mjs
 ```
 
 The old 59-file unified-installation checksum script will now report the

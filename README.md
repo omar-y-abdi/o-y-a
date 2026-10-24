@@ -6,7 +6,7 @@ Personlig portfolio med projekt, fyra lekstationer, SKIFT och en visuell rediger
 
 ## Kom igång
 
-Node.js 22 eller senare, npm och låsta beroenden behövs. CI använder Node 24.
+Node.js 24 eller senare, npm och låsta beroenden behövs. `.node-version` väljer Node 24 lokalt och i CI. Installera låsta beroenden med `npm ci`.
 
 ```sh
 npm ci
@@ -16,7 +16,7 @@ npm run dev
 Publik förhandsvisning: `http://127.0.0.1:4173/`. Annan port: `node scripts/serve.mjs --port 5273`. Använd HTTP, inte direkt öppnade HTML-filer. Servern använder en Node-adapter för den riktiga Worker-handlern.
 
 ```sh
-npm run cms:dev
+npm run build && node scripts/cms-dev.mjs
 ```
 
 CMS-utveckling kör en riktig lokal Worker med D1 och R2 via Miniflare på port 8790. Testidentiteten `owner@example.test` signeras med en temporär RSA-nyckel; ingen inloggningsgenväg finns i produktionskoden. Kommandot skriver privat Playwright-lagring till `output/cms-local/browser-auth.json`. Lokal data är tillfällig och identiteten ger ingen åtkomst till Cloudflare.
@@ -51,16 +51,25 @@ Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [
 ## Verifiering
 
 ```sh
-npm run check
 python3 -m venv .test-venv
 . .test-venv/bin/activate
 pip install -r requirements-test.txt
 python -m playwright install chromium
-npm run verify:fast
-npm run verify:full
+npm run check:fast &&
+CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
 ```
 
-`verify:fast` är den lokala standardloopen: bygge, lint, parallella `node:test`-tester och kritiska GrapesJS-smokes. `verify:full` är release/CI-gaten och lägger till publik HTTP/browser-E2E, 240 parallella kortexporter, autentiserad CMS-browser-E2E, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
+Den lokala standardloopen bygger, lintar, kör parallella `node:test`-tester och kritiska GrapesJS-smokes. Full lokal verifiering körs i ordning:
+
+```sh
+npm run quality &&
+npm run test:cms &&
+node scripts/test-footer-cms.mjs &&
+node scripts/test-cms-compat.mjs &&
+npx wrangler deploy --dry-run --outdir artifacts/worker-build
+```
+
+Det lägger till publik HTTP/browser-E2E, 240 parallella kortexporter, autentiserad CMS-browser-E2E, sidfotsregressionen, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser, riktade kommandon och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
 
 ## Miljöer och kontakt
 

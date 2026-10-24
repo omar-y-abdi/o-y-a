@@ -4,7 +4,7 @@ The package `o-y-a-pr2-unified-20260914.zip` is based on the clean WIP commit `f
 
 ## Install and run
 
-Use Node **22.13 or newer** (CI uses Node 24). The local release checker uses Node's built-in SQLite parser; no extra npm dependency was added. In the repository root, after overlaying the ZIP:
+Use Node **24 or newer** (`.node-version` selects Node 24 locally and in CI). The local release checker uses Node's built-in SQLite parser; no extra npm dependency was added. In the repository root, after overlaying the ZIP:
 
 ```sh
 node --version
@@ -16,17 +16,17 @@ python -m playwright install chromium firefox webkit
 
 npm run quality &&
 npm run test:cms &&
-npm run test:cms:compat &&
+node scripts/test-cms-compat.mjs &&
 npm run edge:check
 ```
 
-Run these sequentially and stop if a command fails. `quality` already includes build, lint, Node tests, the public HTTP suite, public browser regressions and all 240 standard card exports. `test:cms` first runs the isolated real-module fixtures, then the original CMS browser/interactions suites **and both review suites** against an ephemeral, authenticated local Worker. `test:cms:compat` runs the module fixtures and targeted review suites in Firefox and WebKit. CI runs the same engine-specific module and review gates. These commands do not publish content or email to the real site. `edge:check` is a Wrangler **dry run**, not a deploy.
+Run these sequentially and stop if a command fails. `quality` already includes build, lint, Node tests, the public HTTP suite, public browser regressions and all 240 standard card exports. `test:cms` first runs the isolated real-module fixtures, then the original CMS browser/interactions suites **and both review suites** against an ephemeral, authenticated local Worker. `node scripts/test-cms-compat.mjs` runs the module fixtures and targeted review suites in Firefox and WebKit. CI runs the same engine-specific module and review gates. These commands do not publish content or email to the real site. `edge:check` is a Wrangler **dry run**, not a deploy.
 
 For a quicker focused rerun:
 
 ```sh
 npm run check
-npm run test:cms:modules
+node scripts/test-cms-modules-parallel.mjs
 node scripts/test-cms.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
 ```
 

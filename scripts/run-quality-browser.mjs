@@ -1,16 +1,12 @@
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { testPython } from './test-python.mjs';
 
 const publicUrl = process.env.BASE_URL || 'http://127.0.0.1:4173';
 const analyticsUrl = process.env.ANALYTICS_URL || 'http://127.0.0.1:4174';
-let python = process.env.PYTHON || 'python3';
-try {
-  await access('.test-venv/bin/python');
-  if (!process.env.PYTHON) python = '.test-venv/bin/python';
-} catch {}
+const python = await testPython();
 
 const jobs = [
-  ['web-e2e', 'npm', ['run', 'test:web:e2e'], { BASE_URL: publicUrl, PLAYWRIGHT_WORKERS: process.env.PLAYWRIGHT_WORKERS || '3' }],
+  ['web-e2e', process.execPath, ['node_modules/@playwright/test/cli.js', 'test', 'tests/public-pages.spec.mjs', 'tests/card-export.spec.mjs', 'tests/skift.spec.mjs'], { BASE_URL: publicUrl, PLAYWRIGHT_WORKERS: process.env.PLAYWRIGHT_WORKERS || '3' }],
   ['interactions', python, ['tests/browser.py', '--base-url', publicUrl, '--analytics-url', analyticsUrl, '--screenshots', '--section', 'interactions']],
   ['privacy', python, ['tests/browser.py', '--base-url', publicUrl, '--analytics-url', analyticsUrl, '--screenshots', '--section', 'privacy']],
   ['revision', python, ['tests/revision_browser.py'], { BASE_URL: publicUrl }],

@@ -23,7 +23,7 @@ function run(command, args, env) {
 async function runBrowser(browser) {
   const env = { ...process.env, CMS_BROWSER: browser, CMS_MODULE_WORKERS: process.env.CMS_COMPAT_MODULE_WORKERS || '2', CMS_BROWSER_WORKERS: process.env.CMS_COMPAT_BROWSER_WORKERS || '2', CMS_MODULE_RESULTS_DIR: `output/cms-modules/results-${runId}-${browser}`, CMS_MODULE_RESULTS_FILE: `output/cms-modules/results-${runId}-${browser}.json` };
   console.log(`\n=== CMS compatibility: ${browser} ===`);
-  let code = await run('npm', ['run', 'test:cms:modules'], env);
+  let code = await run(process.execPath, ['scripts/test-cms-modules-parallel.mjs'], env);
   if (code) return { browser, code };
   code = await run('node', ['scripts/test-cms-parallel.mjs', 'tests/cms-review-browser.py', 'tests/cms-review-final-browser.py'], env);
   return { browser, code };

@@ -7,13 +7,23 @@ This replaces the original ZIP delivery's rendered-document report. Current acce
 Install dependencies and browsers as described in the README, then:
 
 ```sh
-npm run verify:fast
-npm run verify:full
+npm run check:fast &&
+CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
 ```
 
-`verify:fast` is the normal edit-feedback loop. It builds once, lints, runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. `npm run test:slow` runs the backup drill alone with one worker; `npm test` and `verify:full` still include it.
+This is the normal edit-feedback loop. It builds once, lints, runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. `npm run test:slow` runs the backup drill alone with one worker; `npm test` and the full sequence below still include it.
 
-`verify:full` is the release/CI gate. It reuses the completed build/check, starts the public and analytics fixtures, runs the public responsive matrix and all 240 production card exports with Playwright Test workers, runs the CMS browser suites in independent Worker runtimes, executes Firefox and WebKit compatibility in parallel, and finishes with a Wrangler dry-run. Set `PUBLIC_TEST_PORT` and `ANALYTICS_TEST_PORT` when needed. Activate `.test-venv` first so the remaining Python browser scenarios resolve to the installed Playwright environment.
+Full local verification uses explicit commands instead of another runner chain:
+
+```sh
+npm run quality &&
+npm run test:cms &&
+node scripts/test-footer-cms.mjs &&
+node scripts/test-cms-compat.mjs &&
+npx wrangler deploy --dry-run --outdir artifacts/worker-build
+```
+
+`quality` builds, lints and runs all Node tests, starts the public and analytics fixtures, and runs public HTTP/browser checks and all 240 production card exports. The following commands run the CMS browser suites in independent Worker runtimes, the footer regression, and targeted Firefox/WebKit compatibility, then finish with a Wrangler dry-run. CI additionally runs `tests/cms-editor.spec.mjs` in Chromium, Firefox and WebKit. Set `PUBLIC_TEST_PORT` and `ANALYTICS_TEST_PORT` when needed. Activate `.test-venv` first so the Python commands in the quality shell script use its dependencies. Node browser runners honor `PYTHON`, then `.test-venv/bin/python`, then `python3`; lookup errors other than a missing venv stop the runner.
 
 The public Playwright run has 330 cases. Its ten `@webgl` layout/game cases run in the `chromium-webgl` project with one worker after the ordinary `chromium` cases, so software rendering does not compete with another game world. Test deadlines, assertions and retry policies are unchanged. Focused game commands use `--project=chromium-webgl --no-deps` to avoid starting the HTTP-dependent public suites; the full quality gate always runs both projects and their dependency.
 
@@ -23,12 +33,23 @@ Additional public regressions, with the public preview running:
 
 ```sh
 BASE_URL=http://127.0.0.1:5273 python tests/revision_browser.py
-BASE_URL=http://127.0.0.1:5273 python tests/card_export.py
+BASE_URL=http://127.0.0.1:5273 npx playwright test tests/card-export.spec.mjs --project=chromium
 ```
 
-Both navigate over real HTTP and load built modules. Contact cases intercept only the contact configuration, Turnstile script and contact API with explicit test responses; no real message is sent. The legacy Python card helper remains available for focused debugging. The exhaustive 240-card gate runs through `npm run test:card-export` on Playwright Test workers and validates text/layout plus actual PNG output from the shared production renderer.
+Both navigate over real HTTP and load built modules. Contact cases intercept only the contact configuration, Turnstile script and contact API with explicit test responses; no real message is sent. `tests/card_export.py` retains the readiness/layout helpers imported by the CMS module suite; its standalone runner was removed. The exhaustive 240-card gate uses the Playwright command above and validates text/layout plus actual PNG output from the shared production renderer.
 
-The PR #2 completion commands, engine matrix and exact restricted-environment limitations are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). Run `npm run test:cms:compat` for targeted Firefox/WebKit acceptance.
+The PR #2 completion commands, engine matrix and exact restricted-environment limitations are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). Run `node scripts/test-cms-compat.mjs` for targeted Firefox/WebKit acceptance.
+
+Focused commands after a build remain available directly:
+
+```sh
+node scripts/run-node-tests.mjs watch
+node scripts/test-cms-modules-parallel.mjs
+node scripts/test-cms-modules.mjs
+node scripts/test-cms-parallel.mjs
+```
+
+With public and analytics preview servers running, `python tests/http_checks.py`, `python tests/browser.py --screenshots`, and `python tests/browser.py --render-only --screenshots` retain their standalone checks. The browser commands default to all sections, including pages; those sections were retained. `npx playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs tests/skift.spec.mjs` runs the same public spec selection as the quality browser runner.
 
 ## What is checked
 

@@ -22,5 +22,5 @@ test('metadata is unique, canonical and not a scaffold', () => {
 });
 test('hosted CI executes the declared Worker dry-run gate', () => {
   const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
-  assert.match(workflow, /name:\s*Worker deploy dry-run[\s\S]*?run:\s*npm run edge:check:built/);
+  assert.match(workflow, /name:\s*Worker deploy dry-run\s+run:\s*npx wrangler deploy --dry-run --outdir artifacts\/worker-build/);
 });

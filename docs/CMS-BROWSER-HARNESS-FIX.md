@@ -41,7 +41,7 @@ unzip -o ~/Downloads/o-y-a-cms-browser-flow-fix-20260914.zip -d . &&
 source .test-venv/bin/activate &&
 npm run quality &&
 npm run test:cms &&
-npm run test:cms:compat &&
+node scripts/test-cms-compat.mjs &&
 npm run edge:check
 ```
 

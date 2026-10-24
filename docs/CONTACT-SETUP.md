@@ -45,8 +45,12 @@ Detta värde används för HMAC av hastighetsnycklar och idempotens, inte för b
 Behåll din befintliga repo-/Cloudflare-koppling. Byggkommandot är `npm run build`; statiska filer ligger i `dist/` och Workern i `src/worker.mjs`. Om du använder Wrangler direkt:
 
 ```sh
-npm run edge:check
-npm run deploy
+npm run edge:check &&
+npm run quality &&
+npm run test:cms &&
+node scripts/test-footer-cms.mjs &&
+node scripts/test-cms-compat.mjs &&
+npm run deploy:cloudflare
 ```
 
 `edge:check` gör en dry-run utan publicering. Den nya kontaktfunktionen behöver Workern och dess bindings: en uppladdning av enbart statiska filer till en annan hostingtjänst aktiverar inte API:t.

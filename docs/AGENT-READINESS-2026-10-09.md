@@ -59,8 +59,8 @@ The same source tree as production `main` (`a0bdcb9d3e45c36794a9b19392cde6e84c8f
 
 - `TEST_CONCURRENCY=2 npm run check:fast`: **237/237 tests passed**, including build and lint.
 - `SKIP_CHECK=1 npm run quality`: **21/21 real HTTP checks**, **320/320 Chromium browser tests**, interaction/privacy checks and **31/31 revision tests** passed.
-- `npm run test:cms:footer` using the pinned Playwright environment: **8/8 Chromium**, **8/8 WebKit**, and **8/8 Firefox** regressions passed (CMS edit/save/preview/reload and widths 320–1440 px).
-- `npm run edge:check:built`: Wrangler's production Worker dry-run passed.
+- `node scripts/test-footer-cms.mjs` (current command for the recorded run) using the pinned Playwright environment: **8/8 Chromium**, **8/8 WebKit**, and **8/8 Firefox** regressions passed (CMS edit/save/preview/reload and widths 320–1440 px).
+- `npx wrangler deploy --dry-run --outdir artifacts/worker-build` (current command for the recorded run): Wrangler's production Worker dry-run passed.
 - Independent live HTTP verification on `https://omaryusuf.se`: **17/17 targeted checks passed**, including at least 500 visible HTML characters, H1/heading order, homepage Markdown with `Vary: Accept`, JSON API errors, valid OpenAPI 3.1.1 with seven distinct operations, sitemap, robots, `llms.txt`, Person JSON-LD, developer links, and genuine trust anchors.
 - Six named bot User-Agent strings returned 200 on the owner's connection; **Cloudflare Security Events proved Ora's separate network was challenged**, so this is not evidence that Ora can crawl.
 
