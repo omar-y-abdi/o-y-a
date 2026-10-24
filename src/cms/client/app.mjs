@@ -10,7 +10,7 @@ import { pageInspector, componentInspector, componentColorInspector, themeInspec
 import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign } from './library.mjs';
 import { renderThemeCss as themeCss, assetFontCss } from '../theme-core.mjs';
 import { applyWinAction, exportWinPackage, filterWins, planWinImport, WIN_BATCH_ACTIONS } from './win-bulk.mjs';
-import { synchronizeSharedPageClient } from './shared-project.mjs';
+import { applySharedContentClient, synchronizeSharedPageClient } from './shared-project.mjs';
 import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorView, restoreInspectorScroll } from './view-state.mjs';
 import { materializeManagedSvg } from './managed-svg-source.mjs';
 import { saveManagedSvgOperation } from './managed-svg-save.mjs';
@@ -21,6 +21,7 @@ let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
 let library = 'pages', device = matchMedia('(max-width:760px)').matches ? 'mobile' : 'desktop', zoom = 100, locked = false, saving = false, themeMode = false;
 let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSelection = new Set(), history, reviewVersion = null, replacement = null, mediaState = 'active';
 let backups, previewSequence = 0, inspectorTab = 'design', pendingViewRestore = null, svgDraft = null;
+let saveError = '';
 let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer, mediaTotal = 0;
 const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
 const saveInProgress = 'Sparar. Ändringarna finns kvar; försök igen.';
@@ -35,7 +36,7 @@ function status() {
   $('[data-action=revert]').disabled = saving || !draft.dirty;
   $('[data-action=undo]').disabled = saving || current.type === 'svg' || !draft.undoStack.length;
   $('[data-action=redo]').disabled = saving || current.type === 'svg' || !draft.redoStack.length;
-  $('#save-status').textContent = saving ? 'Sparar…' : svgDraft?.dirty ? (svgDraft.operation?.state === 'committed' ? 'SVG-sparning · behöver slutföras' : 'SVG-utkast · inte sparat') : draft.dirty ? 'Utkast · inte publicerat' : draft.version ? `Alla ändringar sparade · v${draft.version}` : 'Originalversion · redo att redigera';
+  $('#save-status').textContent = saving ? 'Sparar…' : saveError ? `Sparades inte · ${saveError}` : svgDraft?.dirty ? (svgDraft.operation?.state === 'committed' ? 'SVG-sparning · behöver slutföras' : 'SVG-utkast · inte sparat') : draft.dirty ? 'Utkast · inte publicerat' : draft.version ? `Alla ändringar sparade · v${draft.version}` : 'Originalversion · redo att redigera';
   $('[data-action=edit]').setAttribute('aria-pressed', String(!locked));
   $('[data-action=lock]').setAttribute('aria-pressed', String(locked));
   $('[data-action=edit]').classList.toggle('is-active', !locked);
@@ -71,6 +72,7 @@ async function confirmManagedSvgNavigation() {
   return true;
 }
 
+const reapplyShared = project => Object.entries(project.sharedContent ?? {}).reduce((next, [key, value]) => applySharedContentClient(next, key, value), project);
 function change(project, group = '') { draft.change(project, group); status(); remember(); }
 function updatePage(id, values, group = `page-${id}`) {
   const previous = draft.project.pages.find(item => item.id === id);
@@ -210,7 +212,7 @@ function openPage(id, hash = '') {
         // Consent labels are part of their contract (owner decision 2026-10-24).
         if (contract.text !== undefined) component?.set({ editable: false });
       }
-      editor.getWrapper().find('h1').forEach(protectComponent);
+      editor.getWrapper().find('h1, [data-cms-shared]').forEach(protectComponent);
       editor.getWrapper().find('[data-memory-symbol]').forEach(symbol => symbol.find('*').forEach(node => node.set({ selectable: false, hoverable: false, editable: false, draggable: false, removable: false, copyable: false })));
       editor.clearDirtyCount();
       editor.Canvas.getDocument().addEventListener('keydown', shortcuts, true);
@@ -440,6 +442,8 @@ async function preview(project = null, id = lastPage, label = '') {
 async function save() {
   active?.flush();
   if (saving) return;
+  const openLink = current.type === 'page' ? active?.editor.getWrapper().find("a[href='']")[0] : null;
+  if (openLink) { active.editor.select(openLink); $('#element-href')?.focus(); toast('Länken saknar adress.', true); return; }
   if (current.type === 'svg' && svgDraft?.dirty) await saveManagedSvgDraft({ returnToAsset: false });
   if (!draft.dirty && !draft.pendingSave) return;
   const savingDraft = draft;
@@ -453,11 +457,13 @@ async function save() {
       await backups.persist();
       const result = await api('save', pending);
       savingDraft.acknowledge(submittedSnapshot, result.version, pending);
+      saveError = '';
       if (draft !== savingDraft || !savingDraft.dirty || savingDraft.project !== intent) break;
     }
     toast(savingDraft.dirty ? 'Versionen sparades. Dina nyare ändringar finns kvar som utkast.' : `Version ${savingDraft.version} är sparad och publicerad.`);
   } catch (error) {
     savingDraft.rejectSave(error);
+    saveError = error.message ?? '';
     showError(error);
   } finally { await backups.persist(); saving = false; status(); }
 }
@@ -485,7 +491,7 @@ async function reconcile() {
   if (result.conflicts.length && !await confirmAction({ title: 'Välj dina ändringar vid konflikt?', message: `Båda flikarna har ändrat samma innehåll: ${result.conflicts.join(', ')}. Dina versioner av dessa delar behålls. Övriga ändringar sammanförs. Granska utkastet före Save.`, action: 'Behåll mina vid konflikt' })) return;
   if (saving) { toast(saveInProgress, true); return; }
   if (!unchangedSince(snapshot, version, owner)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); change(result.project); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
+  clearEditor(); draft = new Draft(state.project, state.version); change(reapplyShared(result.project)); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
   toast('Utkasten är sammanförda. Granska ändringarna och välj Save.');
 }
 
@@ -497,7 +503,7 @@ async function revert() {
   const state = await api('state');
   if (saving) { toast(saveInProgress, true); return; }
   if (!unchangedSince(snapshot, version, owner)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); await backups.persist();
+  clearEditor(); saveError = ''; draft = new Draft(state.project, state.version); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); await backups.persist();
 }
 
 async function restore(version) {
@@ -527,7 +533,7 @@ function newPage(source) {
     const content = source ?? blank;
     const created = { ...content, id, path, sourceId: content.sourceId ?? content.id, name, title: `${name} | Omar Yusuf`, description: `Tankar, idéer och nyfikenhet från Omar Yusuf. ${name}.`, noindex: false };
     delete created.contracts;
-    change({ ...draft.project, pages: [...draft.project.pages, created] }); $('#studio-dialog').close(); openPage(id);
+    change(reapplyShared({ ...draft.project, pages: [...draft.project.pages, created] })); $('#studio-dialog').close(); openPage(id);
   });
 }
 
