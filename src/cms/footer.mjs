@@ -13,9 +13,10 @@ export function normalizeFooterPage(page) {
   if (page.footerVersion !== undefined && page.footerVersion !== FOOTER_VERSION) throw new HttpError(422, 'Sidfotens version stöds inte.');
   if (page.footerVersion === FOOTER_VERSION || typeof page.html !== 'string' || hasSignatureKeys(page.html)) return page;
   const tree = parseFragment(page.html, { scriptingEnabled: true });
-  // Legal pages hold a first privacy button in div.legal-actions: use the one in the footer nav.
-  const footer = elements(tree).find(node => node.tagName === 'footer');
-  const nav = footer && elements(footer).find(node => attribute(node, 'data-privacy-open') !== undefined && node.parentNode?.tagName === 'nav')?.parentNode;
+  // Legal pages hold a first privacy button in div.legal-actions: use the one
+  // whose parent is a nav inside a footer.
+  const inFooter = node => { for (let parent = node.parentNode; parent; parent = parent.parentNode) if (parent.tagName === 'footer') return true; return false; };
+  const nav = elements(tree).find(node => attribute(node, 'data-privacy-open') !== undefined && node.parentNode?.tagName === 'nav' && inFooter(node))?.parentNode;
   if (!nav || elements(nav).some(node => node.tagName === 'a' && attribute(node, 'href') === '/developers/')) return { ...page, footerVersion: FOOTER_VERSION };
   const link = parseFragment(LINK).childNodes[0];
   link.parentNode = nav;
