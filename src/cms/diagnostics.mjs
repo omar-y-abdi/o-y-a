@@ -1,4 +1,4 @@
-const OPERATIONS = new Set(['state', 'history', 'revision', 'assets', 'upload', 'recover', 'replace-resource', 'resource-usage', 'validate', 'preview', 'save', 'media', 'public']);
+const OPERATIONS = new Set(['state', 'history', 'revision', 'assets', 'upload', 'recover', 'replace-resource', 'resource-usage', 'validate', 'preview', 'save', 'media', 'public', 'contact', 'mail']);
 
 export function reportFailure(error, operation = '') {
   const requestId = crypto.randomUUID();
