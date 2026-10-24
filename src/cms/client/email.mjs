@@ -408,7 +408,9 @@ function settingText(entry) {
   return `✓ Sparad${bits.length ? ` (${bits.join(', ')})` : ''}`;
 }
 
-const settingRow = (name, label, kind, text) => `<li class="email-setting" data-email-setting="${name}"><span class="email-setting-name">${label}</span><span class="email-setting-state" data-email-setting-state="${kind}">${text}</span></li>`;
+// `kind` and `text` come from the server's view of the settings and are escaped here;
+// `link` is code-owned markup appended after the text.
+const settingRow = (name, label, kind, text, link = '') => `<li class="email-setting" data-email-setting="${name}"><span class="email-setting-name">${label}</span><span class="email-setting-state" data-email-setting-state="${escape(kind)}">${escape(text)}${link}</span></li>`;
 const clearButton = name => root.querySelector(`[data-email-clear="${name}"]`);
 const settingInput = name => root.querySelector(`[data-email-setting-input="${name}"]`);
 const settingValue = name => state.settings.values[name].value ?? '';
@@ -418,10 +420,10 @@ function settingsBody() {
   if (state.settingsError) return `<p class="inline-error" role="alert">${escape(state.settingsError)}</p><button type="button" class="small-button" data-email-retry>Försök igen</button>`;
   if (!view) return '<p class="email-hint" role="status">Hämtar inställningarna…</p>';
   const missing = [...SETTINGS.filter(([name]) => ['missing', 'unreadable'].includes(view.values[name].state)).map(([, label]) => label.toLowerCase()), ...view.master === 'ok' ? [] : ['huvudnyckel'], ...view.rateLimit ? [] : ['hastighetsgräns']];
-  const rows = SETTINGS.map(([name, label]) => settingRow(name, label, view.values[name].state, escape(settingText(view.values[name])))).join('')
+  const rows = SETTINGS.map(([name, label]) => settingRow(name, label, view.values[name].state, settingText(view.values[name]))).join('')
     + settingRow('master', 'Huvudnyckel', view.master, view.master === 'ok' ? '✓ Finns' : '✕ Saknas. Inget kan sparas.')
     + settingRow('rateLimit', 'Hastighetsgräns', view.rateLimit ? 'ok' : 'missing', view.rateLimit ? '✓ Aktiv' : '✕ Saknas')
-    + settingRow('forwarding', 'Vidarebefordran', 'info', 'Ställs in i Cloudflare. <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">Öppna Cloudflare</a>');
+    + settingRow('forwarding', 'Vidarebefordran', 'info', 'Ställs in i Cloudflare. ', '<a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">Öppna Cloudflare</a>');
   const fields = SETTINGS.map(([name, label, kind]) => `<div class="email-field email-setting-field" data-email-field="${name}"><label class="inspector-field"><span>${label}</span><input type="${kind}" autocomplete="off" autocapitalize="off" spellcheck="false"${kind === 'password' ? ' placeholder="Klistra in en ny nyckel"' : ` inputmode="email" value="${escape(settingValue(name))}"`} data-email-setting-input="${name}"></label><button type="button" class="small-button" data-email-clear="${name}" aria-pressed="false">Töm</button></div>`).join('');
   return `<p class="email-banner" data-email-banner="${view.ready ? 'open' : 'closed'}" role="status">${view.ready ? 'Formuläret är öppet' : `Formuläret är stängt${missing.length ? `: ${escape(missing.join(', '))}` : ''}`}</p><ul class="email-settings-list" data-email-settings-list>${rows}</ul><div class="email-settings-form">${fields}<div class="email-actions"><button type="button" class="small-button primary" data-email-save-settings${view.master === 'ok' ? '' : ' disabled'}>Spara inställningar</button><span class="email-hint">${view.master === 'ok' ? 'Nycklar sparas krypterade och visas aldrig igen. Orörda fält behålls.' : 'Huvudnyckeln saknas, så inget kan sparas.'}</span></div></div>`;
 }
