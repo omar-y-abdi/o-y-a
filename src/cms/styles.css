@@ -73,3 +73,36 @@
   .email-tabs{grid-column:auto;flex-direction:column;overflow:visible}
   .email-layout[data-email-layout=wide] .email-panel{grid-column:2/-1}
 }
+.email-design,.email-text{border:1px solid var(--studio-line);border-radius:8px;margin:0 0 18px;min-width:0}
+.email-design>summary,.email-text>summary{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;font-size:13px;font-weight:700;cursor:pointer;list-style:none}
+.email-design>summary::-webkit-details-marker,.email-text>summary::-webkit-details-marker{display:none}
+.email-design>summary::before,.email-text>summary::before{content:"▸";color:var(--studio-muted)}
+.email-design[open]>summary::before,.email-text[open]>summary::before{content:"▾"}
+.email-design[open]>summary,.email-text[open]>summary{border-bottom:1px solid var(--studio-line)}
+.email-design-body{padding:14px}
+.email-text>.email-field{padding:14px 14px 0}
+.email-text>button{margin:0 14px 14px}
+.email-group{border:1px solid var(--studio-line);border-radius:8px;padding:12px 14px 6px;margin:0 0 14px;min-width:0}
+.email-group legend{font-size:12px;font-weight:700;padding:0 6px}
+.email-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:0 12px}
+.email-blocks h3{font-size:14px;margin:18px 0 6px}
+.email-section-title{font-size:11px;letter-spacing:1.2px;font-weight:700;color:var(--studio-muted);margin:14px 0 8px;text-transform:uppercase}
+.email-block-list{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}
+.email-block{border:1px solid var(--studio-line);border-radius:8px;background:var(--studio-paper);min-width:0}
+.email-block.is-open{border-color:var(--studio-blue)}
+.email-block-bar{display:flex;align-items:center;min-width:0}
+.email-block-title{flex:1;min-width:0;display:flex;align-items:center;gap:10px;text-align:left;padding:8px 10px;min-height:44px;font-size:12px}
+.email-block-icon{flex:none;display:grid;place-items:center;width:26px;height:26px;border:1px solid var(--studio-line);border-radius:5px;font-size:11px;font-weight:700}
+.email-block-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.email-block-title small{flex:none;font-size:11px;color:var(--studio-muted)}
+.email-block-tools{display:flex;flex:none;padding-right:4px}
+.email-block-tools button{width:36px;height:44px;font-size:14px}
+.email-block-tools button:disabled{opacity:.35}
+.email-block-tools button:hover:not(:disabled){color:var(--studio-blue)}
+.email-block-edit{padding:12px 12px 6px;border-top:1px solid var(--studio-line)}
+.email-add{width:100%;min-height:40px;border:1px dashed var(--studio-line);border-radius:6px;background:transparent;padding:0 10px;font-size:12px}
+.email-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}
+.email-actions .email-hint{margin:0}
+.email-suffix{display:flex;align-items:center;gap:6px}
+.email-suffix span{font-size:11px;white-space:nowrap;color:var(--studio-muted)}
+.email-suffix input{flex:1;min-width:0}
