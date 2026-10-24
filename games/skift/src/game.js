@@ -3,6 +3,7 @@ import {LEVELS} from './levels.js';
 import {createRun,tick,dash,pulse,hurt,award,collect,finishSector,nextSector,upgrade} from './rules.js';
 import {PALETTE} from './art.js';
 const PLAYER_RADIUS=.52,BOSS_RADIUS=1.6;
+const BOSS_KNOCKBACK=8; // speed in units/s away from the boss on a landed contact hit; with the decay of 8 the player travels about 1 unit; tune here
 const length=(x,z)=>Math.hypot(x,z);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
@@ -17,7 +18,7 @@ export class Game {
   }
   load() {
     this.level=LEVELS[this.state.sector];this.physics=new Physics(this.level);this.view.load(this.level);
-    this.player=this.physics.actor(...this.level.start,PLAYER_RADIUS,GROUP.player,GROUP.wall|GROUP.enemy);this.facing=Math.PI;this.moving=false;this.dashVector={x:0,z:-1};
+    this.player=this.physics.actor(...this.level.start,PLAYER_RADIUS,GROUP.player,GROUP.wall|GROUP.enemy);this.facing=Math.PI;this.moving=false;this.dashVector={x:0,z:-1};this.knock={x:0,z:0};
     this.scrap=new Set();this.bullets=[];this.hitDash=new Set();this.elapsed=0;
     this.enemies=this.level.enemies.map((def,i)=>{
       const e={...def,body:this.physics.actor(def.x,def.z,def.type==='charger'?.62:.48),hp:def.type==='charger'?5:3,
@@ -32,10 +33,11 @@ export class Game {
   advance(choice) {if(!this.state.ended||this.state.won)return;upgrade(this.state,choice);nextSector(this.state);this.load();}
   hazardActive(i) {const h=this.level.hazards[i];return (this.state.sectorTime+h.offset)%h.period>h.period*.67;}
   hit(amount=1) {
-    if(!hurt(this.state,amount))return;
+    if(!hurt(this.state,amount))return false;
     this.sound.play('hit');this.view.shake=.22;this.view.wave(this.player.position.x,this.player.position.z,PALETTE.coral,1.8,.3);
     this.events('hit');
-    if(this.state.dead){this.player.velocity.set(0,0,0);this.sound.play('fail');this.events('dead');}
+    if(this.state.dead){this.player.velocity.set(0,0,0);this.knock.x=0;this.knock.z=0;this.sound.play('fail');this.events('dead');}
+    return true;
   }
   strike(e,damage,stun=.35) {
     if(e.dead)return;e.hp-=damage;e.stunned=stun;e.charge=0;e.telegraph=0;
@@ -74,7 +76,8 @@ export class Game {
     }
     if(control.pulse)this.discharge();
     const speed=s.dashing>0?24:6.5;
-    this.player.velocity.set((s.dashing>0?this.dashVector.x:dx)*speed,0,(s.dashing>0?this.dashVector.z:dz)*speed);
+    this.player.velocity.set((s.dashing>0?this.dashVector.x:dx)*speed+this.knock.x,0,(s.dashing>0?this.dashVector.z:dz)*speed+this.knock.z);
+    const knockDecay=Math.exp(-dt*8);this.knock.x*=knockDecay;this.knock.z*=knockDecay;
     this.moving=mag>.1||s.dashing>0;
     const p=this.player.position;
     for(const e of this.enemies)this.stepEnemy(e,p,dt);
@@ -135,7 +138,9 @@ export class Game {
     b.invulnerable=Math.max(0,b.invulnerable-dt);b.vulnerable=Math.max(0,b.vulnerable-dt);b.timer-=dt;
     if(b.waveRadius>0){b.waveRadius+=dt*4.7;if(Math.abs(distance(p,b)-b.waveRadius)<.55)this.hit();if(b.waveRadius>21)b.waveRadius=0;}
     if(s.dashing>0&&distance(p,b)<2.3)this.strikeBoss(3);
-    if(distance(p,b)<BOSS_RADIUS+PLAYER_RADIUS+.12&&b.vulnerable<=0)this.hit();
+    if(distance(p,b)<BOSS_RADIUS+PLAYER_RADIUS+.12&&b.vulnerable<=0&&this.hit()&&!s.dead){
+      const away=distance(p,b)||1;this.knock.x=(p.x-b.x)/away*BOSS_KNOCKBACK;this.knock.z=(p.z-b.z)/away*BOSS_KNOCKBACK;
+    }
     if(b.timer<=0){
       const slow=s.difficulty==='assist'?.8:1;
       if(b.pattern%3===0){for(let i=0;i<12;i++){const a=i*Math.PI/6;this.shoot(b.x,b.z,Math.sin(a),Math.cos(a),4.4*slow);}}
