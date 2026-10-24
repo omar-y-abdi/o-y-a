@@ -22,6 +22,15 @@ try{
  await check('blur clears controls and pauses automatically',async()=>{await page.locator('#start-button').click();await page.keyboard.down('w');await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.keyboard.up('w');assert.equal((await state(page)).mode,'pause');await page.locator('#modal [data-action="resume"]').click();const a=await state(page);await page.waitForTimeout(250);const b=await state(page);assert.ok(Math.hypot(b.player.x-a.player.x,b.player.z-a.player.z)<.05);});
  await check('restarting releases per-sector GPU resources',async()=>{await page.keyboard.press('Escape');await page.locator('#modal [data-action="menu"]').click();await page.waitForTimeout(100);const first=(await state(page)).render;for(let i=0;i<5;i++){await page.locator('#new-button').click();await page.keyboard.press('Escape');await page.locator('#modal [data-action="menu"]').click();}await page.waitForTimeout(200);const last=(await state(page)).render;assert.ok(last.geometries<=first.geometries+2,JSON.stringify({first,last}));assert.ok(last.textures<=first.textures+1);results.push({name:'renderer resource counts',first,last});});
  await check('game makes no third-party network requests',async()=>{assert.deepEqual(requests.filter(u=>!u.startsWith('http://127.0.0.1:')&&!u.startsWith('data:')),[]);assert.deepEqual(errors,[]);});
+ await check('smooth render buffer follows devicePixelRatio at a constant CSS size',async()=>{
+  await page.setViewportSize({width:1000,height:700});await page.waitForTimeout(200);
+  assert.equal((await state(page)).settings.quality,'smooth');
+  const setRatio=async value=>{await page.evaluate(v=>{Object.defineProperty(window,'devicePixelRatio',{configurable:true,get:()=>v});window.dispatchEvent(new Event('resize'));},value);await page.waitForTimeout(200);};
+  await setRatio(2);let r=(await state(page)).render;
+  assert.ok(Math.abs(r.width/1000-2)<.05&&r.width*r.height<=5200000,JSON.stringify(r));
+  await setRatio(1);r=(await state(page)).render;
+  assert.ok(Math.abs(r.width/1000-1)<.05,JSON.stringify(r));
+ });
  await check('large viewports respect the pixel budget of each quality',async()=>{
   await page.setViewportSize({width:3840,height:2160});await page.waitForTimeout(200);
   const smooth=await state(page);assert.equal(smooth.settings.quality,'smooth','desktop default is smooth');assert.ok(smooth.render.width*smooth.render.height<=5200000,JSON.stringify(smooth.render));

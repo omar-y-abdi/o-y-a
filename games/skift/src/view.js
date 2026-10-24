@@ -31,10 +31,11 @@ export class View {
   resize() {
     this.width=this.container.clientWidth;this.height=this.container.clientHeight;
     if(!this.width||!this.height)return;
-    const key=`${this.width}x${this.height}:${this.settings.quality}`;
+    const smooth=this.settings.quality==='smooth',density=smooth?Math.min(devicePixelRatio||1,2):1;
+    const key=`${this.width}x${this.height}:${this.settings.quality}:${density}`; // density: moving between a 1x and a 2x display keeps the CSS size
     if(key===this.sizeKey)return;this.sizeKey=key;
-    const budget=this.settings.quality==='smooth'?5200000:1000000;
-    const ratio=Math.min(this.settings.quality==='smooth'?Math.min(devicePixelRatio||1,2):1,Math.sqrt(budget/(this.width*this.height)));
+    const budget=smooth?5200000:1000000;
+    const ratio=Math.min(density,Math.sqrt(budget/(this.width*this.height)));
     this.renderer.setPixelRatio(ratio);this.renderer.setSize(this.width,this.height,false);
     this.setCamera(this.mode,this.mode==='menu',null,0); // refit the frustum; only the menu snaps its target
     if(this.world)this.renderer.render(this.scene,this.camera); // a resized canvas is blank until drawn
