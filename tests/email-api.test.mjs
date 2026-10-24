@@ -488,3 +488,18 @@ test('an upload a confirmed send used cannot be removed', async () => {
   assert.ok(bucket.objects.has('mail-private/' + id));
 });
 
+test('a send renders the draft settings it was given', async () => {
+  const draft = structuredClone(DEFAULT_EMAIL);
+  draft.sender = { name: 'Verkstaden', local: 'verkstad' };
+  const p = provider();
+  const response = await run(post('/admin/api/mail/send', compose({ email: draft })), env(), p.fetch);
+  assert.equal(response.status, 200);
+  assert.equal(p.calls[0].body.from, 'Verkstaden <verkstad@hej.omaryusuf.se>');
+  assert.equal((await response.json()).from, p.calls[0].body.from);
+  const bad = structuredClone(DEFAULT_EMAIL);
+  bad.sender.local = 'hej@evil.example';
+  const refused = provider();
+  assert.equal((await run(post('/admin/api/mail/send', compose({ email: bad })), env(), refused.fetch)).status, 422);
+  assert.equal(refused.calls.length, 0);
+  assert.equal(await sentCount(), 1);
+});

@@ -227,12 +227,15 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   const nowMs = now();
   const lists = recipients(body);
   const mail = validateCustomMail({ subject: body.subject, preheader: body.preheader, blocks: body.blocks, design: body.design });
+  // The studio's draft settings (sender, shell), so preview and delivery match;
+  // null or absent means the published head.
+  const draft = validateEmailSettings(body.email);
   const scheduledMs = scheduleTime(body.scheduledAt, nowMs);
   const files = await attachmentFiles(env, body.attachments, nowMs);
   const values = await providerKey(env);
   if (files.some(file => file.kind === 'upload') && !masterReady(env)) throw new HttpError(503, 'Huvudnyckeln saknas.');
   const project = await head();
-  const rendered = renderCustom(mail, project.email, { resources: await resolveResources(env.CMS_DB, project), origin: url.origin });
+  const rendered = renderCustom(mail, draft ?? project.email, { resources: await resolveResources(env.CMS_DB, project), origin: url.origin });
   const limited = await rateLimited(env, identity);
   if (limited) return limited;
   await cleanup(env, now);
