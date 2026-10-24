@@ -8,6 +8,7 @@ import { resourceSlots } from '../../content/resources.mjs';
 // 422 is the authority and `details.field` is a JSON path that this view maps
 // back onto the field carrying the same `data-email-path`.
 const SAMPLE = { name: 'Mira Test', email: 'mira@example.org', message: 'En fråga från provmejlet.' };
+// app.mjs keeps a copy of this pattern (EMAIL_FIELD) so it can route a save error without loading this module.
 const EMAIL_PATH = /^(templates|sender|shell)\./;
 const KINDS = { receipt: 'Kvitto till besökaren', notification: 'Avisering till dig' };
 const TABS = [['receipt', KINDS.receipt], ['notification', KINDS.notification], ['compose', 'Skriv mejl'], ['sent', 'Skickade'], ['settings', 'Inställningar']];
@@ -41,8 +42,6 @@ const TYPES = {
 const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false }, sent: null, sentError: '', status: {}, settings: null, settingsError: '' };
 // Skriv mejl lives only here: never part of the project, never saved by Save.
 let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null;
-
-export const isEmailField = path => typeof path === 'string' && EMAIL_PATH.test(path);
 
 const emailOf = project => project.email ?? DEFAULT_EMAIL;
 const keys = path => path.split(/[.\[\]]+/).filter(Boolean);

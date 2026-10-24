@@ -4,7 +4,6 @@ import { Backups } from './backups.mjs';
 import { Draft } from './draft.mjs';
 import { mergeProjects } from './merge.mjs';
 import { runtimeView } from './runtime.mjs';
-import { mountEmail, refreshEmail, showEmailError, isEmailField } from './email.mjs';
 import { $, $$, escape, toast, dialog, confirmAction, field } from './dom.mjs';
 import { createEditor } from './editor.mjs';
 import { pageInspector, componentInspector, componentColorInspector, themeInspector } from './inspector.mjs';
@@ -16,6 +15,11 @@ import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorV
 import { materializeManagedSvg } from './managed-svg-source.mjs';
 import { saveManagedSvgOperation } from './managed-svg-save.mjs';
 import { RESERVED } from '../routes.mjs';
+
+// The Mejl view is its own chunk and loads the first time it is needed.
+const email = () => import('./email.mjs');
+// Same pattern as EMAIL_PATH in email.mjs, so a path can be tested without loading the chunk.
+const EMAIL_FIELD = /^(templates|sender|shell)\./;
 
 let draft, identity, definitions, blank, assets = [], built;
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
@@ -282,7 +286,15 @@ async function showSpecial(type) {
   }
   if (type === 'email') {
     $('#canvas-label').textContent = 'Mejl';
-    mountEmail($('#special-stage'), { project: () => draft.project, change, assets: () => assets, back: () => openPage(lastPage) });
+    $('#special-stage').innerHTML = '<div class="empty-state" role="status">Öppnar mejl…</div>';
+    const view = await email().catch(() => null);
+    // The owner may have opened something else while the chunk loaded.
+    if (current.type !== 'email') return;
+    if (!view) {
+      $('#special-stage').innerHTML = '<div class="empty-state" role="alert">Mejlvyn kunde inte laddas. Kontrollera anslutningen och öppna Mejl igen.</div>';
+      throw new Error('Mejlvyn kunde inte laddas. Kontrollera anslutningen och försök igen.');
+    }
+    view.mountEmail($('#special-stage'), { project: () => draft.project, change, assets: () => assets, back: () => openPage(lastPage) });
   }
   renderSidebar();
 }
@@ -473,7 +485,7 @@ async function save() {
     savingDraft.rejectSave(error);
     saveError = error.message ?? '';
     showError(error);
-    routeEmailError(error);
+    routeEmailError(error).catch(showError);
   } finally { await backups.persist(); saving = false; status(); }
 }
 
@@ -489,10 +501,12 @@ function showError(error) {
 }
 
 // A rejected mail setting is shown on its own field in the Mejl view, which opens if needed.
-function routeEmailError(error) {
+async function routeEmailError(error) {
   const field = error.status === 422 ? error.details?.field : undefined;
-  if (!isEmailField(field) || current.type === 'svg') return;
-  Promise.resolve(current.type === 'email' ? null : showSpecial('email')).then(() => showEmailError(field, error.message)).catch(showError);
+  if (typeof field !== 'string' || !EMAIL_FIELD.test(field) || current.type === 'svg') return;
+  const view = await email();
+  if (current.type !== 'email') await showSpecial('email');
+  view.showEmailError(field, error.message);
 }
 
 async function reconcile() {
@@ -644,7 +658,7 @@ async function perform(action) {
   if (action === 'history' || action === 'restore') { $('#studio-dialog').close(); if (action === 'restore' && reviewVersion !== null) return restore(reviewVersion); return showSpecial('history'); }
   if (action === 'edit') return editView();
   if (action === 'lock') { if (locked) return editView(); if (!active) openPage(lastPage); locked = true; status(); return preview(); }
-  if (action === 'undo' || action === 'redo') { const view = active ? { ...captureEditorView(active.editor, { device, zoom, tab: inspectorTab }), themeMode, current: { ...current } } : null; active?.flush(); if (draft[action]()) { if (current.type === 'email') { refreshEmail(); status(); remember(); return; } pendingViewRestore = view; const previous = { ...current }; clearEditor(); if (previous.type === 'win') openWin(previous.id); else openPage(lastPage); status(); remember(); } return; }
+  if (action === 'undo' || action === 'redo') { const view = active ? { ...captureEditorView(active.editor, { device, zoom, tab: inspectorTab }), themeMode, current: { ...current } } : null; active?.flush(); if (draft[action]()) { if (current.type === 'email') { status(); remember(); (await email()).refreshEmail(); return; } pendingViewRestore = view; const previous = { ...current }; clearEditor(); if (previous.type === 'win') openWin(previous.id); else openPage(lastPage); status(); remember(); } return; }
   if (action === 'collapse-left' || action === 'expand-left') { document.body.classList.toggle('is-left-collapsed', action === 'collapse-left'); return fit(); }
   if (action === 'toggle-pages') { document.body.classList.remove('show-properties'); document.body.classList.toggle('show-pages'); return; }
   if (action === 'toggle-properties') { document.body.classList.remove('show-pages'); document.body.classList.toggle('show-properties'); return; }
