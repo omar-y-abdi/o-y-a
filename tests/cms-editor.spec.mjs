@@ -11,20 +11,23 @@ const CANVAS_CSS = 'p{margin:0;height:40px}svg,img{display:block}';
 // GrapesJS writes an inline height:100% on #editor, overriding the px height
 // here. Without a height on html and body that resolves to 0: the canvas iframe
 // measured 0 px tall and real mouse events landed on #styles-panel instead.
-const SHELL = `<!doctype html><link rel="stylesheet" href="/grapes.css"><style>html,body{height:100%;margin:0}#editor{width:1600px;height:1300px}</style>
-<div id="editor"></div><div id="styles-panel"></div><div id="blocks-panel"></div><div id="layers-panel"></div><div id="traits-panel"></div><script src="/harness.js"></script>`;
+// The studio stylesheet sizes .gjs-cv-canvas to the whole editor; GrapesJS's default 85% clipped the 1440 px frame and its resize handles.
+// Layers and blocks start hidden as in templates.mjs: a visible layers panel scrolled the page on every select.
+const SHELL = `<!doctype html><link rel="stylesheet" href="/grapes.css"><link rel="stylesheet" href="/studio.css"><style>html,body{height:100%;margin:0}#editor{width:1600px;height:1300px}</style>
+<div id="editor"></div><div id="styles-panel"></div><div id="blocks-panel" hidden></div><div id="layers-panel" hidden></div><div id="traits-panel"></div><script src="/harness.js"></script>`;
 const PIC = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#369"/></svg>';
-let harness, gjsCss;
+let harness, gjsCss, studioCss;
 test.beforeAll(async () => {
   const out = await build({ stdin: { contents: "import { createEditor } from './src/cms/client/editor.mjs'; window.createEditor = createEditor;", resolveDir: process.cwd() }, bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022' });
   harness = out.outputFiles[0].text;
   gjsCss = await readFile('node_modules/grapesjs/dist/css/grapes.min.css', 'utf8');
+  studioCss = await readFile('src/cms/styles.css', 'utf8');
 });
 
 async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
   await page.setViewportSize({ width: 1600, height: 1400 });
   await page.route(`${ORIGIN}/**`, route => {
-    const files = { '/': ['text/html', SHELL], '/harness.js': ['text/javascript', harness], '/grapes.css': ['text/css', gjsCss], '/canvas.css': ['text/css', CANVAS_CSS], '/pic.svg': ['image/svg+xml', PIC] };
+    const files = { '/': ['text/html', SHELL], '/harness.js': ['text/javascript', harness], '/grapes.css': ['text/css', gjsCss], '/studio.css': ['text/css', studioCss], '/canvas.css': ['text/css', CANVAS_CSS], '/pic.svg': ['image/svg+xml', PIC] };
     const [type, body] = files[new URL(route.request().url()).pathname] ?? ['text/plain', 'missing'];
     return route.fulfill({ status: body === 'missing' ? 404 : 200, contentType: type, body });
   });
@@ -104,7 +107,7 @@ for (const [label, css] of Object.entries(STARTS)) for (const device of ['Dator'
     const key = RULE[device], other = key === 'global' ? 'mobile' : 'global', start = await boxRules(page), startSize = await boxSize(page);
 
     // Smaller than the content (80 px): the box falls back to its content.
-    expect(await dragCorner(page, -120, 40 - startSize.height), `undo entries; ${lastDrag}`).toBe(2);
+    expect(await dragCorner(page, -120, 40 - startSize.height), `undo entries; ${lastDrag}`).toBe(1);
     let rules = await boxRules(page), size = await boxSize(page);
     expect(rules[key].height).toBe('auto');
     expect(rules[key]['min-height']).toMatch(/^\d+(\.\d+)?px$/);
@@ -113,8 +116,9 @@ for (const [label, css] of Object.entries(STARTS)) for (const device of ['Dator'
     expect(Math.abs(size.height - size.content)).toBeLessThanOrEqual(1);
 
     // Larger than the content: the dragged height is a floor.
+    const shrunk = rules;
     const floor = px(rules[key]['min-height']);
-    expect(await dragCorner(page, 0, 300), `undo entries; ${lastDrag}`).toBe(2);
+    expect(await dragCorner(page, 0, 300), `undo entries; ${lastDrag}`).toBe(1);
     rules = await boxRules(page); size = await boxSize(page);
     expect(rules[key].height).toBe('auto');
     expect(px(rules[key]['min-height'])).toBeGreaterThan(floor + 250);
@@ -122,6 +126,9 @@ for (const [label, css] of Object.entries(STARTS)) for (const device of ['Dator'
     expect(rules[other]).toEqual(start[other]);
     const saved = await page.evaluate(() => window.__ed.getCss());
     expect(() => validateCss(saved)).not.toThrow();
+    // One drag is one undo step: undo restores the rules after the shrink drag.
+    await page.evaluate(() => { window.__ed.UndoManager.undo(); });
+    expect(await boxRules(page), 'one undo reverts the enlarge drag').toEqual(shrunk);
   });
 }
 
@@ -150,14 +157,14 @@ test('A2 saved rules and heights are identical after reload', async ({ page }) =
 test('A2 an SVG icon shrinks to 50x50 and an image keeps its proportions', async ({ page }) => {
   await openStudio(page, { html: '<svg id="box" viewBox="0 0 100 100" width="100" height="100"><path d="M0 0h100v100H0z"/></svg><img id="pic" src="/pic.svg" alt="">', css: '' });
   await select(page, '#box');
-  expect(await dragCorner(page, -50, -50), `undo entries; ${lastDrag}`).toBe(2);
+  expect(await dragCorner(page, -50, -50), `undo entries; ${lastDrag}`).toBe(1);
   const icon = await boxSize(page);
   expect(icon.width).toBeCloseTo(50, 0);
   expect(icon.height).toBeCloseTo(50, 0);
 
   await select(page, '#pic');
   await expect(page.locator('.gjs-resizer-h-br')).toBeVisible();
-  expect(await dragCorner(page, -100, -50), `undo entries; ${lastDrag}`).toBe(2);
+  expect(await dragCorner(page, -100, -50), `undo entries; ${lastDrag}`).toBe(1);
   const pic = await page.evaluate(() => {
     const component = window.__ed.getWrapper().find('#pic')[0], box = component.getEl().getBoundingClientRect();
     return { width: box.width, height: box.height, style: component.getStyle() };
@@ -186,12 +193,13 @@ for (const [source, html] of [['Word', WORD], ['Google Docs', DOCS]]) {
       data.setData('text/plain', 'Rad ett\nRad två');
       data.setData('text/html', html);
       const event = new win.ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
-      // If the engine drops clipboardData from the constructor, attach it.
-      if (!event.clipboardData) Object.defineProperty(event, 'clipboardData', { value: data });
+      // Firefox gives a script-made paste event an empty clipboardData; attach ours.
+      Object.defineProperty(event, 'clipboardData', { value: data });
       el.dispatchEvent(event);
       return el.innerHTML;
     }, [html]);
-    expect(result, 'innerHTML after paste').toBe('Rad ett<br>Rad två');
+    // WebKit's insertHTML keeps a placeholder <br> after the last line.
+    expect(result.replace(/<br>$/, ''), 'innerHTML after paste').toBe('Rad ett<br>Rad två');
     const saved = await page.evaluate(() => window.__studio.snapshot(true));
     expect(saved.html).not.toMatch(/o:p|class=|style=|<!--/);
     expect(() => validateHtml(saved.html)).not.toThrow();
