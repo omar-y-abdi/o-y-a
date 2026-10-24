@@ -40,3 +40,20 @@ test('resizable options are not set on non-resizable components', () => {
   configureVisualComponent(input);
   assert.equal(input.configured().resizable, false);
 });
+
+test('managed SVG makes inner shapes selectable and leaves page SVG alone', () => {
+  const shape = (tagName, type) => { const c = component(tagName); const get = c.get; c.get = key => key === 'type' ? type : get(key); return c; };
+  const inner = shape('path', 'svg-in');
+  configureVisualComponent(inner, { managedSvg: true });
+  assert.equal(inner.configured().selectable, true);
+  assert.equal(inner.configured().hoverable, true);
+  assert.equal(inner.configured().layerable, true);
+
+  const pageIcon = shape('path', 'svg-in');
+  configureVisualComponent(pageIcon);
+  assert.equal('selectable' in pageIcon.configured(), false);
+
+  const managedRoot = shape('svg', 'svg');
+  configureVisualComponent(managedRoot, { managedSvg: true });
+  assert.equal('selectable' in managedRoot.configured(), false);
+});

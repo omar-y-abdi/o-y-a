@@ -172,3 +172,20 @@ for (const [source, html] of [['Word', WORD], ['Google Docs', DOCS]]) {
     expect(() => validateHtml(saved.html)).not.toThrow();
   });
 }
+
+test('A12 shapes inside the managed SVG are selectable, the root stays fixed and a group still resizes', async ({ page }) => {
+  await openStudio(page, { bodyClass: 'cms-svg-editor', html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400"><g id="grp"><path id="shape" d="M10 10h40v40H10z" fill="#0000ff"/></g><circle id="dot" cx="75" cy="75" r="10" fill="#00ff00"/></svg>' });
+  const selected = () => page.evaluate(() => window.__ed.getSelected()?.get('tagName'));
+  await page.frameLocator('iframe.gjs-frame').locator('#shape').click();
+  expect(await selected()).toBe('path');
+  expect(await page.evaluate(() => window.__ed.getWrapper().find('svg')[0].get('resizable'))).toBe(false);
+
+  await page.evaluate(() => window.__ed.getSelected().addAttributes({ fill: '#ff0000' }));
+  const fill = id => page.evaluate(id => window.__ed.getWrapper().find(id)[0].getAttributes().fill, id);
+  expect(await fill('#shape')).toBe('#ff0000');
+  expect(await fill('#dot')).toBe('#00ff00');
+
+  await select(page, '#grp');
+  await dragCorner(page, 60, 60);
+  expect(await page.evaluate(() => window.__ed.getWrapper().find('#grp')[0].getAttributes().transform)).toMatch(/scale\(/);
+});

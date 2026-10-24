@@ -30,6 +30,7 @@ export function configureVisualComponent(component, { managedSvg = false } = {})
     // Canvas move can reparent/reorder. Structural movement belongs in Layers;
     // precise visual movement is exposed by the inspector nudge controls.
     toolbar: [],
+    ...(managedSvg && component.get('type') === 'svg-in' && { selectable: true, hoverable: true, layerable: true }),
   });
   return component;
 }
