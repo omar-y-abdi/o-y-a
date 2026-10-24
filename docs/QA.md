@@ -20,23 +20,32 @@ npm run quality &&
 npm run test:cms &&
 node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
+npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps &&
+npx playwright test --project=firefox --no-deps &&
+npx playwright test --project=webkit --no-deps &&
 npx wrangler deploy --dry-run --outdir artifacts/worker-build
 ```
 
-`quality` builds, lints and runs all Node tests, starts the public and analytics fixtures, and runs public HTTP/browser checks and all 240 production card exports. The following commands run the CMS browser suites in independent Worker runtimes, the footer regression, and targeted Firefox/WebKit compatibility, then finish with a Wrangler dry-run. CI additionally runs `tests/cms-editor.spec.mjs` in Chromium, Firefox and WebKit. Set `PUBLIC_TEST_PORT` and `ANALYTICS_TEST_PORT` when needed. Activate `.test-venv` first so the Python commands in the quality shell script use its dependencies. Node browser runners honor `PYTHON`, then `.test-venv/bin/python`, then `python3`; lookup errors other than a missing venv stop the runner.
+`quality` builds, lints and runs all Node tests, including `tests/http-checks.test.mjs` against the real Worker. Its browser runner owns ephemeral public and analytics-enabled workerd fixtures with local D1/R2, publishes the stored v185 fixture, runs the public Playwright gate, then the remaining Python interaction, privacy and revision checks in order. Both Workers use port 0 and close in `finally`; the shell starts no background servers and probes no ports. The following commands run the CMS browser suites, footer regression and targeted compatibility, then finish with a Wrangler dry-run. CI also runs the editor and mail specs in Chromium, and the existing Firefox/WebKit project selections (editor, mail, public startup). Activate `.test-venv` first for the Python command in the quality shell script. Node browser runners honor `PYTHON`, then `.test-venv/bin/python`, then `python3`; lookup errors other than a missing venv stop the runner.
 
-The public Playwright run has 330 cases. Its ten `@webgl` layout/game cases run in the `chromium-webgl` project with one worker after the ordinary `chromium` cases, so software rendering does not compete with another game world. Test deadlines, assertions and retry policies are unchanged. Focused game commands use `--project=chromium-webgl --no-deps` to avoid starting the HTTP-dependent public suites; the full quality gate always runs both projects and their dependency.
+`npm run test:public-pages` runs ordinary Chromium first, then the independent `chromium-webgl` project with one worker and `--no-deps`. `npm run test:skift` runs only the game spec in that project. The public page matrix includes every page in v185 plus the code-owned SKIFT page, with the existing responsive and no-JavaScript checks. The former `browser.py --section pages` checks were already duplicated there; only that Python section was removed. Global tracing retains failures in `output/playwright/artifacts/`, uploaded by both CI browser jobs. Retries are zero, including card export. Without `CHROMIUM_PATH` or `PW_CHANNEL`, JavaScript Playwright uses its installed Chromium build.
+
+Public page and card-export specs create a published v185 Worker per Playwright worker and use its `runtime.url`. To use Playwright's managed `webServer` instead, set `PLAYWRIGHT_PORT` to an available port; it launches `scripts/cms-dev.mjs --public-tests` with the same v185 publication and production assets settings. `BASE_URL` selects an already managed local fixture. Specs with their own `cmsRuntime()` keep using port 0. The normal `npm run dev` and `npm run preview` commands publish the build's initial project instead; all storage stays local and ephemeral. `SKIP_CHECK=1 npm run quality` skips the build/lint/general Node gate but still runs the migrated HTTP suite before the browser checks.
 
 `test:cms` prepares the real editor/public module fixtures once, runs their cases in isolated parallel browser processes, then runs the authenticated CMS navigation suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself needs a separately authorized production check.
 
-Additional public regressions, with the public preview running:
+Additional public regressions after a build:
 
 ```sh
-BASE_URL=http://127.0.0.1:5273 python tests/revision_browser.py
-BASE_URL=http://127.0.0.1:5273 npx playwright test tests/card-export.spec.mjs --project=chromium
+node --test tests/http-checks.test.mjs
+npm run test:public-pages
+npm run test:skift
+node scripts/run-quality-browser.mjs
 ```
 
-Both navigate over real HTTP and load built modules. Contact cases intercept only the contact configuration, Turnstile script and contact API with explicit test responses; no real message is sent. `tests/card_export.py` retains the readiness/layout helpers imported by the CMS module suite; its standalone runner was removed. The exhaustive 240-card gate uses the Playwright command above and validates text/layout plus actual PNG output from the shared production renderer.
+The HTTP suite uses `node:http` so redirects and compressed wire bytes remain observable. It checks published D1 HTML, resources, HEAD, security headers, real gzip, contact failure, aliases, Markdown, JSON errors, discovery and Analytics Engine consent boundaries. Sitemap XML parsing uses the browser's native `DOMParser` in the public spec. Canonical CMS redirects are 307; the explicit language aliases remain 308. The old adapter alone appended `Vary: Accept-Encoding`; native local compression does not, so that mock-only header expectation was not carried over. `Vary: Accept`, gzip decoding and the existing compressed home-document cap remain checked.
+
+Browser checks navigate over real HTTP and load built modules. Contact cases intercept only contact configuration, Turnstile and contact API requests with explicit test responses; no real message is sent. `tests/card_export.py` retains the readiness/layout helpers imported by the CMS module suite; its standalone runner was removed. The exhaustive 240-card gate validates text/layout plus actual PNG output from the shared production renderer.
 
 Setup, the engine matrix and verification limits are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). After a build, run `node scripts/test-cms-compat.mjs` for targeted Firefox/WebKit acceptance.
 
@@ -49,7 +58,7 @@ node scripts/test-cms-modules.mjs
 node scripts/test-cms-parallel.mjs
 ```
 
-With public and analytics preview servers running, `python tests/http_checks.py`, `python tests/browser.py --screenshots`, and `python tests/browser.py --render-only --screenshots` retain their standalone checks. The browser commands default to all sections, including pages; those sections were retained. `npx playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs tests/skift.spec.mjs` runs the same public spec selection as the quality browser runner.
+`tests/browser.py` retains interaction and privacy sections. For standalone HTTP use, pass both `--base-url` and `--analytics-url` (or `BASE_URL` and `ANALYTICS_URL`); the Node runner supplies its own ephemeral URLs automatically. `python tests/browser.py --render-only --screenshots` remains a document-rendering diagnostic for those sections. Other Python suites and their runners remain until their separate migrations.
 
 ## Build prerequisites
 
@@ -92,19 +101,19 @@ CI's `verify` job builds through `quality` before the dry-run and browser steps.
 | Difficult editor cases | Keyboard block insertion, inline-style preservation, memory style after hydration/reset, real R2 image selection, archival recovery, locked win preview, two-tab conflicts and local draft recovery |
 | Public browser | All routes and responsive widths, navigation, no-JS content, privacy choices, motion, four workshop stations and contact fixtures |
 
-The native public modules retain their original combined 14,000-byte gzip budget. The separate lazy win renderer/export bundle is capped at 8,000 gzip bytes; it loads only when needed. Editor JavaScript is isolated under `/admin/` with a 375,000-byte combined gzip cap. CSS is capped at 17,000 gzip bytes for home/workshop and 14,000 for other routes; HTML and transfer budgets remain enforced in `tests/assets.test.mjs`. These are enforced transfer-size contracts, not latency or field Core Web Vitals.
+Public JavaScript has a combined 14,500-byte gzip cap. Home/workshop CSS has an 18,400-byte cap. Actual current headroom requires a build. Other page CSS remains capped at 14,000 bytes. The separate lazy win renderer/export cap stays 8,000 bytes and the current isolated admin cap stays 375,000 bytes. HTML budgets remain enforced in `tests/assets.test.mjs`. These are transfer-size contracts, not latency or field Core Web Vitals.
 
 The public esbuild graph has separate hashed main and SKIFT bootstrap entries with shared copy state; the existing win renderer remains external and lazy. `tests/public-runtime.test.mjs` covers inert JSON escaping, preview precedence, missing-block fallback and failed copy loads. `tests/cms-store.test.mjs` checks one-query page/runtime reads and revision consistency; `tests/cms-api.test.mjs` checks the embedded data and retained API endpoint through the real Worker.
 
-After building, run the dedicated startup checks explicitly (the existing named browser scripts do not include this file):
+The public gate includes startup checks. To run them alone after building:
 
 ```sh
 npx playwright test tests/public-startup.spec.mjs --project=chromium --workers=1
 ```
 
-That file selects Chromium, Firefox and WebKit within its suites. It checks embedded-copy requests and CSP violations, real HTTP fallback, initialization while copy is delayed, and the SKIFT shell before its game import. Its delayed-copy cases control only the fetch promise; they do not measure wall-clock latency or AbortSignal deadlines.
+The Firefox and WebKit projects also select this file; run `npx playwright test --project=firefox --no-deps`, then the equivalent WebKit command, for the complete configured selections. Startup checks cover embedded-copy requests and CSP violations, real HTTP fallback, initialization while copy is delayed, and the SKIFT shell before its game import. Delayed-copy cases control only the fetch promise; they do not measure wall-clock latency or AbortSignal deadlines.
 
-`tests/public-evidence.spec.mjs` captures the five phase-2 reference pages at 390/1440 px from real published D1 rows, their selected DOM/style properties, and local unthrottled js-ready timings for those pages plus SKIFT. Run the same file in the baseline and changed checkouts with distinct `P2B_EVIDENCE_DIR` values; compare every PNG and properties JSON byte for byte. `boot.json` includes its lab profile and resource timings; these local samples do not establish the plan's throttled-mobile targets.
+`tests/public-evidence.spec.mjs` publishes v185 and captures every stored page at 390/1440 px with selected DOM/style properties. It records SKIFT startup timing separately; game animation is not part of that spec's screenshots. `identity.json` records status, headers and body SHA-256 for every stored page, code-owned SKIFT, sitemap and linked stylesheets, fetched at the canonical production URL inside the isolated local Worker. Run the same evidence file in baseline and changed checkouts with distinct `P2B_EVIDENCE_DIR` values; compare every PNG, properties JSON and `identity.json` byte for byte. `boot.json` includes its lab profile and resource timings; these local samples do not establish throttled-mobile targets. None of these requests reach production.
 
 ```sh
 P2B_EVIDENCE_DIR=/tmp/p2b-after npx playwright test tests/public-evidence.spec.mjs --project=chromium --workers=1
@@ -118,7 +127,7 @@ P2B_EVIDENCE_DIR=/tmp/p2b-after npx playwright test tests/public-evidence.spec.m
 node scripts/test-cms.mjs scripts/capture-cms.py
 ```
 
-Screenshots are review inputs and need visual inspection alongside automated assertions.
+Screenshots are review inputs, not an automatic assertion of visual correctness. Compare the baseline and changed captures byte for byte, alongside the public identity dump; inspect any difference before accepting a public rendering change.
 
 - `output/visual/studio/`: main studio states and section captures.
 - `output/visual/cms/`: timestamped scenario evidence, including Shift+Enter.
@@ -129,8 +138,8 @@ Screenshots are review inputs and need visual inspection alongside automated ass
 
 The computed contrast audit checks text over simple solid backgrounds. It excludes disabled/decorative content and complex compositing; it is not a full WCAG certification. Admin readiness measurements include the harness's explicit stabilization waits, documented in the JSON, and must not be presented as pure network latency.
 
-## Production release boundary
+## Remote validation and release boundary
 
-An authorized production check verifies the allowed owner's actual Cloudflare Access session, durable Save, public reload, media visibility and history restore. A successful Wrangler upload alone is insufficient. There is no separate staging Worker: branch previews use production D1/R2, while the automated suites use isolated local runtimes.
+Local fixtures do not verify the owner's actual Cloudflare Access session, deployed CPU quotas, durable production Save, media visibility or history restore. Verify those outcomes separately under the release procedure; a successful Wrangler upload alone is insufficient.
 
-Follow [DEPLOYMENT.md](DEPLOYMENT.md) and preserve the existing production bindings and Access policy. Neither mock contact responses nor a successful provider call prove email inbox delivery. Automated local checks do not establish production mail delivery, full accessibility certification or field performance.
+The release instructions remain in [DEPLOYMENT.md](DEPLOYMENT.md). Neither mock contact responses nor a successful provider call prove email inbox delivery. No production mail, full accessibility certification or field-performance guarantee is claimed.

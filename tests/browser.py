@@ -17,15 +17,15 @@ from playwright.sync_api import sync_playwright, expect
 from render_support import load as render_load
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGES = ['/', '/verkstad/', '/om/', '/projekt/furl/', '/projekt/blade-blend/', '/projekt/backhaul/', '/kontakt/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html']
-SIZES = [(320,780), (390,844), (768,1024), (1024,900), (1440,1000), (1920,1080)]
 parser = argparse.ArgumentParser()
 parser.add_argument('--render-only', action='store_true')
-parser.add_argument('--base-url', default='http://127.0.0.1:4173')
-parser.add_argument('--analytics-url', default='http://127.0.0.1:4174')
-parser.add_argument('--section', choices=['pages','interactions','privacy','all'], default='all')
+parser.add_argument('--base-url', default=os.environ.get('BASE_URL'))
+parser.add_argument('--analytics-url', default=os.environ.get('ANALYTICS_URL'))
+parser.add_argument('--section', choices=['interactions','privacy','all'], default='all')
 parser.add_argument('--screenshots', action='store_true')
 args = parser.parse_args()
+if not args.render_only and (not args.base_url or not args.analytics_url):
+    parser.error('HTTP checks require --base-url and --analytics-url, or BASE_URL and ANALYTICS_URL')
 OUT = ROOT/'artifacts'
 (OUT/'screenshots').mkdir(exist_ok=True,parents=True)
 results=[]
@@ -95,43 +95,6 @@ with sync_playwright() as playwright:
             if full:
                 page.evaluate('window.scrollTo({top:0,left:0,behavior:"instant"})')
             page.screenshot(path=str(OUT/f'screenshots/{name}.png'),full_page=full,animations='disabled')
-
-    if args.section in ('pages','all'):
-        for path in PAGES:
-            for width,height in SIZES:
-                def page_check(path=path,width=width,height=height):
-                    context,page=visit(path,width,height)
-                    try:
-                        expect(page.locator('h1')).to_have_count(1)
-                        assert page.locator('html').get_attribute('lang') == 'sv'
-                        assert 'Omar Yusuf' in page.title()
-                        overflow=page.evaluate('({viewport:innerWidth,html:document.documentElement.scrollWidth,body:document.body.scrollWidth})')
-                        assert max(overflow['html'],overflow['body']) <= width+1, overflow
-                        for img in page.locator('img').all():
-                            assert img.get_attribute('alt') is not None
-                        assert page.locator('main').inner_text().strip()
-                        for control in page.locator('button,a,input').all():
-                            if not control.is_visible(): continue
-                            label=control.get_attribute('aria-label') or control.inner_text().strip() or control.evaluate('(e)=>[...(e.labels || [])].map(label=>label.textContent).join(" " ).trim()')
-                            assert label, control.evaluate('(e)=>e.outerHTML')
-                        assert page.locator('iframe').count()==0
-                        no_errors(page)
-                        if width in (390,1440): screenshot(page,(path.strip('/').replace('/','-') or 'home')+f'-{width}')
-                        return overflow
-                    finally: context.close()
-                check(f'{path} at {width}px',page_check)
-
-        for width in (390,1440):
-            def nojs(width=width):
-                context,page=visit('/',width,844,js=False)
-                try:
-                    expect(page.locator('h1')).to_contain_text('Omar')
-                    assert page.get_by_role('link',name='Människan',exact=True).is_visible()
-                    assert page.locator('noscript').inner_text().strip()
-                    assert page.locator('[data-print]').is_disabled()
-                    screenshot(page,f'home-no-js-{width}')
-                finally: context.close()
-            check(f'No JavaScript navigation and fallback {width}px',nojs)
 
     if args.section in ('interactions','all'):
         def machine():
