@@ -256,7 +256,9 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
     subject: rendered.subject, html: rendered.html, text: rendered.text,
     ...(scheduledAt ? { scheduled_at: scheduledAt } : {}), ...(attachments.length ? { attachments } : {}),
   } }), reserve);
-  await finalize(env, requestId, id, nowMs, uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), uploads)] : []);
+  const [, marked] = await finalize(env, requestId, id, nowMs, uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), uploads)] : []);
+  // Resend has the mail; a file removed mid-send is reported, never a failure.
+  if (uploadCount && marked?.meta?.changes !== uploadCount) reportFailure(new Error('mail upload missing at finalize'), 'mail');
   return json({ id, scheduledAt, from: rendered.from });
 }
 
@@ -323,10 +325,11 @@ async function uploadFile(request, env, { now }) {
 async function removeFile(request, env) {
   requireWriteRequest(request);
   const id = (await readJson(request, 1024))?.id;
-  const row = typeof id === 'string' && UUID.test(id) ? await env.CMS_DB.prepare('SELECT object_key FROM cms_mail_files WHERE id = ? AND sent_at IS NULL').bind(id).first() : null;
+  // One statement claims the row, so a file a send has already marked is never
+  // removed, and R2 is touched only after D1 gave the row up.
+  const row = typeof id === 'string' && UUID.test(id) ? await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id = ? AND sent_at IS NULL RETURNING object_key').bind(id).first() : null;
   if (!row) throw new HttpError(404, 'Bilagan finns inte.');
   await env.CMS_MEDIA.delete(row.object_key);
-  await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id = ?').bind(id).run();
   return json({ removed: true });
 }
 

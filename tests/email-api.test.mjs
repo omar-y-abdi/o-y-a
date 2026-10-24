@@ -479,3 +479,12 @@ test('a pending scheduled send survives eviction and stays cancellable', async (
   assert.equal(await runtime.db.prepare('SELECT id FROM cms_sent_mail WHERE resend_id = ?').bind(pending.id).first(), null);
 });
 
+test('an upload a confirmed send used cannot be removed', async () => {
+  const { id } = await (await upload()).json();
+  assert.equal((await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id }] })), env(), provider().fetch)).status, 200);
+  const removed = await run(post('/admin/api/mail/attachment-remove', { id }), env());
+  assert.equal(removed.status, 404);
+  assert.ok(!bucket.deleted.includes('mail-private/' + id));
+  assert.ok(bucket.objects.has('mail-private/' + id));
+});
+
