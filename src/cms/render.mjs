@@ -4,7 +4,7 @@ import { themeCss, fontCss } from './theme.mjs';
 import { readPublicPage, readPublicData } from './store.mjs';
 import { canonicalPagePath } from './routes.mjs';
 import { routes } from '../content/site.mjs';
-import { normalizeFooterPage, FOOTER_VERSION } from './footer.mjs';
+import { normalizeFooterPage } from './footer.mjs';
 import { normalizeSkiftPage, isSkiftPath } from './skift.mjs';
 import { refreshDevelopersPage } from './shared-content.mjs';
 import { reportFailure } from './diagnostics.mjs';
@@ -16,12 +16,12 @@ export function renderWinPreview(card, project, built) {
   return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
 }
 
-export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin, migratedCss = false } = {}) {
+export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin } = {}) {
   let base = layout(page, '', { css: built.styles[page.template] ?? built.styles.home, main: built.main, resources, resourceOrigin });
   if (preview) base = base.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
   let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${page.html}</body>`);
-  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css${migratedCss ? `?footer=${FOOTER_VERSION}` : ''}">`;
+  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
   const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : '';
   return result.replace('</head>', `${styles}${fixture}</head>`);
 }
@@ -43,13 +43,7 @@ export async function publicContent(request, env, built, csp, seed = {}) {
       env.CMS_DB.prepare("SELECT html FROM cms_rendered WHERE version = ? AND path = '@theme'").bind(Number(style[1])).first(),
     ]);
     if (!page || !theme) return new Response('Not found', { status: 404 });
-    // Old immutable URLs retain their original bytes. The new representation
-    // follows the same identity migration as HTML, including CSS selectors.
-    const meta = page.meta ? JSON.parse(page.meta) : {};
-    const definition = seed.pages?.find(item => item.id === meta.id || item.id === meta.sourceId) ?? seed.blank;
-    const normalized = url.searchParams.get('footer') === String(FOOTER_VERSION)
-      ? normalizeFooterPage({ ...page, ...meta }, definition) : page;
-    return new Response(themeCss(JSON.parse(theme.html)) + normalized.css, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' } });
+    return new Response(themeCss(JSON.parse(theme.html)) + page.css, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' } });
   }
   const exactCard = url.pathname.match(/^\/data\/cards\/([a-z0-9-]{1,80})\.json$/);
   if (exactCard) {
@@ -93,7 +87,7 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   let normalized = page;
   // Read-time migrations must not take a published page offline. Serve the
   // stored page and report; Save and validation keep failing loudly.
-  try { normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, seed.footerPage), definition), definition); }
+  try { normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, seed.footerPage)), definition); }
   catch (error) { reportFailure(error, 'public'); }
-  return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin, migratedCss: normalized.css !== page.css }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
+  return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
 }

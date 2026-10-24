@@ -1,11 +1,10 @@
 import { parseFragment, serialize } from 'parse5';
-import { validateHtml } from './validation.mjs';
+import { validateHtml, rekeyHtml } from './validation.mjs';
 import { HttpError } from './http.mjs';
 import { SKIFT_PATH, shiftLink } from '../content/skift.mjs';
 import { attribute as attr, elements } from './html-tree.mjs';
 
-// The link uses a stable identity outside the numbered source nodes. Adding
-// it never shifts owner styles or the historical footer migration's key map.
+// The link uses a fixed identity outside the signature keys.
 export function normalizeSkiftPage(page, definition) {
   const links = definition?.contracts?.filter(contract => ['skift-nav', 'skift-nav-mobile'].includes(contract.key)) ?? [];
   if (!links.length || typeof page.html !== 'string') return page;
@@ -16,7 +15,9 @@ export function normalizeSkiftPage(page, definition) {
   const nodes = elements(tree);
   const missing = links.filter(link => !nodes.some(node => attr(node, 'data-cms-node') === link.key));
   if (!missing.length) return page;
-  validateHtml(page.html, definition.contracts.filter(contract => !missing.some(link => link.key === contract.key)));
+  // Check a re-keyed copy: stored pages from older builds carry positional keys.
+  // The output keeps the page's own keys; Save validates them afterwards.
+  validateHtml(rekeyHtml(page.html), definition.contracts.filter(contract => !missing.some(link => link.key === contract.key)));
   for (const link of missing) {
     const menu = nodes.find(node => (attr(node, 'class') ?? '').split(/\s+/).includes(link.containerClass));
     if (!menu) throw new HttpError(422, 'Sidans toppmeny saknas.');

@@ -1,6 +1,6 @@
 import { parseFragment, serialize } from 'parse5';
 import { HttpError } from './http.mjs';
-import { validateHtml } from './validation.mjs';
+import { validateHtml, rekeyHtml, hasSignatureKeys } from './validation.mjs';
 import { normalizeFooterProject, FOOTER_VERSION } from './footer.mjs';
 import { normalizeSkiftProject } from './skift.mjs';
 import { attribute as attr, walk, setInner } from './html-tree.mjs';
@@ -69,8 +69,16 @@ function refreshDevelopers(input,seed){
   return pages.every((page,index)=>page===input.pages[index])?input:{...input,pages};
 }
 
+// Stored pages from older builds carry positional keys; trusted stored HTML is
+// re-keyed after the steps that read its raw bytes and keys.
+function rekeyPages(project){
+  if(!Array.isArray(project?.pages)||!project.pages.some(page=>typeof page?.html==='string'&&!hasSignatureKeys(page.html)))return project;
+  return {...project,pages:project.pages.map(page=>typeof page?.html==='string'?{...page,html:rekeyHtml(page.html)}:page)};
+}
 export function normalizeStoredProject(input,seed={},initial={}){
-  input=refreshDevelopers(input,seed);
+  return rekeyPages(normalizeStoredPages(refreshDevelopers(input,seed),seed,initial));
+}
+function normalizeStoredPages(input,seed,initial){
   input=normalizeFooterProject(input,seed);
   if(!input||input.sharedContent!==undefined&&input.sharedContent!==null)return normalizeSkiftProject(input,seed);
   const required=Object.keys(seed.sharedContent??{});
