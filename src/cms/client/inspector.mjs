@@ -20,7 +20,7 @@ export function componentInspector(component, editor, { assets, pickImage, chang
   const image = component.get('type') === 'image' || tag === 'img';
   const textTypes = new Set(['text', 'textnode', 'link']);
   const svg = ['svg', 'path', 'circle', 'rect', 'ellipse', 'line', 'polygon', 'polyline', 'g'].includes(tag);
-  const textLike = textTypes.has(component.get('type')) && !component.find('img,svg,input,button').length;
+  const textLike = textTypes.has(component.get('type')) && component.get('editable') !== false && !component.find('img,svg,input,button').length;
   const label = component.getName();
   $('#selection-name').textContent = label;
   $('#selection-type').textContent = `${tag.toUpperCase()}${attributes.id ? ` · #${attributes.id}` : ''}`;

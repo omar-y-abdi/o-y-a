@@ -206,6 +206,8 @@ function openPage(id, hash = '') {
       for (const contract of definition?.contracts ?? []) {
         const component = editor.getWrapper().find(`[data-cms-node="${contract.key}"]`)[0];
         for (let node = component; node; node = node.parent()) protectComponent(node);
+        // Consent labels are part of their contract (owner decision 2026-10-24).
+        if (contract.text !== undefined) component?.set({ editable: false });
       }
       editor.getWrapper().find('h1').forEach(protectComponent);
       editor.getWrapper().find('[data-memory-symbol]').forEach(symbol => symbol.find('*').forEach(node => node.set({ selectable: false, hoverable: false, editable: false, draggable: false, removable: false, copyable: false })));
