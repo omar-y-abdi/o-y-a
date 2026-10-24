@@ -17,7 +17,7 @@
     "test:cms": "npm run test:cms:modules && npm run test:cms:browser",
     "cms:dev": "npm run build && node scripts/cms-dev.mjs",
     "check": "npm run build && npm run lint && npm test",
-    "deploy:cloudflare": "wrangler d1 migrations apply CMS_DB --remote && wrangler deploy",
+    "deploy:cloudflare": "node scripts/cms-pull-release.mjs && wrangler d1 migrations apply CMS_DB --remote && wrangler deploy",
     "deploy": "npm run check && npm run deploy:cloudflare",
     "test:http": "python tests/http_checks.py",
     "test:render": "python tests/browser.py --render-only --screenshots",

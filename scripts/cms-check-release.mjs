@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { seed, initial } from '../.generated/cms-seed.mjs';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
+import { d1 } from './cms-pull-release.mjs';
 
 const file = process.argv[2];
 if (!file) throw new Error('Usage: node scripts/cms-check-release.mjs path/to/trusted-d1-export.sql');
@@ -11,17 +12,7 @@ const database = new DatabaseSync(':memory:', { enableForeignKeyConstraints: fal
 try {
   database.exec(await readFile(file, 'utf8'));
   database.exec('PRAGMA query_only = ON');
-  const db = {
-    prepare(sql) {
-      const statement = database.prepare(sql); let args = [];
-      return {
-        bind(...values) { args = values; return this; },
-        async first() { return statement.get(...args) ?? null; },
-        async all() { return { results: statement.all(...args) }; },
-      };
-    },
-  };
-  const result = await checkCompatibility(db, { seed, initial });
+  const result = await checkCompatibility(d1(database), { seed, initial });
   console.log(JSON.stringify(result, null, 2));
   if (!result.compatible) process.exitCode = 1;
 } finally { database.close(); }
