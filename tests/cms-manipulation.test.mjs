@@ -5,7 +5,11 @@ import { parseFragment, serialize } from 'parse5';
 import { initial, seed } from '../.generated/cms-seed.mjs';
 import { normalizeStoredProject, refreshDevelopers } from '../src/cms/shared-content.mjs';
 import { validateProject } from '../src/cms/project.mjs';
-import { migrateKeys, validateCss } from '../src/cms/validation.mjs';
+import { hasSignatureKeys, migrateKeys, rekeyHtml, validateCss } from '../src/cms/validation.mjs';
+import { normalizeClientProject } from '../src/cms/api.mjs';
+import { normalizeSkiftProject } from '../src/cms/skift.mjs';
+import { positionalKeys } from '../scripts/legacy-keys.mjs';
+import LEGACY_KEYS from '../src/cms/legacy-keys.json' with { type: 'json' };
 import { projectChanges, validateProjectChanges, applyProjectChanges } from '../src/cms/project-changes.mjs';
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
@@ -89,31 +93,67 @@ for (const [label, [path, change, expected]] of Object.entries(CASES)) {
 
 // An old tab or browser draft holds raw v185 HTML: positional keys only.
 const oldDraft = () => { const draft = structuredClone(v185); draft.pages[0].description = 'Ändrad i en gammal flik.'; return draft; };
-// The server path for client projects (api.mjs fromClient): A1a refresh, then key migration.
-const fromClient = project => migrateKeys(refreshDevelopers(project, seed), v185);
+// The one server ingress for client projects (api.mjs): A1a refresh, then the frozen e5592bc map.
+const fromClient = project => normalizeClientProject(project, seed);
 const oldR1 = () => edit(oldDraft(), '/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); });
 
-test('A1b transition: an old tab saves through its base revision, and R1 still fails', () => {
+test('A1b: the frozen map and rekeyHtml put every contract key of raw v185 on the same node', () => {
+  // Both the client ingress and the stored read path run the A1a refresh first.
+  const refreshed = refreshDevelopers(v185, seed), mapped = migrateKeys(refreshed, LEGACY_KEYS);
+  const keysOf = html => elements(parseFragment(html, { scriptingEnabled: true })).map(node => attribute(node, 'data-cms-node') ?? null);
+  for (const [index, page] of refreshed.pages.entries()) {
+    const definition = seed.pages.find(item => item.id === page.id) ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank;
+    const contract = new Set(definition.contracts.flatMap(item => [item.key, item.spanKey].filter(Boolean)));
+    const view = html => keysOf(html).map(key => contract.has(key) ? key : null);
+    const viaMap = view(mapped.pages[index].html);
+    assert.deepEqual(viaMap, view(rekeyHtml(page.html)), page.path);
+    // v185 predates the SKIFT links: the read path inserts them.
+    for (const key of contract) if (!key.startsWith('skift-nav')) assert.ok(viaMap.includes(key), `${page.path} lacks ${key}`);
+  }
+});
+
+test('A1b transition: an old tab saves through the frozen e5592bc map, and R1 still fails', () => {
   assert.doesNotThrow(() => validateProject(fromClient(oldDraft()), seed, base, opts));
   assert.throws(() => validateProject(fromClient(oldR1()), seed, base, opts), ATTRIBUTE);
   assert.throws(() => validateProject(oldDraft(), seed, base, opts), { status: 422 }, 'Without migration positional keys do not match');
 });
 
-test('A1b transition: an old draft recovers through its base revision, and R1 still fails', () => {
+test('A1b transition: an old draft recovers through the frozen e5592bc map, and R1 still fails', () => {
   const recovered = validateProject(fromClient(oldDraft()), seed, null, { ...opts, publication: false });
   assert.throws(() => validateProject(fromClient(oldR1()), seed, null, { ...opts, publication: false }), ATTRIBUTE);
   const changed = projectChanges(base, recovered).pages.upsert.map(page => page.id);
   assert.deepEqual(changed, ['home']);
 });
 
-test('A1b: migrateKeys takes its map from the base, never from the draft', () => {
-  assert.equal(migrateKeys(base, v185), base, 'Signature-keyed drafts are returned as they are');
-  const draft = oldDraft();
-  assert.equal(migrateKeys(draft, null), draft);
+test('A1b: migrateKeys takes its map from the frozen e5592bc build by template lineage, never from the draft', () => {
+  assert.equal(migrateKeys(base, LEGACY_KEYS), base, 'Signature-keyed drafts are returned as they are');
   const forged = oldDraft();
   forged.pages[0].html = forged.pages[0].html.replace(/data-cms-node="n\d+"/, 'data-cms-node="kforged"');
-  assert.equal(migrateKeys(forged, v185).pages[0].html, forged.pages[0].html, 'A draft that names a signature key is not migrated');
+  assert.equal(migrateKeys(forged, LEGACY_KEYS).pages[0].html, forged.pages[0].html, 'A draft that names a signature key is not migrated');
+  // As validateProject picks contracts: page id, then sourceId, then blank.
+  const about = oldDraft().pages.find(page => page.id === 'about');
+  const migrated = page => migrateKeys({ pages: [page] }, LEGACY_KEYS).pages[0].html;
+  assert.notEqual(migrated(about), about.html);
+  assert.equal(migrated({ ...about, id: crypto.randomUUID(), sourceId: 'about' }), migrated(about), 'An unsaved copy follows its source template');
+  assert.equal(migrated({ ...about, id: 'constructor', sourceId: '__proto__' }), migrated({ ...about, id: 'x', sourceId: 'blank' }), 'Prototype names fall back to blank');
 });
+
+// What an e5592bc studio tab held: raw v185 plus the SKIFT links its read path
+// inserted (fixed keys), positional keys otherwise; /developers/ as A1a serves it.
+const oldTab = normalizeSkiftProject(refreshDevelopers(structuredClone(v185), seed), seed);
+const legacyPaths = {
+  save: project => validateProject(fromClient(structuredClone(project)), seed, structuredClone(base), opts),
+  // The old client sends changes against its own positional snapshot.
+  delta: project => validateProject(fromClient(applyProjectChanges(structuredClone(base), validateProjectChanges(projectChanges(oldTab, project)))), seed, structuredClone(base), opts),
+  recover: project => validateProject(fromClient(structuredClone(project)), seed, null, { ...opts, publication: false }),
+};
+for (const [label, [path, change, expected]] of Object.entries(CASES)) {
+  test(`A1b manipulation through positional keys ${label}`, () => {
+    const project = edit(oldTab, path, change);
+    assert.ok(!project.pages.find(page => page.path === path).html.includes('data-cms-node="k'), 'The case runs on positional keys');
+    for (const [name, run] of Object.entries(legacyPaths)) expectOutcome(() => run(project), expected, `${label} (${name}, positional)`);
+  });
+}
 
 test('A1b: validateCss rejects data-cms-node selectors in every form, but not #id', () => {
   const forms = ['[data-cms-node]{color:red}', '[DATA-CMS-NODE="k1"]{color:red}', '[data-cms-\\6e ode]{color:red}', '[*|data-cms-node]{color:red}', '[|data-cms-node]{color:red}', ':is([data-cms-node]){color:red}', ':not([data-cms-node="n1"]){color:red}', 'p:has([data-cms-node]){color:red}', '@media (min-width:1px){[data-cms-node="n2"]{color:red}}'];
@@ -161,12 +201,88 @@ test('A1b transition over the API: old Save, replay, delta and recover', async (
   const keysAside = html => html.replace(/ data-cms-node="[^"]*"/g, '');
   const storedDevelopers = (await readSite(runtime.db)).project.pages.find(page => page.id === 'developers');
   assert.equal(keysAside(storedDevelopers.html), keysAside(seed.footerPage.html));
-  // Recovery maps through the base revision the client names.
-  const recovered = await admin('recover', { project: oldDraft(), pendingSave: null, baseVersion: version });
+  // Recovery needs no base revision: the map is frozen.
+  const recovered = await admin('recover', { project: oldDraft(), pendingSave: null });
   assert.equal(recovered.status, 200, await recovered.clone().text());
-  const recoveredR1 = await admin('recover', { project: r1, pendingSave: null, baseVersion: version });
+  const recoveredR1 = await admin('recover', { project: r1, pendingSave: null });
   assert.equal(recoveredR1.status, 422);
   assert.match(await recoveredR1.text(), ATTRIBUTE);
-  const unmapped = await admin('recover', { project: oldDraft(), pendingSave: null });
-  assert.equal(unmapped.status, 422, 'A draft without a known base cannot be migrated');
+});
+
+test('A1b over the API: recovery with an unknown or deleted base revision migrates', async () => {
+  await publishRaw();
+  const missing = 999999;
+  assert.equal(await readSite(runtime.db, missing), null);
+  const named = await admin('recover', { project: oldDraft(), pendingSave: null, baseVersion: missing });
+  assert.equal(named.status, 200, await named.clone().text());
+  // A legacy full pendingSave is checked on its own, and kept as sent.
+  const pendingSave = { project: oldDraft(), baseVersion: missing, requestId: crypto.randomUUID() };
+  const legacy = await admin('recover', { project: oldDraft(), pendingSave });
+  assert.equal(legacy.status, 200, await legacy.clone().text());
+  assert.deepEqual((await legacy.json()).pendingSave, pendingSave);
+  const forged = await admin('recover', { project: oldDraft(), pendingSave: { ...pendingSave, project: oldR1() } });
+  assert.equal(forged.status, 422);
+  assert.match(await forged.text(), ATTRIBUTE);
+});
+
+test("A1b over the API: one old tab saves twice, the second time on the first Save's version", async () => {
+  for (const mode of ['delta', 'full']) {
+    const version = await publishRaw();
+    const request = (before, after, baseVersion) => ({ ...(mode === 'delta' ? { changes: projectChanges(before, after) } : { project: after }), baseVersion, requestId: crypto.randomUUID() });
+    const first = oldDraft();
+    const firstSave = await admin('save', request(v185, first, version));
+    assert.equal(firstSave.status, 200, `${mode}: ${await firstSave.clone().text()}`);
+    const next = (await firstSave.json()).version;
+    assert.ok(hasSignatureKeys((await readSite(runtime.db, next)).project.pages[0].html), 'The first Save stores signature keys');
+    // The tab acknowledges its own positional snapshot and edits another page.
+    const second = edit(first, '/om/', E => { const h1 = E.find(node => node.tagName === 'h1'); h1.childNodes.push({ nodeName: '#text', value: ' Andra sparningen', parentNode: h1 }); });
+    const secondSave = await admin('save', request(first, second, next));
+    assert.equal(secondSave.status, 200, `${mode}: ${await secondSave.clone().text()}`);
+    assert.match((await readSite(runtime.db)).project.pages.find(page => page.path === '/om/').html, /Andra sparningen/);
+  }
+});
+
+test('A1b over the API: unsaved new and duplicated pages in an old draft save and recover', async () => {
+  // Built as e5592bc newPage built them: from its blank (positional keys, no
+  // footerVersion) or from a copy of a draft page, with a UUID id and sourceId.
+  const { contracts: _contracts, footerVersion: _marker, ...blank } = structuredClone(seed.blank);
+  const draft = oldDraft(), about = draft.pages.find(page => page.id === 'about');
+  draft.pages.push(
+    { ...blank, html: positionalKeys(seed.blank.html), id: crypto.randomUUID(), path: '/ny-gammal-sida/', sourceId: 'blank', name: 'Ny gammal sida', title: 'Ny gammal sida | Omar Yusuf', description: 'En osparad sida i en gammal flik.', noindex: false },
+    { ...structuredClone(about), id: crypto.randomUUID(), path: '/om-kopia/', sourceId: about.sourceId ?? about.id, name: 'Om kopia', title: 'Om kopia | Omar Yusuf', description: 'En osparad kopia i en gammal flik.', noindex: false });
+  assert.ok(draft.pages.slice(-2).every(page => /data-cms-node="n\d+"/.test(page.html) && !hasSignatureKeys(page.html)));
+  let version = await publishRaw();
+  const delta = await admin('save', { changes: projectChanges(v185, draft), baseVersion: version, requestId: crypto.randomUUID() });
+  assert.equal(delta.status, 200, await delta.clone().text());
+  version = await publishRaw();
+  const full = await admin('save', { project: draft, baseVersion: version, requestId: crypto.randomUUID() });
+  assert.equal(full.status, 200, await full.clone().text());
+  const recovered = await admin('recover', { project: draft, pendingSave: null });
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  // The copy keeps its source's contracts: R1 on it still fails.
+  const forged = { ...draft, pages: draft.pages.map((page, index) => index === draft.pages.length - 1 ? edit({ pages: [page] }, page.path, E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); }).pages[0] : page) };
+  const forgedSave = await admin('save', { project: forged, baseVersion: (await readSite(runtime.db)).version, requestId: crypto.randomUUID() });
+  assert.equal(forgedSave.status, 422);
+  assert.match(await forgedSave.text(), ATTRIBUTE);
+});
+
+test('A1b over the API: the cases through positional keys on preview, validate and resource endpoints', async () => {
+  await publishRaw();
+  const ids = { '/om/': 'about', '/kontakt/': 'contact' };
+  for (const [label, [path, change, expected]] of Object.entries(CASES)) {
+    const project = edit(oldTab, path, change);
+    for (const [name, body] of [['preview', { project, pageId: ids[path] }], ['validate', { project }]]) {
+      const response = await admin(name, body), text = await response.text();
+      assert.equal(response.status, expected === true ? 200 : 422, `${label} (${name}): ${text}`);
+      if (expected instanceof RegExp) assert.match(text, expected, `${label} (${name})`);
+    }
+  }
+  const r1 = edit(oldTab, '/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); });
+  for (const name of ['resource-usage', 'asset-usage']) {
+    const accepted = await admin(name, { id: seed.assets[0].id, project: oldTab });
+    assert.equal(accepted.status, 200, `${name}: ${await accepted.clone().text()}`);
+    const rejected = await admin(name, { id: seed.assets[0].id, project: r1 });
+    assert.equal(rejected.status, 422, name);
+    assert.match(await rejected.text(), ATTRIBUTE);
+  }
 });

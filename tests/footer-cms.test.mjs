@@ -1,11 +1,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { parse } from 'parse5';
 import { initial, seed, built } from '../.generated/cms-seed.mjs';
 import { normalizeStoredProject } from '../src/cms/shared-content.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { renderPage } from '../src/cms/render.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
+import { normalizeFooterPage } from '../src/cms/footer.mjs';
+import { attribute, elements } from '../src/cms/html-tree.mjs';
 import * as requireProjectChanges from '../src/cms/project-changes.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { preAgentFooterProject, footerHook } from './helpers/pre-agent-footer.mjs';
@@ -105,14 +108,42 @@ test('real old D1 revision can be read, edited, saved, reloaded, previewed and r
   assert.equal((await checkCompatibility(runtime.db, { seed, initial })).compatible, true);
 });
 
-test('legacy backup validation and recovery use the same footer upgrade as the editor', async () => {
-  for (const path of ['validate', 'recover']) {
-    const response = await request(path, { project: legacy });
-    assert.equal(response.status, 200, await response.clone().text());
-    const body = await response.json();
-    assert.match(body.project.pages[0].html, /href="\/developers\/"/);
-    assert.ok(body.project.pages.some(page => page.path === '/developers/'));
+test('a pre-PR #10 draft or backup is rejected with 422, so it stays in the browser', async () => {
+  // Client projects map through the frozen e5592bc keys only; the PR #10 remap
+  // is not chained in. Every key after the removed link is off by one.
+  const head = await readSite(runtime.db);
+  for (const [path, body] of [['validate', { project: legacy }], ['recover', { project: legacy, pendingSave: null }], ['save', { project: legacy, baseVersion: head?.version ?? 0, requestId: crypto.randomUUID() }]]) {
+    const response = await request(path, body);
+    assert.equal(response.status, 422, `${path}: ${await response.clone().text()}`);
   }
+  assert.equal((await readSite(runtime.db))?.version, head?.version, 'Nothing is published');
+});
+
+test('an unmarked positional /integritet/ gets the developer link in its footer nav, not in legal-actions', async () => {
+  const privacy = legacy.pages.find(page => page.path === '/integritet/');
+  assert.equal(privacy.footerVersion, undefined);
+  assert.match(privacy.html, /data-cms-node="n\d+"/);
+  assert.ok(!privacy.html.includes('data-cms-node="k'), 'The fixture carries e5592bc positional keys');
+  const placement = nodes => {
+    const actions = nodes.find(node => (attribute(node, 'class') ?? '').split(/\s+/).includes('legal-actions'));
+    const nav = nodes.find(node => node.tagName === 'nav' && attribute(node, 'aria-label') === 'Sidfotsmeny');
+    assert.ok(elements(actions).some(node => attribute(node, 'data-privacy-open') !== undefined), 'The first privacy button sits in legal-actions');
+    assert.equal(attribute(nav.childNodes[0], 'href'), '/developers/');
+    assert.equal(nodes.filter(node => attribute(node, 'href') === '/developers/').length, 1);
+  };
+  const migrated = normalizeFooterPage(privacy);
+  assert.equal(migrated.footerVersion, 1);
+  placement(elements(parse(`<body>${migrated.html}</body>`)));
+  // The stored read path and the public read path give the same footer.
+  placement(elements(parse(`<body>${normalizeStoredProject(legacy, seed, initial).pages.find(page => page.path === '/integritet/').html}</body>`)));
+  await publishLegacy();
+  const live = await runtime.mf.dispatchFetch(runtime.url + '/integritet/');
+  assert.equal(live.status, 200);
+  placement(elements(parse(await live.text())));
+  // A current build's unmarked page (signature keys) is left as it is.
+  const current = { ...structuredClone(initial.pages.find(page => page.path === '/integritet/')), footerVersion: undefined };
+  current.html = current.html.replace(/<a href="\/developers\/"[^>]*>För utvecklare<\/a>/, '');
+  assert.equal(normalizeFooterPage(current), current);
 });
 
 test('incremental CMS saves accept a migrated footer page without relaxing unknown fields', () => {
