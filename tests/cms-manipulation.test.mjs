@@ -23,6 +23,7 @@ const base = normalizeStoredProject(v185, seed, initial);
 const opts = { origins: ['https://omaryusuf.se'] };
 const ATTRIBUTE = /Ett skyddat funktionsattribut har ändrats\./;
 const LABEL = /Samtyckesknappens text är låst\./;
+const NAME = /Samtyckesknappens tillgängliga namn är låst\./;
 
 const has = (node, name, value) => attribute(node, name) !== undefined && (value === undefined || attribute(node, name) === value);
 const hasClass = (node, name) => (attribute(node, 'class') ?? '').split(/\s+/).includes(name);
@@ -35,6 +36,8 @@ const setText = (node, value) => { node.childNodes = [{ nodeName: '#text', value
 const consent = nodes => nodes.filter(node => has(node, 'data-consent'));
 const swap = (x, y, name) => { const a = attribute(x, name), b = attribute(y, name); setAttr(x, name, b); setAttr(y, name, a); };
 const fragment = html => parseFragment(html).childNodes[0];
+// Move a node's children, text included, into a new element: the visible label stays the same.
+const wrap = (node, html) => { const inner = fragment(html); inner.childNodes = node.childNodes; inner.childNodes.forEach(child => { child.parentNode = inner; }); inner.parentNode = node; node.childNodes = [inner]; };
 
 function edit(project, path, change) {
   return { ...project, pages: project.pages.map(page => {
@@ -53,6 +56,20 @@ const CASES = {
   'R4 swap only the banner labels': ['/om/', E => { const [d, a] = consent(E); const td = textOf(d); setText(d, textOf(a)); setText(a, td); }, LABEL],
   'R5 reorder the banner buttons and swap their labels': ['/om/', E => { const [d, a] = consent(E); const td = textOf(d); setText(d, textOf(a)); setText(a, td); insertBefore(d, detach(a)); }, LABEL],
   'R6 swap only the banner keys': ['/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-cms-node'); }, ATTRIBUTE],
+  // Codex b1d #3: [1] is the banner allow button, [3] the dialog allow button.
+  'N1 aria-label "Bara nödvändiga" on the banner allow button': ['/om/', E => { setAttr(consent(E)[1], 'aria-label', 'Bara nödvändiga'); }, NAME],
+  'N2 aria-label "Bara nödvändiga" on the dialog allow button': ['/om/', E => { setAttr(consent(E)[3], 'aria-label', 'Bara nödvändiga'); }, NAME],
+  'N3 aria-hidden on a span around the banner allow label': ['/om/', E => { wrap(consent(E)[1], '<span aria-hidden="true"></span>'); }, NAME],
+  'N4 aria-hidden on a span around the dialog allow label': ['/om/', E => { wrap(consent(E)[3], '<span aria-hidden="true"></span>'); }, NAME],
+  'N5 hidden on a span around the banner allow label': ['/om/', E => { wrap(consent(E)[1], '<span hidden></span>'); }, NAME],
+  'N6 title on the banner allow button': ['/om/', E => { setAttr(consent(E)[1], 'title', 'Bara nödvändiga'); }, NAME],
+  'N7 title on the dialog allow button': ['/om/', E => { setAttr(consent(E)[3], 'title', 'Bara nödvändiga'); }, NAME],
+  'N8 role on the dialog deny button': ['/om/', E => { setAttr(consent(E)[2], 'role', 'presentation'); }, NAME],
+  'N9 aria-description on the banner deny button': ['/om/', E => { setAttr(consent(E)[0], 'aria-description', 'Tillåt statistik'); }, NAME],
+  'N10 an image with alt inside the banner allow button': ['/om/', E => { const button = consent(E)[1]; button.childNodes.push(Object.assign(fragment('<img src="/favicon.svg" alt="Bara nödvändiga">'), { parentNode: button })); }, NAME],
+  'N12 a label around the banner allow button': ['/om/', E => { const button = consent(E)[1], label = fragment('<label>Bara nödvändiga </label>'); insertBefore(button, label); label.childNodes.push(detach(button)); button.parentNode = label; }, NAME],
+  'N13 a label for the dialog allow button': ['/om/', E => { const button = consent(E)[3]; setAttr(button, 'id', 'consent-allow'); prepend(E.find(n => has(n, 'id', 'main')), fragment('<label for="consent-allow">Bara nödvändiga</label>')); }, NAME],
+  'N11 a plain span around the banner allow label': ['/om/', E => { wrap(consent(E)[1], '<span></span>'); }, true],
   'T01 remove data-back-top': ['/om/', E => { const n = E.find(n => has(n, 'data-back-top')); n.attrs = n.attrs.filter(a => a.name !== 'data-back-top'); }, false],
   'T02 remove hidden from the consent banner': ['/om/', E => { const n = E.find(n => has(n, 'data-consent-banner')); n.attrs = n.attrs.filter(a => a.name !== 'hidden'); }, false],
   'T03 duplicate the banner allow button': ['/om/', E => { const n = E.find(n => has(n, 'data-consent', 'allow')); insertBefore(n, fragment('<button data-consent="allow">Tillåt statistik</button>')); }, false],
@@ -207,6 +224,21 @@ test('A1b transition over the API: old Save, replay, delta and recover', async (
   const recoveredR1 = await admin('recover', { project: r1, pendingSave: null });
   assert.equal(recoveredR1.status, 422);
   assert.match(await recoveredR1.text(), ATTRIBUTE);
+});
+
+test('A1b over the API: an accessible name on a consent button fails delta Save and recover', async () => {
+  const version = await publishRaw();
+  assert.equal((await admin('save', { changes: projectChanges(v185, oldDraft()), baseVersion: version, requestId: crypto.randomUUID() })).status, 200, 'The untouched draft saves');
+  assert.equal((await admin('recover', { project: oldDraft(), pendingSave: null })).status, 200, 'The untouched draft recovers');
+  for (const index of [1, 3]) {
+    const forged = edit(oldDraft(), '/om/', E => { setAttr(consent(E)[index], 'aria-label', 'Bara nödvändiga'); });
+    const saved = await admin('save', { changes: projectChanges(v185, forged), baseVersion: await publishRaw(), requestId: crypto.randomUUID() });
+    assert.equal(saved.status, 422, `save ${index}`);
+    assert.match(await saved.text(), NAME);
+    const recovered = await admin('recover', { project: forged, pendingSave: null });
+    assert.equal(recovered.status, 422, `recover ${index}`);
+    assert.match(await recovered.text(), NAME);
+  }
 });
 
 test('A1b over the API: recovery with an unknown or deleted base revision migrates', async () => {

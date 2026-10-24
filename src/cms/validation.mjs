@@ -124,6 +124,12 @@ function setKey(node, key) {
   if (existing) existing.value = key; else node.attrs.push({ name: 'data-cms-node', value: key });
 }
 const textOf = node => { let text = ''; traverse(node, child => { if (child.nodeName === '#text') text += child.value; }); return text.replace(/\s+/g, ' ').trim(); };
+// Codex b1d #3: what assistive technology announces besides the text, on a consent button and every descendant.
+const announces = a => a.name.startsWith('aria-') || ['title', 'role', 'hidden', 'alt'].includes(a.name);
+const announced = (node, path = '') => [...(node.attrs ?? []).filter(announces).map(a => `${path}:${a.name}=${a.value}`), ...(node.childNodes ?? []).filter(child => child.tagName).flatMap((child, index) => announced(child, `${path}>${index}${child.tagName}`))];
+const accessibleName = node => JSON.stringify(announced(node).sort());
+// A label names the button it wraps, or the one its for attribute points at.
+const labelled = (node, elements) => { for (let parent = node.parentNode; parent; parent = parent.parentNode) if (parent.tagName === 'label') return true; const id = attr(node, 'id'); return id !== undefined && elements.some(item => item.tagName === 'label' && attr(item, 'for') === id); };
 
 export function preparePage(document) {
   const tree = parse(document, { scriptingEnabled: false });
@@ -151,7 +157,7 @@ export function preparePage(document) {
       // The print control reads its first span as the live button label.
       if (functional && attr(node, 'data-print') !== undefined) contracts.at(-1).span = true;
       // Owner decision 2026-10-24: a consent button's label is part of its contract.
-      if (attr(node, 'data-consent') !== undefined) contracts.at(-1).text = textOf(node);
+      if (attr(node, 'data-consent') !== undefined) Object.assign(contracts.at(-1), { text: textOf(node), a11y: accessibleName(node) });
       if (skiftDesktop || skiftMobile) Object.assign(contracts.at(-1), { containerClass: skiftDesktop ? 'primary-nav' : 'mobile-menu', attrs: { ...contracts.at(-1).attrs, href: '/play/skift/' } });
     }
   });
@@ -233,6 +239,7 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
     }
     for (const [name, value] of Object.entries(contract.attrs)) if (attr(node, name) !== value) invalid('Ett skyddat funktionsattribut har ändrats.');
     if (contract.text !== undefined && textOf(node) !== contract.text) invalid('Samtyckesknappens text är låst.');
+    if (contract.a11y !== undefined && (accessibleName(node) !== contract.a11y || labelled(node, elements))) invalid('Samtyckesknappens tillgängliga namn är låst.');
     if (CONTROLS.has(node.tagName) || node.tagName === 'form') {
       for (const name of STATE_ATTRIBUTES) if (attr(node, name) !== contract.attrs[name]) invalid('Ett skyddat formulärfält har fått ändrat tillstånd.');
       if (semanticValue(node) && attr(node, 'value') !== contract.attrs.value) invalid('Ett funktionsvärde får inte ändras.');
