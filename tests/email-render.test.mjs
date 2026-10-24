@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { DEFAULT_EMAIL, renderEmail, renderCustom, plainText, canonStyles, senderAddress, resolveSlots, isEmailAddress } from '../src/server/email-render.mjs';
+import { DEFAULT_EMAIL, INLINE_LINK, renderEmail, renderCustom, plainText, canonStyles, senderAddress, resolveSlots, isEmailAddress } from '../src/server/email-render.mjs';
+import { validateEmailSettings } from '../src/cms/email-validate.mjs';
 
 const fixture = name => Object.fromEntries(['html', 'txt', 'subject'].map(ext => [ext, readFileSync(new URL(`./fixtures/email/${name}.${ext}`, import.meta.url), 'utf8')]));
 const styleCount = html => html.match(/style="/g).length;
@@ -52,6 +53,28 @@ test('visitor fields and block text are escaped in html, raw in text', () => {
   const custom = renderCustom(customMail(blocks), undefined);
   assert.ok(custom.html.includes('&lt;b&gt;&quot;hi&quot; &amp; &#39;x&#39;&lt;/b&gt;'));
   assert.ok(custom.text.includes(`<b>"hi" & 'x'</b>`));
+});
+
+test('a link label cannot cross a line break, so only validated links render', () => {
+  const bad = '[a\nb](javascript:alert(1))';
+  const [label, heading] = DEFAULT_EMAIL.templates.receipt.blocks;
+  const card = DEFAULT_EMAIL.templates.receipt.blocks[5];
+  const custom = renderCustom(customMail([label, { ...heading, text: bad }, { ...card, text: bad }]), undefined).html;
+  assert.ok(!custom.includes('href="javascript:'));
+  // Only the two code-owned footer links are anchors.
+  assert.equal(custom.match(/<a\b/g).length, 2);
+
+  const email = structuredClone(DEFAULT_EMAIL), blocks = email.templates.receipt.blocks;
+  blocks[1].text = bad;
+  blocks[5].text = `${bad} [ok](https://omaryusuf.se/ok/)`;
+  const validated = validateEmailSettings(email);
+  const html = renderEmail(validated, 'receipt').html;
+  assert.ok(!html.includes('href="javascript:'));
+  const approved = new Set(['https://omaryusuf.se/integritet/', 'https://omaryusuf.se/',
+    ...validated.templates.receipt.blocks.filter(block => block.type === 'button').map(block => block.href),
+    ...validated.templates.receipt.blocks.flatMap(block => typeof block.text === 'string' ? [...block.text.matchAll(INLINE_LINK)].map(match => match[2]) : [])]);
+  assert.ok(approved.has('https://omaryusuf.se/ok/'));
+  for (const [, href] of html.matchAll(/href="([^"]*)"/g)) assert.ok(approved.has(href), href);
 });
 
 test('receipt never reflects input', () => {

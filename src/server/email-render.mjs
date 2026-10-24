@@ -6,7 +6,8 @@ export const SENDING_DOMAIN = 'hej.omaryusuf.se';
 export const PLACEHOLDERS = Object.freeze(['namn', 'mejl', 'meddelande']);
 export const FONTS = Object.freeze(['Arial,Helvetica,sans-serif', 'Georgia,serif', 'Verdana,Geneva,sans-serif', 'Tahoma,Geneva,sans-serif', 'Trebuchet MS,Helvetica,sans-serif', 'Courier New,Courier,monospace']);
 // Inline links `[label](url)`. Escaping never touches []()\s, so the validator
-// (raw text) and the renderer (escaped text) see the same matches.
+// (raw text) and the renderer (escaped text) see the same matches, provided the
+// renderer matches before it turns LF into <br>.
 export const INLINE_LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const PLACEHOLDER = new RegExp(`\\{(${PLACEHOLDERS.join('|')})\\}`, 'g');
 
@@ -89,7 +90,7 @@ function picture(block, ctx) {
 }
 
 function renderBlock(block, palette, design, ctx) {
-  const inline = text => fill(esc(text).replace(/\n/g, '<br>').replace(INLINE_LINK, (_, label, url) => `<a href="${url}" style="color:${palette.text};">${label}</a>`), ctx.values, esc);
+  const inline = text => fill(esc(text).replace(INLINE_LINK, (_, label, url) => `<a href="${url}" style="color:${palette.text};">${label}</a>`).replace(/\n/g, '<br>'), ctx.values, esc);
   switch (block.type) {
     case 'heading': return `<h${block.level} style="${textStyle(block.style, palette)}">${inline(block.text)}</h${block.level}>`;
     case 'label': return `<p style="${textStyle(block.style, palette)}">${inline(block.text)}</p>`;
