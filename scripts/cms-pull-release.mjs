@@ -27,9 +27,10 @@ export async function releaseVerdict({ revisions, media }, { seed, initial }) {
   const database = new DatabaseSync(':memory:', { enableForeignKeyConstraints: false });
   try {
     for (const file of (await readdir('migrations')).filter(name => name.endsWith('.sql')).sort()) database.exec(await readFile(`migrations/${file}`, 'utf8'));
-    const revision = database.prepare("INSERT INTO cms_revisions(version,request_id,base_version,actor,created_at,payload_hash,project,manifest,summary) VALUES (?,?,?,'','','','[]','')");
-    for (const { version, project } of revisions) revision.run(version, `release-${version}`, version - 1, project);
-    for (const row of media) database.prepare(`INSERT INTO cms_media(${Object.keys(row).map(key => `"${key.replaceAll('"', '""')}"`)}) VALUES (${Object.keys(row).map(() => '?')})`).run(...Object.values(row));
+    // Name exactly the columns we hold values for; later migrations add columns with defaults.
+    const insert = (table, row) => database.prepare(`INSERT INTO ${table}(${Object.keys(row).map(key => `"${key.replaceAll('"', '""')}"`)}) VALUES (${Object.keys(row).map(() => '?')})`).run(...Object.values(row));
+    for (const { version, project } of revisions) insert('cms_revisions', { version, request_id: `release-${version}`, base_version: version - 1, actor: '', created_at: '', payload_hash: '', project, manifest: '[]', summary: '' });
+    for (const row of media) insert('cms_media', row);
     database.exec('PRAGMA query_only = ON');
     return await checkCompatibility(d1(database), { seed, initial });
   } finally { database.close(); }
