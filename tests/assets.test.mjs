@@ -96,7 +96,8 @@ test('production transfer budgets stay small without framework bundles', async (
   assert.ok(lazy < 8000, `Lazy win rendering/export JavaScript gzip ${lazy} > 8 KB`);
   let admin = 0;
   for (const name of await readdir('dist/admin/assets')) if (name.endsWith('.mjs')) admin += gzipSync(await readFile('dist/admin/assets/' + name)).byteLength;
-  assert.ok(admin < 350000, `Isolated editor JavaScript gzip ${admin} > 350 KB`);
+  // 375 KB since the Mejl tab (owner request 2026-10-24); its view is a lazy chunk, so the studio boot does not load it.
+  assert.ok(admin < 375000, `Isolated editor JavaScript gzip ${admin} > 375 KB`);
   for(const route of routes) {
     const html=await htmlFor(route);
     assert.doesNotMatch(html, /(?:src|href)="\/admin\//, 'Public pages must not load the editor');
