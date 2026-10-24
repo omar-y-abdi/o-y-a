@@ -1,6 +1,6 @@
 import { $, escape, toast, dialog, confirmAction, dateLabel } from './dom.mjs';
 import { api, send } from './api.mjs';
-import { DEFAULT_EMAIL, FONTS, SENDING_DOMAIN, isEmailAddress, renderCustom, renderEmail, resolveSlots, senderAddress } from '../../server/email-render.mjs';
+import { DEFAULT_EMAIL, FONTS, SENDING_DOMAIN, isEmailAddress, plainText, renderCustom, renderEmail, resolveSlots, senderAddress } from '../../server/email-render.mjs';
 import { resourceSlots } from '../../content/resources.mjs';
 
 // The owner's mail desk. Plain DOM, one module. Template edits go through the
@@ -657,7 +657,9 @@ function removeBlock(id) {
 
 function buildText() {
   const email = emailOf(ctx.project()), template = email.templates[state.tab], textPath = `${basePath()}text`;
-  const text = renderCustom({ subject: template.subject, preheader: template.preheader, blocks: template.blocks, design: template.design }, email).text;
+  // Built from the blocks directly: renderCustom has no visitor to fill the notification's visitor block.
+  // The privacy link is mandatory in every mail, as in renderCustom.
+  const text = `${plainText(template.blocks)}\n\nIntegritet: https://omaryusuf.se/integritet/`;
   update(next => { next.templates[state.tab].text = text; });
   state.open.text = true;
   renderPanel(scope => withPath(scope, textPath));
@@ -697,7 +699,7 @@ function onClick(event) {
   if ('emailSelect' in button.dataset) return toggleBlock(id);
   if (button.dataset.emailMove) return moveBlock(id, button.dataset.emailMove);
   if ('emailRemove' in button.dataset) return removeBlock(id);
-  if ('emailTextBuild' in button.dataset) return buildText();
+  if ('emailTextBuild' in button.dataset) return run(button, buildText);
   if ('emailTest' in button.dataset) return sendTest(button);
   if (button.dataset.emailChipRemove) return removeAddress(button.dataset.emailChipRemove, button.dataset.emailAddress);
   if ('emailPickResource' in button.dataset) return pickResource();
