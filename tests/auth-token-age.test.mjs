@@ -43,3 +43,15 @@ test('A10: a failed fetch becomes status 0 with the retry text; an Access 401 ke
     await assert.rejects(api('save', {}), error => error.status === 401 && /Inloggningen har gått ut/.test(error.message));
   });
 });
+
+test('A10: upload() maps a failed fetch and a non-JSON Access response like the other calls', async () => {
+  const file = new File([new Uint8Array(12)], 'a.png');
+  await withFetch(() => { throw new TypeError('Failed to fetch'); }, async () => {
+    await assert.rejects(upload(file, crypto.randomUUID()), error => error.status === 0 && error.message === 'Anslutningen bröts. Försök spara igen; samma version sparas inte två gånger.');
+  });
+  for (const [status, message] of [[401, 'Inloggningen har gått ut. Ditt utkast finns kvar.'], [502, 'Svaret kunde inte bekräftas. Ditt utkast finns kvar.']]) {
+    await withFetch(() => new Response('<html>', { status }), async () => {
+      await assert.rejects(upload(file, crypto.randomUUID()), error => error.status === status && error.message === message);
+    });
+  }
+});

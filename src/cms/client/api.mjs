@@ -7,22 +7,19 @@ export class ApiError extends Error {
   get definitive() { return this.status >= 400 && this.status < 500 && this.status !== 408; }
 }
 
-async function request(path, data) {
+async function send(url, { headers, ...init }, failure) {
   let response;
   try {
-    response = await fetch(`/admin/api/${path}`, {
-      method: data === undefined ? 'GET' : 'POST',
-      credentials: 'same-origin', redirect: 'error',
-      headers: data === undefined ? { 'X-Requested-With': 'XMLHttpRequest' } : { 'Content-Type': 'application/json', 'X-CMS-Request': '1', 'X-Requested-With': 'XMLHttpRequest' },
-      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-    });
+    response = await fetch(url, { ...init, credentials: 'same-origin', redirect: 'error', headers: { ...headers, 'X-Requested-With': 'XMLHttpRequest' } });
   } catch { throw new ApiError('Anslutningen bröts. Försök spara igen; samma version sparas inte två gånger.'); }
   let result;
   try { result = await response.json(); }
   catch { throw new ApiError([401, 403].includes(response.status) ? 'Inloggningen har gått ut. Ditt utkast finns kvar.' : 'Svaret kunde inte bekräftas. Ditt utkast finns kvar.', response.status); }
-  if (!response.ok) throw new ApiError(result.error ?? 'Åtgärden kunde inte slutföras.', response.status, result.details);
+  if (!response.ok) throw new ApiError(result.error ?? failure, response.status, result.details);
   return result;
 }
+
+const request = (path, data) => send(`/admin/api/${path}`, data === undefined ? { method: 'GET' } : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CMS-Request': '1' }, body: JSON.stringify(data) }, 'Åtgärden kunde inte slutföras.');
 
 async function repairSharedContent(state) {
   const conflicts = state.project?.sharedContentConflicts;
@@ -84,9 +81,4 @@ export async function api(path, data) {
   return result;
 }
 
-export async function upload(file, id) {
-  const response = await fetch('/admin/api/upload', { method: 'POST', credentials: 'same-origin', redirect: 'error', headers: { 'Content-Type': 'application/octet-stream', 'X-CMS-Request': '1', 'X-Requested-With': 'XMLHttpRequest', 'X-CMS-Upload-Id': id, 'X-CMS-Filename': encodeURIComponent(file.name) }, body: file });
-  const result = await response.json();
-  if (!response.ok) throw new ApiError(result.error ?? 'Filen kunde inte laddas upp.', response.status);
-  return result;
-}
+export const upload = (file, id) => send('/admin/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-CMS-Request': '1', 'X-CMS-Upload-Id': id, 'X-CMS-Filename': encodeURIComponent(file.name) }, body: file }, 'Filen kunde inte laddas upp.');

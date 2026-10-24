@@ -158,6 +158,7 @@ with sync_playwright() as pw:
             page.locator('#page-description').fill('Committed but response lost')
             page.locator('[data-action=save]').click()
             expect(page.locator('#studio-toast')).to_contain_text('Anslutningen bröts')
+            page.locator('#studio-dialog [data-action=close-dialog]').click()
             page.locator('#page-description').fill('Newer correction after unknown outcome')
             save(page)
             assert calls[0]==calls[1], 'Unknown commit must replay the exact ID and payload'
