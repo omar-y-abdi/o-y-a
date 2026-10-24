@@ -16,3 +16,4 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 
 @media(max-width:370px){.site-header{padding-inline:16px;gap:10px}.brand{font-size:19px;gap:6px}.brand svg{width:24px;height:24px;margin-right:2px}.site-header nav{gap:10px}.site-header nav>button{font-size:9px;white-space:nowrap}.district-card{min-width:0;max-width:calc(100vw - 160px)}.district-card h2{font-size:18px;overflow-wrap:anywhere}#joystick{width:110px;height:110px;left:18px}#joystick i{left:30px;top:30px}}
+@media(min-width:761px) and (min-height:531px){.world-caption,.title-footer,.district-card>.eyebrow,.cells,.cells>span:last-child,.health-row,.score-row .eyebrow,.control-guide,.ability b,.ability small,#combo span,#boss-hud,#boss-state,.result-stats span,.new-best{font-size:10px}}
