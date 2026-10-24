@@ -10,7 +10,7 @@ import { resourceSlots } from '../../content/resources.mjs';
 const SAMPLE = { name: 'Mira Test', email: 'mira@example.org', message: 'En fråga från provmejlet.' };
 const EMAIL_PATH = /^(templates|sender|shell)\./;
 const KINDS = { receipt: 'Kvitto till besökaren', notification: 'Avisering till dig' };
-const TABS = [['receipt', KINDS.receipt], ['notification', KINDS.notification], ['compose', 'Skriv mejl'], ['sent', 'Skickade']];
+const TABS = [['receipt', KINDS.receipt], ['notification', KINDS.notification], ['compose', 'Skriv mejl'], ['sent', 'Skickade'], ['settings', 'Inställningar']];
 const LISTS = [['to', 'Till'], ['cc', 'Kopia'], ['bcc', 'Dold kopia']];
 const MAX_RECIPIENTS = 50, MAX_ATTACHMENTS = 10, MAX_UPLOAD = 31457280, MAX_ENCODED = 41943040;
 const RESOURCE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -38,9 +38,9 @@ const TYPES = {
   visitor: { name: 'Besökarens uppgifter', icon: '☺', make: () => ({ fromLabel: 'FRÅN', messageLabel: 'MEDDELANDE', emptyMessage: 'Inget meddelande. Bara en öppen dörr till ett samtal.', emptyMessageText: 'Inget meddelande lämnades.' }) },
 };
 
-const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false }, sent: null, sentError: '', status: {} };
+const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false }, sent: null, sentError: '', status: {}, settings: null, settingsError: '' };
 // Skriv mejl lives only here: never part of the project, never saved by Save.
-let ctx, root, observer, previewTimer, sentLoad = null, compose = null;
+let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null;
 
 export const isEmailField = path => typeof path === 'string' && EMAIL_PATH.test(path);
 
@@ -170,9 +170,9 @@ ${blocksSection(template, base, kind)}
 <div class="email-actions"><button type="button" class="small-button primary" data-email-test>Provmejl</button><span class="email-hint">Skickar mejlet med exempeluppgifter till din egen adress.</span></div>`;
 }
 
-const PANELS = { receipt: () => templateHtml('receipt'), notification: () => templateHtml('notification'), compose: composeHtml, sent: () => sentHtml() };
-const LOADERS = { sent: loadSent };
-const panelState = () => ({ sent: state.sentError ? 'error' : state.sent ? 'ready' : 'loading' })[state.tab] ?? 'ready';
+const PANELS = { receipt: () => templateHtml('receipt'), notification: () => templateHtml('notification'), compose: composeHtml, sent: () => sentHtml(), settings: () => settingsHtml() };
+const LOADERS = { sent: loadSent, settings: loadSettings };
+const panelState = () => ({ sent: state.sentError ? 'error' : state.sent ? 'ready' : 'loading', settings: state.settingsError ? 'error' : state.settings ? 'ready' : 'loading' })[state.tab] ?? 'ready';
 const PREVIEWED = new Set(['receipt', 'notification', 'compose']);
 
 const minLocal = () => { const soon = new Date(Date.now() + 120000); return new Date(soon.getTime() - soon.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
@@ -395,6 +395,80 @@ async function cancelSend(id, button) {
   });
 }
 
+// Inställningar: the encrypted mail and form settings (E1, E2). Secrets are never
+// shown again, never kept in the DOM after a save, and never leave this module
+// except in the request that saves them.
+const SETTINGS = [['RESEND_API_KEY', 'Resend-nyckel', 'password'], ['CONTACT_TO', 'Mottagare', 'text'], ['TURNSTILE_SITE_KEY', 'Robotskydd, webbplatsnyckel', 'text'], ['TURNSTILE_SECRET_KEY', 'Robotskydd, hemlig nyckel', 'password']];
+
+function settingText(entry) {
+  if (entry.state === 'environment') return '✓ Från miljön';
+  if (entry.state === 'unreadable') return '⚠ Kan inte läsas. Klistra in igen.';
+  if (entry.state !== 'saved') return '✕ Saknas';
+  const bits = [entry.hint && `…${entry.hint}`, entry.updatedAt && dateLabel(entry.updatedAt)].filter(Boolean);
+  return `✓ Sparad${bits.length ? ` (${bits.join(', ')})` : ''}`;
+}
+
+const settingRow = (name, label, kind, text) => `<li class="email-setting" data-email-setting="${name}"><span class="email-setting-name">${label}</span><span class="email-setting-state" data-email-setting-state="${kind}">${text}</span></li>`;
+const clearButton = name => root.querySelector(`[data-email-clear="${name}"]`);
+const settingInput = name => root.querySelector(`[data-email-setting-input="${name}"]`);
+const settingValue = name => state.settings.values[name].value ?? '';
+
+function settingsBody() {
+  const view = state.settings;
+  if (state.settingsError) return `<p class="inline-error" role="alert">${escape(state.settingsError)}</p><button type="button" class="small-button" data-email-retry>Försök igen</button>`;
+  if (!view) return '<p class="email-hint" role="status">Hämtar inställningarna…</p>';
+  const missing = [...SETTINGS.filter(([name]) => ['missing', 'unreadable'].includes(view.values[name].state)).map(([, label]) => label.toLowerCase()), ...view.master === 'ok' ? [] : ['huvudnyckel'], ...view.rateLimit ? [] : ['hastighetsgräns']];
+  const rows = SETTINGS.map(([name, label]) => settingRow(name, label, view.values[name].state, escape(settingText(view.values[name])))).join('')
+    + settingRow('master', 'Huvudnyckel', view.master, view.master === 'ok' ? '✓ Finns' : '✕ Saknas. Inget kan sparas.')
+    + settingRow('rateLimit', 'Hastighetsgräns', view.rateLimit ? 'ok' : 'missing', view.rateLimit ? '✓ Aktiv' : '✕ Saknas')
+    + settingRow('forwarding', 'Vidarebefordran', 'info', 'Ställs in i Cloudflare. <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">Öppna Cloudflare</a>');
+  const fields = SETTINGS.map(([name, label, kind]) => `<div class="email-field email-setting-field" data-email-field="${name}"><label class="inspector-field"><span>${label}</span><input type="${kind}" autocomplete="off" autocapitalize="off" spellcheck="false"${kind === 'password' ? ' placeholder="Klistra in en ny nyckel"' : ` inputmode="email" value="${escape(settingValue(name))}"`} data-email-setting-input="${name}"></label><button type="button" class="small-button" data-email-clear="${name}" aria-pressed="false">Töm</button></div>`).join('');
+  return `<p class="email-banner" data-email-banner="${view.ready ? 'open' : 'closed'}" role="status">${view.ready ? 'Formuläret är öppet' : `Formuläret är stängt${missing.length ? `: ${escape(missing.join(', '))}` : ''}`}</p><ul class="email-settings-list" data-email-settings-list>${rows}</ul><div class="email-settings-form">${fields}<div class="email-actions"><button type="button" class="small-button primary" data-email-save-settings${view.master === 'ok' ? '' : ' disabled'}>Spara inställningar</button><span class="email-hint">${view.master === 'ok' ? 'Nycklar sparas krypterade och visas aldrig igen. Orörda fält behålls.' : 'Huvudnyckeln saknas, så inget kan sparas.'}</span></div></div>`;
+}
+
+const settingsHtml = () => `<h2 class="email-panel-title">Inställningar</h2><div data-email-settings-body>${settingsBody()}</div>`;
+
+function renderSettingsBody() {
+  const body = root.querySelector('[data-email-settings-body]');
+  if (!body || state.tab !== 'settings') return;
+  body.innerHTML = settingsBody();
+  panel().dataset.emailState = panelState();
+}
+
+function loadSettings() {
+  if (state.settings || state.settingsError) return;
+  settingsLoad ??= api('contact').then(
+    view => { state.settings = view; },
+    error => { state.settingsError = error.message ?? 'Inställningarna kunde inte hämtas.'; },
+  ).then(() => { settingsLoad = null; if (mounted()) renderSettingsBody(); });
+}
+
+// "Töm" marks a field to be cleared on save ('' deletes the saved value).
+function toggleClear(name, button) {
+  const on = button.getAttribute('aria-pressed') !== 'true', input = settingInput(name);
+  button.setAttribute('aria-pressed', String(on));
+  button.textContent = on ? 'Ångra' : 'Töm';
+  input.disabled = on;
+  input.value = on || input.type === 'password' ? '' : settingValue(name);
+}
+
+// Only the fields the owner changed are sent.
+async function saveSettings(button) {
+  const values = {};
+  for (const [name, , kind] of SETTINGS) {
+    const typed = settingInput(name).value.trim();
+    if (clearButton(name).getAttribute('aria-pressed') === 'true') values[name] = '';
+    else if (kind === 'password' ? typed !== '' : typed !== settingValue(name)) values[name] = typed;
+  }
+  if (!Object.keys(values).length) return toast('Det finns inget att spara.');
+  await run(button, async () => {
+    state.settings = await api('contact', { values });
+    toast('Inställningarna är sparade.');
+    renderSettingsBody();
+    root.querySelector('[data-email-save-settings]')?.focus();
+  });
+}
+
 function previewMail() {
   const project = ctx.project(), options = { resources: resolveSlots(project.resources, ctx.assets()), origin: location.origin };
   if (state.tab === 'compose') { const { subject, preheader, blocks, design } = composing(); return renderCustom({ subject, preheader, blocks, design }, emailOf(project), options); }
@@ -608,7 +682,7 @@ async function sendTest(button) {
   const kind = state.tab;
   await run(button, async () => {
     await api('mail/test', { requestId: crypto.randomUUID(), template: kind, email: ctx.project().email ?? null });
-    const to = await api('contact').then(view => view.values.CONTACT_TO.value, () => null);
+    const view = state.settings ?? await api('contact').catch(() => null), to = view?.values.CONTACT_TO.value;
     toast(to ? `Provmejlet är skickat till ${to}.` : 'Provmejlet är skickat.');
   });
 }
@@ -628,6 +702,9 @@ function onClick(event) {
   if ('emailPickResource' in button.dataset) return pickResource();
   if (button.dataset.emailAttachmentRemove !== undefined) return removeAttachment(Number(button.dataset.emailAttachmentRemove)).catch(report);
   if ('emailSend' in button.dataset) return sendMail(button);
+  if (button.dataset.emailClear) return toggleClear(button.dataset.emailClear, button);
+  if ('emailSaveSettings' in button.dataset) return saveSettings(button);
+  if ('emailRetry' in button.dataset) { state.settingsError = ''; renderSettingsBody(); return loadSettings(); }
   if ('emailRefresh' in button.dataset) { state.sent = null; state.sentError = ''; state.status = {}; renderSentBody(); return loadSent(); }
   const sentId = button.closest('[data-email-sent-id]')?.dataset.emailSentId;
   if ('emailCheck' in button.dataset) return checkStatus(sentId, true);

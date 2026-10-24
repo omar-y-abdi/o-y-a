@@ -136,3 +136,13 @@
   .email-table td{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;border-bottom:0;padding:6px 0}
   .email-table td::before{content:attr(data-label);font-size:11px;font-weight:700;color:var(--studio-muted)}
 }
+.email-banner{margin:0 0 16px;padding:12px 14px;border:1px solid var(--studio-line);border-radius:8px;font-size:13px;font-weight:700}
+.email-banner[data-email-banner=open]{background:color-mix(in srgb,var(--studio-blue) 8%,var(--studio-paper))}
+.email-banner[data-email-banner=closed]{background:color-mix(in srgb,var(--studio-yellow) 35%,var(--studio-paper))}
+.email-settings-list{list-style:none;margin:0 0 22px;padding:0;border-top:1px solid var(--studio-line)}
+.email-setting{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;padding:11px 2px;border-bottom:1px solid var(--studio-line);font-size:12px}
+.email-setting-name{font-weight:700}
+.email-setting-state{min-width:0;overflow-wrap:anywhere}
+.email-setting-field{display:flex;align-items:flex-end;gap:8px}
+.email-setting-field>.inspector-field{flex:1;min-width:0}
+.email-setting-field>.small-button{margin-bottom:12px;min-height:44px}
