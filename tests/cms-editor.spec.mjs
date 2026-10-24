@@ -28,9 +28,19 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
   await page.goto(`${ORIGIN}/`);
   await page.evaluate(([html, css, bodyClass]) => new Promise(resolve => {
     window.__studio = window.createEditor({ page: { html, css, path: '/t/', bodyClass }, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onAssetPick: null,
-      onReady: editor => { window.__ed = editor; resolve(); } });
+      onReady: editor => {
+        window.__ed = editor; window.__resizes = [];
+        editor.on('component:resize', ({ type }) => window.__resizes.push(type));
+        // The studio's fit() always moves the canvas (app.mjs:128). That change
+        // restarts select-comp after 300 ms (grapes.mjs:31777-31781), which binds
+        // its click listeners to the current frame body (grapes.mjs:49518-49521).
+        // Without a restart they stay on the body seen when select-comp first ran.
+        editor.Canvas.getCanvasView().toolsWrapper.style.display = 'none';
+        editor.Canvas.setCoords(0, 24);
+        resolve();
+      } });
   }), [html, css, bodyClass]);
-  // GrapesJS starts click-to-select in a timeout after 'load' (grapes.mjs:51545).
+  await expect.poll(() => page.evaluate(() => window.__ed.Canvas.getCanvasView().toolsWrapper.style.display), { message: 'select-comp restart after setCoords' }).toBe('');
   await expect.poll(() => page.evaluate(() => window.__ed.Commands.isActive('select-comp'))).toBe(true);
 }
 const nextFrames = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -59,16 +69,21 @@ const boxSize = page => page.evaluate(() => {
   return { width: box.width, height: box.height, content: el.lastElementChild ? el.lastElementChild.getBoundingClientRect().bottom - box.top : 0 };
 });
 // Real mouse drag on the selected component's bottom-right handle; returns undo entries added.
+let lastDrag = '';
 async function dragCorner(page, dx, dy) {
   const handle = page.locator('.gjs-resizer-h-br');
   await expect(handle).toBeVisible();
   const box = await handle.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2, before = await undoSize(page);
+  await page.evaluate(() => { window.__resizes.length = 0; });
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x + dx, y + dy, { steps: 10 });
   await page.mouse.up();
   await nextFrames(page);
-  return await undoSize(page) - before;
+  const added = await undoSize(page) - before;
+  // Seen state for assertion messages: resize events fired and the selection.
+  lastDrag = `drag(${dx},${dy}) resize events ${JSON.stringify(await page.evaluate(() => window.__resizes))}, selected ${await page.evaluate(() => window.__ed.getSelected()?.get('tagName'))}`;
+  return added;
 }
 
 const BOX = '<section><div id="box"><p>Rad ett</p><p>Rad två</p></div></section><section id="next"><p>Nästa</p></section>';
@@ -88,7 +103,7 @@ for (const [label, css] of Object.entries(STARTS)) for (const device of ['Dator'
     const key = RULE[device], other = key === 'global' ? 'mobile' : 'global', start = await boxRules(page), startSize = await boxSize(page);
 
     // Smaller than the content (80 px): the box falls back to its content.
-    expect(await dragCorner(page, -120, 40 - startSize.height)).toBe(2);
+    expect(await dragCorner(page, -120, 40 - startSize.height), `undo entries; ${lastDrag}`).toBe(2);
     let rules = await boxRules(page), size = await boxSize(page);
     expect(rules[key].height).toBe('auto');
     expect(rules[key]['min-height']).toMatch(/^\d+(\.\d+)?px$/);
@@ -98,7 +113,7 @@ for (const [label, css] of Object.entries(STARTS)) for (const device of ['Dator'
 
     // Larger than the content: the dragged height is a floor.
     const floor = px(rules[key]['min-height']);
-    expect(await dragCorner(page, 0, 300)).toBe(2);
+    expect(await dragCorner(page, 0, 300), `undo entries; ${lastDrag}`).toBe(2);
     rules = await boxRules(page); size = await boxSize(page);
     expect(rules[key].height).toBe('auto');
     expect(px(rules[key]['min-height'])).toBeGreaterThan(floor + 250);
@@ -134,14 +149,14 @@ test('A2 saved rules and heights are identical after reload', async ({ page }) =
 test('A2 an SVG icon shrinks to 50x50 and an image keeps its proportions', async ({ page }) => {
   await openStudio(page, { html: '<svg id="box" viewBox="0 0 100 100" width="100" height="100"><path d="M0 0h100v100H0z"/></svg><img id="pic" src="/pic.svg" alt="">', css: '' });
   await select(page, '#box');
-  expect(await dragCorner(page, -50, -50)).toBe(2);
+  expect(await dragCorner(page, -50, -50), `undo entries; ${lastDrag}`).toBe(2);
   const icon = await boxSize(page);
   expect(icon.width).toBeCloseTo(50, 0);
   expect(icon.height).toBeCloseTo(50, 0);
 
   await select(page, '#pic');
   await expect(page.locator('.gjs-resizer-h-br')).toBeVisible();
-  expect(await dragCorner(page, -100, -50)).toBe(2);
+  expect(await dragCorner(page, -100, -50), `undo entries; ${lastDrag}`).toBe(2);
   const pic = await page.evaluate(() => {
     const component = window.__ed.getWrapper().find('#pic')[0], box = component.getEl().getBoundingClientRect();
     return { width: box.width, height: box.height, style: component.getStyle() };
@@ -159,16 +174,20 @@ for (const [source, html] of [['Word', WORD], ['Google Docs', DOCS]]) {
     await openStudio(page, { html: '<div><p id="t">Före</p></div>' });
     const canvas = page.frameLocator('iframe.gjs-frame');
     await canvas.locator('#t').dblclick();
+    await expect(canvas.locator('#t'), 'RTE enabled by dblclick').toHaveAttribute('contenteditable', 'true');
     const result = await canvas.locator('#t').evaluate((el, [html]) => {
       const doc = el.ownerDocument, win = doc.defaultView, selection = doc.getSelection(), range = doc.createRange();
       el.focus(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range);
       const data = new win.DataTransfer();
       data.setData('text/plain', 'Rad ett\nRad två');
       data.setData('text/html', html);
-      el.dispatchEvent(new win.ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      const event = new win.ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true });
+      // If the engine drops clipboardData from the constructor, attach it.
+      if (!event.clipboardData) Object.defineProperty(event, 'clipboardData', { value: data });
+      el.dispatchEvent(event);
       return el.innerHTML;
     }, [html]);
-    expect(result).toBe('Rad ett<br>Rad två');
+    expect(result, 'innerHTML after paste').toBe('Rad ett<br>Rad två');
     const saved = await page.evaluate(() => window.__studio.snapshot(true));
     expect(saved.html).not.toMatch(/o:p|class=|style=|<!--/);
     expect(() => validateHtml(saved.html)).not.toThrow();
@@ -178,8 +197,11 @@ for (const [source, html] of [['Word', WORD], ['Google Docs', DOCS]]) {
 test('A12 shapes inside the managed SVG are selectable, the root stays fixed and a group still resizes', async ({ page }) => {
   await openStudio(page, { bodyClass: 'cms-svg-editor', html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400"><g id="grp"><path id="shape" d="M10 10h40v40H10z" fill="#0000ff"/></g><circle id="dot" cx="75" cy="75" r="10" fill="#00ff00"/></svg>' });
   const selected = () => page.evaluate(() => window.__ed.getSelected()?.get('tagName'));
-  await page.frameLocator('iframe.gjs-frame').locator('#shape').click();
-  expect(await selected()).toBe('path');
+  const shape = page.frameLocator('iframe.gjs-frame').locator('#shape');
+  await shape.hover();
+  const hovered = await page.evaluate(() => window.__ed.getModel().get('componentHovered')?.get('tagName'));
+  await shape.click();
+  await expect.poll(selected, { message: `selected tagName after clicking #shape (hovered before click: ${hovered})` }).toBe('path');
   expect(await page.evaluate(() => window.__ed.getWrapper().find('svg')[0].get('resizable'))).toBe(false);
 
   await page.evaluate(() => { window.__ed.getSelected().addAttributes({ fill: '#ff0000' }); });
@@ -189,7 +211,7 @@ test('A12 shapes inside the managed SVG are selectable, the root stays fixed and
 
   await select(page, '#grp');
   await dragCorner(page, 60, 60);
-  expect(await page.evaluate(() => window.__ed.getWrapper().find('#grp')[0].getAttributes().transform)).toMatch(/scale\(/);
+  expect(await page.evaluate(() => window.__ed.getWrapper().find('#grp')[0].getAttributes().transform), `g transform; ${lastDrag}`).toMatch(/scale\(/);
 });
 
 test('Backspace and Delete remove a fully selected text block', async ({ page }) => {
@@ -197,11 +219,12 @@ test('Backspace and Delete remove a fully selected text block', async ({ page })
     await openStudio(page, { html: '<div><p id="t">Hela texten</p></div>' });
     const canvas = page.frameLocator('iframe.gjs-frame');
     await canvas.locator('#t').dblclick();
+    await expect(canvas.locator('#t'), `RTE enabled by dblclick before ${key}`).toHaveAttribute('contenteditable', 'true');
     await canvas.locator('#t').evaluate(el => {
       const doc = el.ownerDocument, selection = doc.getSelection(), range = doc.createRange();
       el.focus(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range);
     });
     await page.keyboard.press(key);
-    await expect.poll(() => canvas.locator('#t').evaluate(el => el.textContent.trim())).toBe('');
+    await expect.poll(() => canvas.locator('#t').evaluate(el => el.textContent.trim()), { message: `text left after ${key}` }).toBe('');
   }
 });
