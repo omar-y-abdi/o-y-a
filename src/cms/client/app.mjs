@@ -204,7 +204,7 @@ function openPage(id, hash = '') {
   document.body.classList.remove('show-pages');
   const definition = definitions.find(entry => entry.id === item.id || entry.id === item.sourceId) ?? blank;
   active = createEditor({ page: item, cssPath: built.styles[item.template] ?? built.styles.home, assets,
-    onChange: values => updatePage(item.id, values), onSelect: inspect, onAssetPick: pickImage,
+    onChange: values => updatePage(item.id, values), onBoundary: () => draft.boundary(), onSelect: inspect, onAssetPick: pickImage,
     onReady: editor => {
       for (const contract of definition?.contracts ?? []) {
         const component = editor.getWrapper().find(`[data-cms-node="${contract.key}"]`)[0];

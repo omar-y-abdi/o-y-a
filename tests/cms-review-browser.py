@@ -394,8 +394,46 @@ with sync_playwright() as pw:
             assert len(calls) == 1
         finally: ctx.close()
 
+    def resize_is_one_undo_step():
+        # Batch 2 review: every resize gesture is exactly one toolbar Undo step, never merged with neighbouring edits.
+        ctx = context()
+        try:
+            state = api(ctx, 'state').json(); project = state['project']
+            box = '<div id="rbox" style="width:200px;height:100px;background-color:rgb(10,20,30)"></div>'
+            project['pages'].append({**state['blank'], 'id': 'review-resize', 'sourceId': 'blank', 'path': '/review-resize/', 'html': state['blank']['html'].replace('</main>', box+'</main>')})
+            publish(ctx, project)
+            page = admin(ctx); page.locator('[data-page-id=review-resize]').click(); ready(page)
+            node = Q.frame(page).locator('#rbox')
+            node.scroll_into_view_if_needed(); node.click()
+            def width(): return round(node.evaluate('el => el.getBoundingClientRect().width'))
+            def resize(dx):
+                handle = page.locator('.gjs-resizer-h-br'); expect(handle).to_be_visible()
+                box = handle.bounding_box(); x, y = box['x']+box['width']/2, box['y']+box['height']/2
+                page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x+dx/2, y, steps=4); page.mouse.move(x+dx, y, steps=4); page.mouse.up()
+            def undo():
+                page.locator('[data-action=undo]').click(); ready(page)
+                nonlocal node
+                node = Q.frame(page).locator('#rbox'); node.scroll_into_view_if_needed(); node.click()
+            original = width()
+            page.locator('summary', has_text='Fler stilegenskaper').click()
+            page.locator('#extra-property').fill('background-color'); page.locator('#extra-value').fill('rgb(200,10,10)')
+            page.locator('#apply-property').click()
+            page.wait_for_timeout(100)
+            resize(80)
+            page.wait_for_timeout(400)
+            first = width(); assert first > original, (original, first)
+            undo()
+            assert width() == original, ('resize must revert alone', original, width())
+            assert node.evaluate('el => getComputedStyle(el).backgroundColor') == 'rgb(200, 10, 10)', 'colour edit must survive the undo'
+            resize(60); mid = width(); resize(60)
+            second = width(); assert original < mid < second, (original, mid, second)
+            page.wait_for_timeout(300)
+            undo()
+            assert width() == mid, ('only the second resize reverts', original, mid, second, width())
+        finally: ctx.close()
+
     cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('rapid-inline-save-diagnostic',rapid_inline_save_diagnostic),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
-    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save)]
+    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save),('resize-is-one-undo-step',resize_is_one_undo_step)]
     selected=os.environ.get('CMS_REVIEW_CASE')
     for name,run in cases:
         if not selected or selected in name: report.run(name,run)

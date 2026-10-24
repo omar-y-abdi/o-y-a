@@ -4,10 +4,10 @@ import { liveHtml } from './live-text.mjs';
 import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle, pastedTextHtml } from './editor-policy.mjs';
 import { ensureComponentIdentity } from './view-state.mjs';
 
-export function createEditor({ page, cssPath, assets, onChange, onSelect, onReady, onAssetPick }) {
+export function createEditor({ page, cssPath, assets, onChange, onBoundary = () => {}, onSelect, onReady, onAssetPick }) {
   let disposed = false;
   let loading = true;
-  let timer, textView = null, typing = false, previousSnapshot = '';
+  let timer, textView = null, typing = false, resizing = false, previousSnapshot = '';
   const managedSvg = page.bodyClass === 'cms-svg-editor';
   const inspector = document.querySelector('#styles-panel');
   const blocksPanel = document.querySelector('#blocks-panel');
@@ -122,7 +122,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     typing = true; flush();
   });
   editor.on('update', () => {
-    if (disposed || loading) return;
+    if (disposed || loading || resizing) return;
     clearTimeout(timer);
     timer = setTimeout(flush, 250);
   });
@@ -133,9 +133,13 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     if (tag === 'g') editor.UndoManager.skip(() => updateStyle({}));
     else updateStyle(responsiveResizeStyle(style, tag));
   });
+  // One resize gesture is exactly one studio undo step: close the previous step, hold back
+  // debounced flushes while dragging, then flush the result and close this step.
+  editor.on('component:resize:start', () => { flush(); onBoundary(); resizing = true; });
   editor.on('component:resize:end', ({ component }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
     if (['a', 'span'].includes(tag) && component.getStyle?.().width && !component.getStyle().display) component.addStyle({ display: 'inline-block' });
+    resizing = false; flush(); onBoundary();
   });
   editor.on('component:selected', component => onSelect(component, editor));
   editor.on('component:deselected', () => { if (!editor.getSelected()) onSelect(null, editor); });

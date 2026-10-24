@@ -50,6 +50,7 @@ export class Draft {
     this.project = project;
     this.generation++;
   }
+  boundary() { this.lastGroup = ''; }
   undo() {
     if (!this.undoStack.length) return false;
     this.redoStack.push(this.project);
