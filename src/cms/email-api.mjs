@@ -194,9 +194,14 @@ async function saveSettings(request, env, { identity, now }) {
   return json(await settingsView(env));
 }
 
+// E3 and E4 carry the draft's mail settings. The largest body the validators
+// accept (40 blocks of 2000 three-byte characters in the mail and in both
+// templates, plus their text versions) is about 830 KB.
+const MAIL_BODY_LIMIT = 1024 * 1024;
+
 async function testMail(request, env, { identity, url, head, transport, now }) {
   requireWriteRequest(request);
-  const body = await readJson(request, 256 * 1024);
+  const body = await readJson(request, MAIL_BODY_LIMIT);
   if (!isRecord(body) || typeof body.requestId !== 'string' || !UUID.test(body.requestId) || !['receipt', 'notification'].includes(body.template)) throw reject('Provmejlet är ogiltigt.');
   const requestId = `mail-test/${body.requestId}`;
   const existing = await sentByRequest(env, requestId);
@@ -217,7 +222,7 @@ async function testMail(request, env, { identity, url, head, transport, now }) {
 
 async function sendMail(request, env, { identity, url, head, transport, now }) {
   requireWriteRequest(request);
-  const body = await readJson(request, 256 * 1024);
+  const body = await readJson(request, MAIL_BODY_LIMIT);
   if (!isRecord(body) || typeof body.requestId !== 'string' || !UUID.test(body.requestId)) throw reject(INVALID_SEND);
   // A confirmed request is answered from storage before any eligibility check:
   // its uploads are already consumed by this very request.

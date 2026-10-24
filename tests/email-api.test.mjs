@@ -509,3 +509,13 @@ test('a send renders the draft settings it was given', async () => {
   assert.equal((await run(post('/admin/api/mail/send', compose({ email: null })), env(), fallback.fetch, { email: published })).status, 200);
   assert.equal(fallback.calls[0].body.from, 'Omar Yusuf <hej@hej.omaryusuf.se>');
 });
+
+test('a send with full templates in its draft settings is read whole', async () => {
+  const text = DEFAULT_EMAIL.templates.receipt.blocks.find(block => block.type === 'text');
+  const fill = blocks => [...blocks, ...Array.from({ length: 40 - blocks.length }, (_, index) => ({ ...structuredClone(text), id: `fill${String(index).padStart(4, '0')}`, text: 'ö'.repeat(2000) }))];
+  const email = structuredClone(DEFAULT_EMAIL);
+  email.templates.receipt.blocks = fill(email.templates.receipt.blocks);
+  const request = compose({ blocks: fill(content().blocks), email });
+  assert.ok(new TextEncoder().encode(JSON.stringify(request)).byteLength > 256 * 1024);
+  assert.equal((await run(post('/admin/api/mail/send', request), env(), provider().fetch)).status, 200);
+});
