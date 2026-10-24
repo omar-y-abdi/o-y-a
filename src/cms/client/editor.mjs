@@ -128,7 +128,10 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   });
   editor.on('component:resize:update', ({ component, style, updateStyle }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
-    updateStyle(tag === 'g' ? {} : responsiveResizeStyle(style, tag));
+    // A12b: a group scales through its transform (position.mjs). Claim the style update so no
+    // width/height reaches the group's rule, and keep that empty write out of the undo stack.
+    if (tag === 'g') editor.UndoManager.skip(() => updateStyle({}));
+    else updateStyle(responsiveResizeStyle(style, tag));
   });
   editor.on('component:resize:end', ({ component }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
