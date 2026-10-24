@@ -98,18 +98,16 @@ test('mobile game keeps touch controls visible and plays after resize', { tag: '
   await context.close();
 });
 
-test('CMS page settings, visual editing, Save and interactive preview work for SKIFT', { tag: '@webgl' }, async ({ page, context }) => {
+// A14: the game page is code-owned. The studio edits only its runtime texts;
+// the live page is the build, never a stored CMS row.
+test('CMS edits SKIFT texts while the live game stays the code-owned build', { tag: '@webgl' }, async ({ page, context }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
-  const errors = [], audio = [];
-  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
-  page.on('response', response => { if (response.url().includes('/play/skift/audio/')) audio.push({ url: response.url(), status: response.status() }); });
   await page.goto(runtime.url + '/admin/');
-  await page.locator('[data-page-id="skift"]').click();
-  await expect(page.locator('#page-name')).toHaveValue('SKIFT');
-  await page.locator('#page-title').fill('CMS-testat skift | Omar Yusuf');
-  await page.locator('#page-title').dispatchEvent('change');
+  await expect(page.locator('[data-page-id="home"]')).toBeVisible();
+  await expect(page.locator('[data-page-id="skift"]')).toHaveCount(0);
   await page.locator('[data-action="runtime"]').click();
   await page.locator('#copy-search').fill('SKIFT');
   await expect(page.locator('[data-copy-key^="runtime.skift."][data-copy-key$=".footer"]')).toHaveCount(0);
@@ -117,45 +115,11 @@ test('CMS page settings, visual editing, Save and interactive preview work for S
   await intro.fill('CMS-intro <img src=x onerror="window.injected=true">');
   await page.locator('[data-action="save"]').click();
   await expect(page.locator('#save-status')).toContainText(/Sparat|Sparad|Alla ändringar/i);
-  // Lock view must retain its running preview when a slow editor becomes ready.
-  let releaseCanvas, canvasBlocked = false;
-  const canvasStyles = new Promise(resolve => { releaseCanvas = resolve; });
-  await page.route('**/assets/site.*.css', async route => {
-    const frame = route.request().frame();
-    if (frame.parentFrame() && (await (await frame.frameElement()).getAttribute('class'))?.includes('gjs-frame')) {
-      canvasBlocked = true;
-      await canvasStyles;
-    }
-    await route.continue();
-  });
-  const previewRequests = [];
-  page.on('request', request => { if (new URL(request.url()).pathname === '/admin/api/preview') previewRequests.push(request.url()); });
-  await page.locator('[data-page-id="skift"]').click();
-  const preview = page.frameLocator('[data-cms-preview-frame]').first();
-  try {
-    await expect.poll(() => canvasBlocked).toBe(true);
-    await page.locator('[data-action="lock"]').click();
-    await expect(page.locator('[data-action="lock"]')).toHaveAttribute('aria-pressed', 'true');
-    expect(previewRequests).toHaveLength(0);
-  } finally { releaseCanvas(); }
-  await expect(page.locator('#loading-state')).toBeHidden();
-  await expect(preview.locator('#start-button')).toBeEnabled();
-  const shown = await page.locator('[data-cms-preview-frame]').first().elementHandle();
-  expect(previewRequests).toHaveLength(1);
-  await expect(preview.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
-  await expect(preview.locator('.intro img')).toHaveCount(0);
-  // Stop automatic ticks before driving every game frame deterministically.
-  await page.clock.pauseAt(new Date('2026-01-01T01:00:00Z'));
-  await preview.locator('#start-button').click();
-  await expect(preview.locator('#game-screen')).toBeVisible();
-  await expect.poll(() => audio.some(response => response.url.endsWith('/audio/shift.mp3') && response.status === 200)).toBe(true);
-  // Advance only the first full second needed by the clock assertion.
-  await page.clock.runFor(1100);
-  await expect(preview.locator('#clock')).not.toHaveText('00:00');
   const live = await context.newPage();
-  await live.goto(runtime.url + '/play/skift/');
-  await expect(live).toHaveTitle('CMS-testat skift | Omar Yusuf');
+  const response = await live.goto(runtime.url + '/play/skift/');
+  expect(response.headers()['x-cms-version']).toBeUndefined();
+  await expect(live).toHaveTitle('SKIFT | Starta ditt arbetsskift | Omar Yusuf');
   await expect(live.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
-  expect(await shown.evaluate(frame => frame.isConnected)).toBe(true);
+  await expect(live.locator('.intro img')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

@@ -6,6 +6,8 @@ import { canonicalPagePath } from './routes.mjs';
 import { routes } from '../content/site.mjs';
 import { normalizeFooterPage, FOOTER_VERSION } from './footer.mjs';
 import { normalizeSkiftPage, isSkiftPath, skiftCsp } from './skift.mjs';
+import { refreshDevelopersPage } from './shared-content.mjs';
+import { reportFailure } from './diagnostics.mjs';
 
 export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const safeStyle = css => css.replaceAll('<', '\\3c ');
@@ -74,10 +76,12 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   }
   const canonical = canonicalPagePath(url.pathname);
   if (!canonical) return null;
+  // The game is code-owned: its build is served even if a revision stored it.
+  if (isSkiftPath(canonical)) return null;
   const state = await readPublicPage(env.CMS_DB, canonical);
   // An existing CMS database may not contain pages added in a later deploy.
   // Keep the new public documentation reachable via the built static asset.
-  if ((canonical === '/developers/' || isSkiftPath(canonical)) && state?.page === null) return null;
+  if (canonical === '/developers/' && state?.page === null) return null;
   if (!state) return null;
   if (state.page !== null && url.pathname !== canonical) {
     url.pathname = canonical;
@@ -87,6 +91,10 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   const page = state.page === null ? await readPublicPage(env.CMS_DB, '/404.html') : state;
   if (!page || page.page === null) return new Response('Sidan finns inte.', { status: 404 });
   const definition = seed.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? seed.blank;
-  const normalized = normalizeSkiftPage(normalizeFooterPage(page, definition), definition);
+  let normalized = page;
+  // Read-time migrations must not take a published page offline. Serve the
+  // stored page and report; Save and validation keep failing loudly.
+  try { normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, seed.footerPage), definition), definition); }
+  catch (error) { reportFailure(error, 'public'); }
   return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin, migratedCss: normalized.css !== page.css }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
 }

@@ -1,7 +1,7 @@
 import { parseFragment, serialize } from 'parse5';
 import { HttpError } from './http.mjs';
 import { validateHtml } from './validation.mjs';
-import { normalizeFooterProject } from './footer.mjs';
+import { normalizeFooterProject, FOOTER_VERSION } from './footer.mjs';
 import { normalizeSkiftProject } from './skift.mjs';
 import { attribute as attr, walk, setInner } from './html-tree.mjs';
 
@@ -35,7 +35,59 @@ export function normalizeSharedContent(input,seed={}){
   return base;
 }
 
+// Synchronous SHA-256 (FIPS 180-4): read-time normalizers are synchronous and
+// crypto.subtle only resolves a Promise. Constants derive from the first primes.
+const SHA_INITIAL=new Uint32Array(8),SHA_ROUND=new Uint32Array(64);
+for(let n=2,count=0;count<64;n++){
+  let prime=true;for(let d=2;d*d<=n;d++)if(n%d===0)prime=false;
+  if(!prime)continue;
+  if(count<8)SHA_INITIAL[count]=n**0.5*2**32|0;
+  SHA_ROUND[count++]=n**(1/3)*2**32|0;
+}
+export function sha256(text){
+  const bytes=new TextEncoder().encode(text),length=Math.ceil((bytes.length+9)/64)*64;
+  const data=new Uint8Array(length);data.set(bytes);data[bytes.length]=0x80;
+  const view=new DataView(data.buffer);
+  view.setUint32(length-8,Math.floor(bytes.length/2**29));view.setUint32(length-4,bytes.length*8>>>0);
+  const hash=SHA_INITIAL.slice(),w=new Uint32Array(64),rotr=(x,n)=>x>>>n|x<<32-n;
+  for(let offset=0;offset<length;offset+=64){
+    for(let i=0;i<16;i++)w[i]=view.getUint32(offset+i*4);
+    for(let i=16;i<64;i++){const x=w[i-15],y=w[i-2];w[i]=w[i-16]+(rotr(x,7)^rotr(x,18)^x>>>3)+w[i-7]+(rotr(y,17)^rotr(y,19)^y>>>10);}
+    let [a,b,c,d,e,f,g,h]=hash;
+    for(let i=0;i<64;i++){
+      const t1=h+(rotr(e,6)^rotr(e,11)^rotr(e,25))+(e&f^~e&g)+SHA_ROUND[i]+w[i]|0;
+      const t2=(rotr(a,2)^rotr(a,13)^rotr(a,22))+(a&b^a&c^b&c)|0;
+      h=g;g=f;f=e;e=d+t1|0;d=c;c=b;b=a;a=t1+t2|0;
+    }
+    [a,b,c,d,e,f,g,h].forEach((value,i)=>{hash[i]+=value;});
+  }
+  return [...hash].map(word=>word.toString(16).padStart(8,'0')).join('');
+}
+
+// SHA-256 of /developers/ HTML exactly as earlier releases seeded it. The owner
+// never edited such a copy, so reads serve the current template instead (A1a).
+// v185 (production head since 2026-10-11), proven by tests/cms-template-drift.
+export const STALE_DEVELOPERS_HTML=new Set(['d0be9a8b08f08e548ad938bd730d236350af1bab3f93e37742f5aca5ef2e097e']);
+export function refreshDevelopersPage(page,template){
+  if(!template?.html||!page||page.id!==template.id||typeof page.html!=='string'||!STALE_DEVELOPERS_HTML.has(sha256(page.html)))return page;
+  // Publication kept shared values equal on every page; carry the copy's own.
+  const stale=parseFragment(page.html),tree=parseFragment(template.html);
+  walk(tree,node=>{
+    const key=attr(node,'data-cms-shared'),source=key&&findNode(stale,'data-cms-shared',key);
+    if(source)setInner(node,normalizeSharedValue(serialize(source)));
+  });
+  // Facts describe the stale HTML; the template is revalidated before reuse.
+  const {facts,...rest}=page;
+  return {...rest,html:serialize(tree),footerVersion:FOOTER_VERSION};
+}
+function refreshDevelopers(input,seed){
+  if(!input||!Array.isArray(input.pages)||!seed.footerPage)return input;
+  const pages=input.pages.map(page=>refreshDevelopersPage(page,seed.footerPage));
+  return pages.every((page,index)=>page===input.pages[index])?input:{...input,pages};
+}
+
 export function normalizeStoredProject(input,seed={},initial={}){
+  input=refreshDevelopers(input,seed);
   input=normalizeFooterProject(input,seed);
   if(!input||input.sharedContent!==undefined&&input.sharedContent!==null)return normalizeSkiftProject(input,seed);
   const required=Object.keys(seed.sharedContent??{});

@@ -8,6 +8,7 @@ import { normalizeSharedContent, validateSharedInstances } from './shared-conten
 import { normalizeFooterProject } from './footer.mjs';
 import { normalizeSkiftProject } from './skift.mjs';
 import { attribute, elements } from './html-tree.mjs';
+import { SKIFT_PATH } from '../content/skift.mjs';
 
 import { validateTheme } from './theme.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
@@ -26,7 +27,8 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
   input = normalizeSkiftProject(input, seed);
   if (input.pages.length > 64) fail('Projektets sidregister är för stort.');
   const ids = new Set();
-  const paths = new Set();
+  // The code-owned game keeps its address; a CMS page there would never serve.
+  const paths = new Set([SKIFT_PATH]);
   const pages = input.pages.map(page => {
     if (!page || typeof page !== 'object' || Array.isArray(page)) fail('Varje sida måste vara ett giltigt sidobjekt.');
     const saved = baseline?.pages.find(item => item.id === page.id);
@@ -67,7 +69,7 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts, ...(page.footerVersion === undefined ? {} : { footerVersion: page.footerVersion }) };
   });
   if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
-  const targets = new Map(pages.map(page => [page.path, new Set(page.facts.ids)]));
+  const targets = new Map([[SKIFT_PATH, new Set()], ...pages.map(page => [page.path, new Set(page.facts.ids)])]);
   for (const page of publication ? pages : []) for (const href of page.facts.links) {
     let link;
     try { link = resolveSiteLink(href, page.path, origins); } catch { fail('Länkens adress eller ankare är ogiltigt.'); }

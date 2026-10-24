@@ -11,7 +11,8 @@ const seed = { schemaVersion: 1, pages, cards: JSON.parse(await readFile('public
 
 test('every existing source page and win card form a valid initial CMS project', () => {
   const result = validateProject(structuredClone(seed), seed);
-  assert.equal(result.pages.length, routes.length);
+  // A14: the code-owned SKIFT route is served from the build, not the CMS.
+  assert.equal(result.pages.length, routes.filter(page => page.path !== '/play/skift/').length);
   assert.equal(result.cards.length, seed.cards.length);
 });
 
