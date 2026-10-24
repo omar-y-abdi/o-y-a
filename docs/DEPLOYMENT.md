@@ -9,7 +9,9 @@ For the connected production repository, keep the Workers Builds commands aligne
 - Build command: `npm run build`
 - Deploy command: `npm run deploy:cloudflare`
 
-Do **not** use plain `npx wrangler deploy` as the production deploy command. `npm run deploy:cloudflare` first applies every pending remote migration for the `CMS_DB` binding and only publishes the Worker after the schema is current. This prevents a newly deployed CMS from querying columns or tables that have not yet been created in D1.
+Do **not** use plain `npx wrangler deploy` as the production deploy command. `npm run deploy:cloudflare` runs four steps in order: build, release gate, migrations, deploy. It first builds the site. Then the read-only release gate (`scripts/cms-pull-release.mjs`) reads the head revision and every `cms_media` row with read-only SELECTs, checks them against the new code in local SQLite, and blocks the deploy on any incompatibility or unreadable D1. Then it applies every pending remote migration for the `CMS_DB` binding, and only publishes the Worker after the schema is current. This prevents a newly deployed CMS from querying columns or tables that have not yet been created in D1.
+
+Production runs on the Cloudflare Workers Free plan (owner decision, 2026-10-24). Each request has a 10 ms CPU limit, so a request over budget can fail with 503. D1 allows 100,000 written rows per day, and one D1 database can hold at most 500 MB.
 
 If a Worker has already been deployed against an older D1 schema, recover the current deployment by applying the pending migrations and redeploying:
 
@@ -55,7 +57,7 @@ Retain the existing production Worker `omar-portfolio`, domain routes, ASSETS, c
 5. Apply the schema to the production database, build and inspect the deployment before publishing:
 
    ```sh
-   npx wrangler d1 migrations apply omar-portfolio-cms --remote --config wrangler.jsonc
+   npx wrangler d1 migrations apply CMS_DB --remote --config wrangler.jsonc
    npm run check
    npm run edge:check
    npx wrangler deploy --config wrangler.jsonc
@@ -75,7 +77,7 @@ Run `node scripts/smoke-live.mjs` for public read-only checks after production d
 
 For content mistakes, History → Restore → Save appends a new revision. Published R2 objects remain available, so old references survive. Revert affects only unsaved draft content.
 
-Before application/schema changes, run the isolated backup drill (`node --test tests/cms-backup-drill.test.mjs`) and the read-only retained-revision checker (`node scripts/cms-check-release.mjs /path/to/trusted-d1-export.sql`). The latter requires Node 22.13 or newer and imports SQL with the native SQLite parser so multiline content is preserved. Then export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
+Before application/schema changes, run the isolated backup drill (`node --test tests/cms-backup-drill.test.mjs`) and the read-only retained-revision checker (`node scripts/cms-check-release.mjs /path/to/trusted-d1-export.sql`). The live read-only check is `node scripts/cms-pull-release.mjs`, the same release gate the deploy runs. The latter requires Node 22.13 or newer and imports SQL with the native SQLite parser so multiline content is preserved. Then export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
 
 Protected component contracts derive from the source templates. If functional source markup changes after the CMS has been used, migrate existing saved content deliberately and test its continued editability before production deployment. See [CMS-SECURITY.md](CMS-SECURITY.md).
 
