@@ -58,8 +58,9 @@ export function nextSector(s) {
   s.dashCooldown=0; s.pulseCooldown=0; s.dashing=0; s.invulnerable=1.2; s.combo=0; return true;
 }
 const finite = (n, min, max, fallback=0) => Number.isFinite(n) ? Math.min(max,Math.max(min,n)) : fallback;
-export function sanitizeSave(input) {
-  const empty={version:1,unlocked:0,best:0,wins:0,checkpoint:null,settings:{language:'sv',sound:true,music:true,quality:'eco',motion:true,difficulty:'normal'}};
+/** `coarse` = touch screen: quality defaults to eco there and smooth elsewhere. A saved quality counts only with qualityChosen, so old saves get the new default. */
+export function sanitizeSave(input, coarse=false) {
+  const empty={version:1,unlocked:0,best:0,wins:0,checkpoint:null,settings:{language:'sv',sound:true,music:true,quality:coarse?'eco':'smooth',qualityChosen:false,motion:true,difficulty:'normal'}};
   if (!input || typeof input !== 'object' || Array.isArray(input) || input.version!==1) return empty;
   empty.unlocked=Math.floor(finite(input.unlocked,0,2)); empty.best=Math.floor(finite(input.best,0,1e8)); empty.wins=Math.floor(finite(input.wins,0,1e6));
   const c=input.checkpoint;
@@ -69,13 +70,13 @@ export function sanitizeSave(input) {
   const p=input.settings;
   if(p && typeof p==='object') {
     if(['sv','en'].includes(p.language))empty.settings.language=p.language;
-    if(['eco','smooth'].includes(p.quality))empty.settings.quality=p.quality;
+    if(p.qualityChosen===true&&['eco','smooth'].includes(p.quality)){empty.settings.quality=p.quality;empty.settings.qualityChosen=true;}
     if(['normal','assist'].includes(p.difficulty))empty.settings.difficulty=p.difficulty;
     for(const k of ['sound','music','motion'])if(typeof p[k]==='boolean')empty.settings[k]=p[k];
   }
   return empty;
 }
-export function loadSave(storage) { try { return sanitizeSave(JSON.parse(storage.getItem(SAVE_KEY))); } catch { return sanitizeSave(null); } }
+export function loadSave(storage, coarse=false) { try { return sanitizeSave(JSON.parse(storage.getItem(SAVE_KEY)),coarse); } catch { return sanitizeSave(null,coarse); } }
 export function saveRun(storage, data) { try { storage.setItem(SAVE_KEY,JSON.stringify(sanitizeSave(data))); return true; } catch { return false; } }
 export const rank = score => score>=18000?'S':score>=13000?'A':score>=8500?'B':'C';
 export const clock = seconds => `${Math.floor(seconds/60).toString().padStart(2,'0')}:${Math.floor(seconds%60).toString().padStart(2,'0')}`;

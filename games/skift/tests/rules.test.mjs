@@ -84,3 +84,18 @@ test('unknown checkpoint difficulty cannot introduce an unsupported mode', () =>
   const saved=sanitizeSave({version:1,unlocked:0,checkpoint:{sector:0,difficulty:'impossible'},settings:{difficulty:'assist'}});
   assert.equal(saved.checkpoint.difficulty,'assist');
 });
+test('quality defaults to smooth without touch and eco with touch; only an explicit choice is kept', () => {
+  assert.equal(sanitizeSave(null).settings.quality,'smooth');
+  assert.equal(sanitizeSave(null,true).settings.quality,'eco');
+  const old={version:1,settings:{quality:'eco'}}; // saved before the flag existed: eco was the stored default
+  assert.equal(sanitizeSave(old).settings.quality,'smooth');
+  assert.equal(sanitizeSave({version:1,settings:{quality:'smooth'}},true).settings.quality,'eco');
+  const chosen=sanitizeSave({version:1,settings:{quality:'eco',qualityChosen:true}});
+  assert.equal(chosen.settings.quality,'eco'); assert.equal(chosen.settings.qualityChosen,true);
+  assert.equal(sanitizeSave({version:1,settings:{quality:'smooth',qualityChosen:true}},true).settings.quality,'smooth');
+  assert.equal(sanitizeSave({version:1,settings:{quality:'ultra',qualityChosen:true}}).settings.quality,'smooth');
+  assert.equal(sanitizeSave({version:1,settings:{quality:'eco',qualityChosen:'yes'}}).settings.quality,'smooth');
+  const stored=new Map();
+  assert.equal(saveRun({setItem:(k,v)=>stored.set(k,v)},{version:1,settings:{quality:'eco',qualityChosen:true}}),true);
+  assert.equal(loadSave({getItem:k=>stored.get(k)}).settings.quality,'eco');
+});

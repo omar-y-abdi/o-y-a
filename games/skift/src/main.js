@@ -7,8 +7,9 @@ import {Sound} from './sound.js';
 import {UI} from './ui.js';
 
 let storage;try{storage=window.localStorage;}catch{storage=null;}
-const save=loadSave(storage),settings=save.settings;
-if(!storage)Object.assign(save,sanitizeSave(null));
+const coarse=matchMedia('(pointer:coarse)').matches;
+const save=loadSave(storage,coarse),settings=save.settings;
+if(!storage)Object.assign(save,sanitizeSave(null,coarse));
 if(matchMedia('(prefers-reduced-motion: reduce)').matches)settings.motion=false;
 let mode='menu',game,view,input,sound,ready=false,raf=0,lastFrame=0,menuSince=performance.now(),lastHUD=0,returnTo='menu';
 let ui;const perf={frames:0,steps:0,cost:[],maxCost:0};
@@ -51,7 +52,7 @@ function action(name,value){
 }
 function changeSetting(key,value){
   if(!Object.hasOwn(settings,key))return;
-  settings[key]=value;Object.assign(settings,sanitizeSave({...save,settings}).settings);persist();sound?.apply();
+  settings[key]=value;if(key==='quality')settings.qualityChosen=true;Object.assign(settings,sanitizeSave({...save,settings},coarse).settings);persist();sound?.apply();
   ui.translate();if(ui.kind==='settings'){ui.open('settings',game);ui.modal.querySelector(`[data-setting="${key}"]`)?.focus({preventScroll:true});}
   view?.resize();wake();
 }
