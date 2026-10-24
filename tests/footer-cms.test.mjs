@@ -34,7 +34,8 @@ test('pre-agent footer state upgrades its link, page and protected identities wi
   assert.doesNotThrow(() => validateProject(normalized, seed));
   assert.ok(normalized.pages.some(page => page.path === '/developers/'));
   const home = normalized.pages.find(page => page.path === '/');
-  assert.match(home.html, /href="\/developers\/"[^>]*data-cms-node=/);
+  // A1b: the inserted link needs no key; the editor gives it one on load.
+  assert.match(home.html, /<a href="\/developers\/">För utvecklare<\/a>/);
   assert.equal(footerHook(home), footerHook(initial.pages[0]));
   assert.equal(home.css, original.pages[0].css);
   assert.equal(home.description, original.pages[0].description);
@@ -43,18 +44,14 @@ test('pre-agent footer state upgrades its link, page and protected identities wi
   assert.deepEqual(normalizeStoredProject(normalized, seed, initial), normalized, 'Upgrade is idempotent.');
 });
 
-test('migration moves key-based CSS with the old control and refuses forged functional bindings', () => {
+test('migration refuses key-based CSS and forged functional bindings', () => {
   const input = structuredClone(legacy);
-  const oldKey = footerHook(input.pages[0]);
-  const nextKey = footerHook(initial.pages[0]);
-  input.pages[0].css += `[data-cms-node="${oldKey}"]{letter-spacing:1px}`;
-  const upgraded = normalizeStoredProject(input, seed, initial);
-  assert.ok(upgraded.pages[0].css.includes(`[data-cms-node="${nextKey}"]`));
-  assert.ok(!upgraded.pages[0].css.includes(`[data-cms-node="${oldKey}"]`));
-  const migrated = renderPage(upgraded.pages[0], built, {
-    version: 7, migratedCss: upgraded.pages[0].css !== input.pages[0].css,
-  });
-  assert.match(migrated, /home\.css\?footer=1/, 'Changed CSS selectors must bypass the old immutable URL');
+  // A1b: identities are signature keys, so owner CSS may not select them.
+  const keyed = structuredClone(input);
+  keyed.pages[0].css += `[data-cms-node="${footerHook(input.pages[0])}"]{letter-spacing:1px}`;
+  const upgraded = normalizeStoredProject(keyed, seed, initial);
+  assert.equal(upgraded.pages[0].css, keyed.pages[0].css, 'Reads never rewrite stored CSS');
+  assert.throws(() => validateProject(upgraded, seed), { status: 422, message: /nodnycklar/ });
   const forged = structuredClone(input);
   forged.pages[0].html = forged.pages[0].html.replace('data-privacy-open=""', 'data-privacy-open="" data-contact-form=""');
   assert.throws(() => validateProject(normalizeStoredProject(forged, seed, initial), seed), /kopplingar|funktions|attribut/);
@@ -127,5 +124,4 @@ test('unmodified custom CMS pages retain their original cache-stable CSS paths',
   original.css = '#review-clone{letter-spacing:1px}';
   const html = renderPage(original, built, { version: 8 });
   assert.match(html, /href="\/cms-public\/v8\/review-clone\.css"/);
-  assert.ok(!html.includes('review-clone.css?footer='), 'A nonmigrated resource must keep its existing URL');
 });

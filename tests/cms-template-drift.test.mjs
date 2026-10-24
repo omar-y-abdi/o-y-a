@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { initial, seed } from '../.generated/cms-seed.mjs';
 import { validateProject } from '../src/cms/project.mjs';
+import { preparePage, validateHtml } from '../src/cms/validation.mjs';
 // Namespace import: without the new exports each test fails on its own.
 import * as shared from '../src/cms/shared-content.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
@@ -49,10 +50,29 @@ test('A1a: v185 normalizes, validates as a save and keeps every owner page', () 
   assert.deepEqual(v185, untouched, 'Normalization does not mutate the stored revision');
 });
 
-test('A1a: an edited /developers/ is kept and still fails loudly on validation', () => {
+test('A1a + A1b: an edited /developers/ is kept and validates under signature keys', () => {
   const edited = structuredClone(v185);
   developers(edited).html = developers(edited).html.replace('</main>', '<p>Ägarens tillägg.</p></main>');
-  assert.throws(() => validateProject(shared.normalizeStoredProject(edited, seed, initial), seed), { status: 422 });
+  const normalized = shared.normalizeStoredProject(edited, seed, initial);
+  assert.match(developers(normalized).html, /Ägarens tillägg\./);
+  assert.ok(!developers(normalized).html.includes(UPDATED));
+  assert.doesNotThrow(() => validateProject(normalized, seed));
+});
+
+test('A1b: a template element before a protected node shifts no identity', async () => {
+  const raw = await readFile('dist/index.html', 'utf8');
+  assert.match(raw, /<a class="footer-back"/);
+  const current = preparePage(raw);
+  const drifted = preparePage(raw.replace('<a class="footer-back"', '<div>Ny mallrad</div><a class="footer-back"'));
+  assert.deepEqual(drifted.contracts.map(contract => contract.key), current.contracts.map(contract => contract.key));
+  assert.doesNotThrow(() => validateHtml(shared.normalizeStoredProject(v185, seed, initial).pages[0].html, drifted.contracts));
+});
+
+test('A1b: every contract key of every page definition is in the studio HTML of v185', () => {
+  for (const page of shared.normalizeStoredProject(v185, seed, initial).pages) {
+    const definition = seed.pages.find(item => item.id === page.id) ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank;
+    for (const contract of definition.contracts) assert.ok(page.html.includes(`data-cms-node="${contract.key}"`), `${page.path} ${contract.key}`);
+  }
 });
 
 test('A1a: a seed-HTML /developers/ with owner CSS is kept and still fails loudly', () => {
@@ -61,7 +81,8 @@ test('A1a: a seed-HTML /developers/ with owner CSS is kept and still fails loudl
   // In v185 n93 is the footer; the same key names another node in the template.
   developers(styled).css = '[data-cms-node="n93"]{color:#123456}';
   assert.equal(shared.refreshDevelopersPage(developers(styled), seed.footerPage), developers(styled));
-  assert.throws(() => validateProject(shared.normalizeStoredProject(styled, seed, initial), seed), { status: 422 });
+  // A1b: owner CSS may not select editor keys at all.
+  assert.throws(() => validateProject(shared.normalizeStoredProject(styled, seed, initial), seed), { status: 422, message: /nodnycklar/ });
 });
 
 test('A14: links to anchors in the built game resolve against the build', () => {
@@ -155,5 +176,5 @@ test('A1a: a public read-time migration failure serves the stored page instead o
   const body = await response.text();
   assert.match(body, /Ägarens tillägg\./);
   assert.ok(!body.includes(UPDATED));
-  assert.equal((await admin('state')).status, 422, 'Studio reads still report the incompatible page');
+  assert.equal((await admin('state')).status, 200, 'A1b: the studio opens the edited page under signature keys');
 });

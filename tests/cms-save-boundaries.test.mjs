@@ -70,7 +70,7 @@ for(const boundary of ['request-content-length','compressed-revision'])test(`R4:
   const before=await state(), project=structuredClone(before.project);
   if(boundary==='request-content-length')project.pages[0].html='x'.repeat(8*1024*1024);
   else {
-    const {contracts: _serverTemplateContracts, footerMigration: _temporaryMigrationContract, ...blankPage}=seed.blank;
+    const {contracts: _serverTemplateContracts, ...blankPage}=seed.blank;
     for(let i=0;i<5;i++)project.pages.push({...blankPage,id:`large-${i}`,sourceId:'blank',path:`/large-${i}/`,html:seed.blank.html.replace('</main>',`<p>${randomBytes(330000).toString('base64')}</p></main>`)});
   }
   const draft=new Draft(before.project,before.version);draft.change(project);const rejected=draft.beginSave();

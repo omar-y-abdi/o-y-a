@@ -58,7 +58,8 @@ test('SKIFT stays out of the CMS page register while its navigation links stay p
 test('old CMS state gains the game navigation, not a stored game page, without changing owner content or identities', () => {
   const legacy = withoutGame(initial);
   legacy.pages[0].description = 'Ägarens beskrivning';
-  legacy.pages[0].css = '[data-cms-node="n0"]{color:#123456}';
+  // A1b: owner CSS may not select editor keys, so use an ordinary selector.
+  legacy.pages[0].css = '.site-header{color:#123456}';
   legacy.runtime['runtime.skift.sv.footer'] = 'Ägarens äldre skifttext.';
   const untouched = structuredClone(legacy);
   const upgraded = normalizeStoredProject(legacy, seed, initial);
