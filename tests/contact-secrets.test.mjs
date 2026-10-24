@@ -82,15 +82,24 @@ test('saved value wins, emptied falls back to env', async () => {
   assert.equal(await count(), 0);
 });
 
-test('missing table or D1 error means env only', async () => {
+test('missing table means env only; any other D1 error closes everything', async () => {
   const thrown = { prepare() { throw new Error('D1_ERROR: no such table: cms_contact_secrets'); } };
-  const rejected = { prepare: () => ({ all: async () => { throw new Error('D1_ERROR: storage failed'); } }) };
-  for (const CMS_DB of [thrown, rejected, undefined]) {
+  for (const CMS_DB of [thrown, undefined]) {
     const settings = await readContactSettings({ CMS_DB, CONTACT_HASH_SECRET: MASTER, RESEND_API_KEY: 're_onlyEnvironment_1' });
     assert.equal(settings.states.RESEND_API_KEY, 'environment');
     assert.equal(settings.values.RESEND_API_KEY, 're_onlyEnvironment_1');
     assert.equal(settings.states.CONTACT_TO, 'missing');
   }
+  const rejected = { prepare: () => ({ all: async () => { throw new Error('D1_ERROR: storage failed'); } }) };
+  const e = { ...env(SECRETS), CMS_DB: rejected };
+  const settings = await readContactSettings(e);
+  for (const name of SECRET_NAMES) {
+    assert.equal(settings.states[name], 'unreadable', name);
+    assert.equal(settings.values[name], undefined, name);
+  }
+  const provider = recorder();
+  assert.equal((await handleContact(contactRequest(), e, provider.fetch)).status, 503);
+  assert.equal(provider.calls.length, 0);
 });
 
 test('tampered, moved or foreign-key ciphertext is unreadable and closes the form', async () => {

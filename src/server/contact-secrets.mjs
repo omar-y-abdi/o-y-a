@@ -1,3 +1,4 @@
+import { reportFailure } from '../cms/diagnostics.mjs';
 import { HttpError } from '../cms/http.mjs';
 import { isEmailAddress } from './email-render.mjs';
 
@@ -48,8 +49,15 @@ export async function readContactSettings(env) {
   // unreadable or undecryptable saved value fall back to the env binding.
   const values = Object.fromEntries(SECRET_NAMES.map(name => [name, undefined])), states = {}, updatedAt = {};
   let rows = [];
-  // Missing binding, missing table (before 0007) or a D1 error: env only.
-  if (env.CMS_DB) try { rows = (await env.CMS_DB.prepare('SELECT name, iv, ciphertext, updated_at FROM cms_contact_secrets').all()).results ?? []; } catch { rows = []; }
+  // Missing binding or missing table (before 0007): env only. Any other D1
+  // error could hide a saved value, so every name becomes unreadable.
+  if (env.CMS_DB) try { rows = (await env.CMS_DB.prepare('SELECT name, iv, ciphertext, updated_at FROM cms_contact_secrets').all()).results ?? []; }
+  catch (error) {
+    if (!/no such table/i.test(String(error?.message ?? ''))) {
+      reportFailure(error, 'contact');
+      return { values, states: Object.fromEntries(SECRET_NAMES.map(name => [name, 'unreadable'])), updatedAt };
+    }
+  }
   const master = masterReady(env) ? env.CONTACT_HASH_SECRET : null;
   for (const name of SECRET_NAMES) {
     const row = rows.find(row => row.name === name);
