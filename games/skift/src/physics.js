@@ -26,6 +26,10 @@ export class Physics {
     const body=new CANNON.Body({mass:1,shape:new CANNON.Sphere(radius),position:new CANNON.Vec3(x,.6,z),fixedRotation:true,linearDamping:0,collisionFilterGroup:group,collisionFilterMask:mask,allowSleep:false});
     body.linearFactor.set(1,0,1);body.angularFactor.set(0,0,0);this.world.addBody(body);return body;
   }
+  post(x,z,radius) { // static enemy body (boss): blocks the player, not walls, enemies or rays
+    const body=new CANNON.Body({mass:0,shape:new CANNON.Sphere(radius),position:new CANNON.Vec3(x,.6,z),collisionFilterGroup:GROUP.enemy,collisionFilterMask:GROUP.player});
+    this.world.addBody(body);return body;
+  }
   step(dt) { this.world.step(1/60,Math.min(Math.max(dt,0),.05),3); }
   remove(body) { if(body.world===this.world)this.world.removeBody(body); }
   obstructed(ax,az,bx,bz) {

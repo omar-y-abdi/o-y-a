@@ -2,7 +2,7 @@ import {Physics,GROUP} from './physics.js';
 import {LEVELS} from './levels.js';
 import {createRun,tick,dash,pulse,hurt,award,collect,finishSector,nextSector,upgrade} from './rules.js';
 import {PALETTE} from './art.js';
-const PLAYER_RADIUS=.52;
+const PLAYER_RADIUS=.52,BOSS_RADIUS=1.6;
 const length=(x,z)=>Math.hypot(x,z);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
@@ -24,6 +24,7 @@ export class Game {
         home:{x:def.x,z:def.z},timer:.7+i*.31,telegraph:0,stunned:0,charge:0,dead:false,seed:i,aim:{x:0,z:0},facing:0};this.view.addEnemy(e);return e;
     });
     this.bossState=this.level.boss?{x:this.level.boss[0],z:this.level.boss[1],hp:24,maxHp:24,timer:3,pattern:0,vulnerable:0,waveRadius:0,invulnerable:0,active:false}:null;
+    this.bossBody=this.bossState&&this.physics.post(this.bossState.x,this.bossState.z,BOSS_RADIUS);
     this.checkpoint={difficulty:this.state.difficulty,sector:this.state.sector,score:this.state.score,time:this.state.time,upgrades:[...this.state.upgrades]};
     this.events('loaded',this.checkpoint);
   }
@@ -44,7 +45,7 @@ export class Game {
   strikeBoss(damage) {
     const b=this.bossState;if(!b||b.hp<=0||b.vulnerable<=0||b.invulnerable>0)return;
     b.hp=Math.max(0,b.hp-damage);b.invulnerable=.32;this.sound.play('strike');this.view.burst(b.x,b.z,PALETTE.yellow,10);this.view.shake=.09;
-    if(!b.hp){this.state.bossDefeated=true;this.bullets.length=0;b.waveRadius=0;award(this.state,2000);this.sound.play('clear');this.view.wave(b.x,b.z,PALETTE.yellow,9,1.1);this.events('boss');}
+    if(!b.hp){this.state.bossDefeated=true;this.physics.remove(this.bossBody);this.bullets.length=0;b.waveRadius=0;award(this.state,2000);this.sound.play('clear');this.view.wave(b.x,b.z,PALETTE.yellow,9,1.1);this.events('boss');}
   }
   shoot(x,z,dx,dz,speed=5,friendly=false) {
     if(this.bullets.length>=32)return;const l=length(dx,dz)||1;
@@ -134,7 +135,7 @@ export class Game {
     b.invulnerable=Math.max(0,b.invulnerable-dt);b.vulnerable=Math.max(0,b.vulnerable-dt);b.timer-=dt;
     if(b.waveRadius>0){b.waveRadius+=dt*4.7;if(Math.abs(distance(p,b)-b.waveRadius)<.55)this.hit();if(b.waveRadius>21)b.waveRadius=0;}
     if(s.dashing>0&&distance(p,b)<2.3)this.strikeBoss(3);
-    if(distance(p,b)<1.6&&b.vulnerable<=0)this.hit();
+    if(distance(p,b)<BOSS_RADIUS+PLAYER_RADIUS+.12&&b.vulnerable<=0)this.hit();
     if(b.timer<=0){
       const slow=s.difficulty==='assist'?.8:1;
       if(b.pattern%3===0){for(let i=0;i<12;i++){const a=i*Math.PI/6;this.shoot(b.x,b.z,Math.sin(a),Math.cos(a),4.4*slow);}}
