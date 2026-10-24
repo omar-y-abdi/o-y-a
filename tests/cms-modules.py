@@ -490,6 +490,27 @@ with sync_playwright() as pw:
             return result
         finally: page.close()
 
+    def extra_style_rejects_image_urls():
+        page = make_page()
+        try:
+            editor(page, {**PAGE, 'html': '<main><p id="text">Style me</p></main>', 'css': '', 'project': None})
+            result = page.evaluate("""()=>{
+              const ed=handle.editor, text=ed.getWrapper().find('#text')[0];
+              const errors=[], changes=[];
+              cmsTest.componentInspector(text, ed, {assets:[], pickImage(){}, change:()=>changes.push(1), onError:message=>errors.push(message)});
+              const fill=(selector,value)=>{document.querySelector(selector).value=value;};
+              fill('#extra-property','background-image'); fill('#extra-value','url(https://example.com/x.png)');
+              document.querySelector('#apply-property').click();
+              const rejected={errors:[...errors], changes:changes.length, background:text.getStyle()['background-image']??null};
+              fill('#extra-property','aspect-ratio'); fill('#extra-value','1 / 1');
+              document.querySelector('#apply-property').click();
+              return {rejected, accepted:{errors:errors.length, changes:changes.length, aspect:text.getStyle()['aspect-ratio']??null}};
+            }""")
+            assert result['rejected'] == {'errors': ['Använd Byt bild för bilder.'], 'changes': 0, 'background': None}, result
+            assert result['accepted'] == {'errors': 1, 'changes': 1, 'aspect': '1 / 1'}, result
+            return result
+        finally: page.close()
+
     def usability_view_state_and_mobile_center():
         page = make_page(SHELL.replace('<aside id="side">','<aside class="right-panel" id="side" style="height:180px;overflow:auto">'))
         try:
@@ -664,6 +685,7 @@ with sync_playwright() as pw:
     run('CI-preview-srcdoc-readiness', preview_readiness)
     run('merge-export-inherited-theme-and-current-width', export_context)
     run('cms-usability-resize-nudge-and-style-mode', usability_editor_primitives)
+    run('cms-extra-style-rejects-image-urls', extra_style_rejects_image_urls)
     run('cms-usability-view-state-and-mobile-center', usability_view_state_and_mobile_center)
     run('cms-usability-selection-identity-structural-history', usability_selection_identity_survives_structural_history)
     run('cms-client-shared-content-sync', client_shared_content_sync)
