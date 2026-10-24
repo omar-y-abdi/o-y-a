@@ -52,6 +52,12 @@ try{
   const eco=await state(page);assert.equal(eco.settings.quality,'eco','an explicit eco choice is kept');assert.ok(eco.render.width*eco.render.height<=1000000,JSON.stringify(eco.render));
  });
  await context.close();
+ const late=await browser.newContext({viewport:{width:1000,height:700}});
+ // devicePixelRatio becomes 2 in the first microtask after the WebGL context is created: after the View constructor sized the buffer, before compileAsync resolves.
+ await late.addInitScript(()=>{const original=HTMLCanvasElement.prototype.getContext;let flipped=false;HTMLCanvasElement.prototype.getContext=function(type,...args){if(!flipped&&/webgl/.test(type)){flipped=true;queueMicrotask(()=>Object.defineProperty(window,'devicePixelRatio',{configurable:true,get:()=>2}));}return original.call(this,type,...args);};});
+ const latePage=await late.newPage();latePage.on('pageerror',e=>errors.push(String(e)));await ready(latePage);
+ await check('buffer reconciles with a devicePixelRatio change during startup',async()=>{const r=(await state(latePage)).render;assert.ok(Math.abs(r.width/1000-2)<.05&&r.width*r.height<=5200000,JSON.stringify(r));});
+ await late.close();
  const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
  const phone=await mobile.newPage();phone.on('pageerror',e=>errors.push(String(e)));await ready(phone);
  await check('portrait title fits a 390-pixel viewport',async()=>{await phone.screenshot({path:'evidence/title-mobile.png'});const box=await phone.locator('#start-button').boundingBox();assert.ok(box.y+box.height<790);assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);});

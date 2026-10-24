@@ -77,6 +77,7 @@ async function boot(){
     view.renderer.domElement.tabIndex=0;
     game=new Game(view,sound,onGameEvent);input=new Input(view.renderer.domElement,pause);
     await view.renderer.compileAsync(view.scene,view.camera);
+    view.resize(); // the window may have changed display during compilation, before the density watcher below exists; a no-op when nothing changed
     view.draw(game,mode,0,performance.now()/1000);
     ready=true;ui.ready();lastFrame=menuSince=performance.now();wake();
     window.addEventListener('resize',()=>{input.clear();view.resize();wake();});
