@@ -502,11 +502,16 @@ with sync_playwright() as pw:
               fill('#extra-property','background-image'); fill('#extra-value','url(https://example.com/x.png)');
               document.querySelector('#apply-property').click();
               const rejected={errors:[...errors], changes:changes.length, background:text.getStyle()['background-image']??null};
+              fill('#extra-property','background-image'); fill('#extra-value','u\\\\72l(https://example.com/x.png)');
+              document.querySelector('#apply-property').click();
+              const escaped={errors:[...errors], changes:changes.length, background:text.getStyle()['background-image']??null};
+              errors.length=1;
               fill('#extra-property','aspect-ratio'); fill('#extra-value','1 / 1');
               document.querySelector('#apply-property').click();
-              return {rejected, accepted:{errors:errors.length, changes:changes.length, aspect:text.getStyle()['aspect-ratio']??null}};
+              return {rejected, escaped, accepted:{errors:errors.length, changes:changes.length, aspect:text.getStyle()['aspect-ratio']??null}};
             }""")
             assert result['rejected'] == {'errors': ['Använd Byt bild för bilder.'], 'changes': 0, 'background': None}, result
+            assert result['escaped'] == {'errors': ['Använd Byt bild för bilder.', 'Skriv värdet utan omvända snedstreck.'], 'changes': 0, 'background': None}, result
             assert result['accepted'] == {'errors': 1, 'changes': 1, 'aspect': '1 / 1'}, result
             return result
         finally: page.close()

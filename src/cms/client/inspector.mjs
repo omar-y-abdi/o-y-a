@@ -49,6 +49,7 @@ export function componentInspector(component, editor, { assets, pickImage, chang
     $('#custom-inspector').append(advanced);
     $('#apply-property').addEventListener('click', () => {
       const property = $('#extra-property').value.trim(), value = $('#extra-value').value.trim();
+      if (value.includes('\\')) { onError('Skriv värdet utan omvända snedstreck.'); return; }
       if (/url\(|image-set\(/i.test(value)) { onError('Använd Byt bild för bilder.'); return; }
       if (!/^(?:--)?[a-z][a-z0-9-]*$/.test(property) || value && !CSS.supports(property, value)) { onError('Ange en CSS-egenskap och ett värde som webbläsaren stöder.'); return; }
       if (value) component.addStyle({ [property]: value }); else component.removeStyle(property);
