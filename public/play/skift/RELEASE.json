@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "upstreamBundleSha256": "dc1989baa8a500d1156710075aabfa2ac45a553c8174bbe9e36e39ad462e2ff6",
-  "bundleSha256": "cb9d1b29f0daf4e0ce5de5a7cbb56ef5a63c93307460bcb68b6f8dc3a6cb42ad",
+  "upstreamBundleSha256": "40690fb3fdc2314dea3745c614a5729d8ac9fa3f5a0c01164683b3368c70d5c6",
+  "bundleSha256": "17cf26eea9525a4bcc9ad13c1cfffe74b627ee9edb91ae9971f78e5e01a964b2",
   "adapters": [
     "same-origin audio URLs for CMS previews",
     "game menu selector isolated from portfolio navigation",
