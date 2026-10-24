@@ -190,7 +190,7 @@ function attachmentTotal(mail) {
 function composeHtml() {
   const mail = composing(), email = emailOf(ctx.project()), locked = sending ? ' disabled' : '';
   return `<h2 class="email-panel-title">Skriv mejl</h2>
-<p class="email-hint">Från: ${escape(senderAddress(email))}. Avsändaren ändras under Kvitto eller Avisering. Utkastet finns bara här och sparas inte med webbplatsen.</p>
+<p class="email-hint">Från: ${escape(senderAddress(email))}. Avsändaren kommer från webbplatsens aktuella utkast, även osparade ändringar, och ändras under Kvitto eller Avisering. Mejlet du skriver här finns bara här och sparas inte med webbplatsen.</p>
 ${LISTS.map(([name, label]) => chipField(name, label, mail)).join('')}
 <p class="email-hint" data-email-count>${recipientCount(mail)}/${MAX_RECIPIENTS} mottagare</p>
 ${designHtml('compose', mail, '')}
@@ -304,7 +304,9 @@ function lockSend(locked) {
 }
 
 // A new requestId per send; a retry of the same content (after a 503 or a lost
-// connection) reuses it, so Resend never sends the mail twice.
+// connection) reuses it, so Resend never sends the mail twice. The body carries the
+// draft's mail settings (null when unchanged), so the server renders the sender and
+// shell the owner sees in the preview; they are part of the fingerprint too.
 async function sendMail(button) {
   const mail = composing();
   for (const [name] of LISTS) if (commitAddresses(name, true)) return;
@@ -317,7 +319,7 @@ async function sendMail(button) {
   if (time && Number.isNaN(time.getTime())) return markField('scheduledAt', 'Tiden är ogiltig.');
   const scheduledAt = time?.toISOString() ?? null, count = recipientCount(mail);
   if (!await confirmAction({ title: scheduledAt ? 'Schemalägg mejlet?' : 'Skicka mejlet?', message: `Mejlet "${mail.subject}" skickas till ${count} mottagare${scheduledAt ? ` ${dateLabel(scheduledAt)}` : ' direkt'}.`, action: scheduledAt ? 'Schemalägg' : 'Skicka' })) return;
-  const body = { to: mail.to, cc: mail.cc, bcc: mail.bcc, subject: mail.subject, preheader: mail.preheader, blocks: mail.blocks, design: mail.design, scheduledAt, attachments: files.map(file => ({ kind: file.kind, id: file.id })) };
+  const body = { to: mail.to, cc: mail.cc, bcc: mail.bcc, subject: mail.subject, preheader: mail.preheader, blocks: mail.blocks, design: mail.design, scheduledAt, attachments: files.map(file => ({ kind: file.kind, id: file.id })), email: ctx.project().email ?? null };
   const fingerprint = JSON.stringify(body);
   if (mail.fingerprint !== fingerprint) { mail.requestId = crypto.randomUUID(); mail.fingerprint = fingerprint; }
   await run(button, async () => {
