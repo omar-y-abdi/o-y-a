@@ -209,7 +209,10 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       }
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      const project = validateProject(migrateKeys(body.project, stored?.project), seed, baseline, { origins: [url.origin] });
+      // A replayed full save finds its revision in publishSite, after validation:
+      // map its positional keys through the revision it was based on.
+      const base = (stored?.version ?? 0) === body.baseVersion ? stored : await readSite(env.CMS_DB, body.baseVersion);
+      const project = validateProject(migrateKeys(body.project, base?.project), seed, baseline, { origins: [url.origin] });
       const references = resourceReferences(project);
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));
