@@ -25,7 +25,7 @@ Old revisions get a bounded, read-time navigation upgrade. Reading does not publ
 publishes the normalized project through the usual version checks. The link
 uses stable `skift-nav` and `skift-nav-mobile` identities, so existing numbered editor identities and
 CSS selectors do not move. Old shared-footer backups are resolved before the
-new page is added, preserving the owner's footer. The preceding developer
+menu links are added, preserving the owner's footer. The preceding developer
 footer migration still runs first.
 
 The built game page is always served. A stored CMS page for this route is

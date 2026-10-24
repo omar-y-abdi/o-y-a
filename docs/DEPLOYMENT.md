@@ -6,10 +6,12 @@ Production is the only Worker, `omar-portfolio`, configured by `wrangler.jsonc`.
 
 For the connected production repository, keep the Workers Builds commands aligned with the schema-dependent Worker code:
 
-- Build command: `npm run build`
+- Build command: none (the deploy command builds first)
 - Deploy command: `npm run deploy:cloudflare`
 
 Do **not** use plain `npx wrangler deploy` as the production deploy command. `npm run deploy:cloudflare` runs four steps in order: build, release gate, migrations, deploy. It first builds the site. Then the read-only release gate (`scripts/cms-pull-release.mjs`) reads the head revision and every `cms_media` row with read-only SELECTs, checks them against the new code in local SQLite, and blocks the deploy on any incompatibility or unreadable D1. Then it applies every pending remote migration for the `CMS_DB` binding, and only publishes the Worker after the schema is current. This prevents a newly deployed CMS from querying columns or tables that have not yet been created in D1.
+
+The gate checks the head revision as it was when the gate ran. A studio save during the deploy, which takes about a minute, is not covered, so do not save while a deploy runs. The manual `stored-revisions` workflow in GitHub Actions checks every stored revision with `node scripts/cms-pull-release.mjs --all --allow=1-4,84-88`; the allowlist never covers the head revision. The workflow needs the repository secrets `CLOUDFLARE_D1_READ_TOKEN` (D1 read access) and `CLOUDFLARE_ACCOUNT_ID`.
 
 Production runs on the Cloudflare Workers Free plan (owner decision, 2026-10-24). Each request has a 10 ms CPU limit, so a request over budget can fail with 503. D1 allows 100,000 written rows per day, and one D1 database can hold at most 500 MB.
 
@@ -24,7 +26,7 @@ R2 has no SQL schema migration step. A CMS boot failure caused by missing D1 col
 
 ## Production data runbook
 
-There is no staging Worker or staging config. Before any production data change:
+There is no staging Worker or staging config. The production D1 database keeps its historical name `omar-portfolio-cms-staging` (binding `CMS_DB`); it is the production database. Before any production data change:
 
 1. Record a Time Travel bookmark: `npx wrangler d1 time-travel info CMS_DB`.
 2. Rehearse migrations on a local copy built from page-wise read-only `SELECT`s.
@@ -77,7 +79,7 @@ Run `node scripts/smoke-live.mjs` for public read-only checks after production d
 
 For content mistakes, History → Restore → Save appends a new revision. Published R2 objects remain available, so old references survive. Revert affects only unsaved draft content.
 
-Before application/schema changes, run the isolated backup drill (`node --test tests/cms-backup-drill.test.mjs`) and the read-only retained-revision checker (`node scripts/cms-check-release.mjs /path/to/trusted-d1-export.sql`). The live read-only check is `node scripts/cms-pull-release.mjs`, the same release gate the deploy runs. The latter requires Node 22.13 or newer and imports SQL with the native SQLite parser so multiline content is preserved. Then export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
+Before application/schema changes, run the isolated backup drill (`node --test tests/cms-backup-drill.test.mjs`) and the read-only retained-revision checker (`node scripts/cms-check-release.mjs /path/to/trusted-d1-export.sql`). The latter requires Node 22.13 or newer and imports SQL with the native SQLite parser so multiline content is preserved. The live read-only check is `node scripts/cms-pull-release.mjs`, the same release gate the deploy runs. Then export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
 
 Protected component contracts derive from the source templates. If functional source markup changes after the CMS has been used, migrate existing saved content deliberately and test its continued editability before production deployment. See [CMS-SECURITY.md](CMS-SECURITY.md).
 
