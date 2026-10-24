@@ -1,4 +1,4 @@
-import { reportFailure } from './diagnostics.mjs';
+import { reportFailure, reportMailOrphan } from './diagnostics.mjs';
 import { HttpError, errorResponse, json, readJson, requireWriteRequest } from './http.mjs';
 import { resolveResources } from './resources.mjs';
 import { validateCustomMail, validateEmailIdentity, validateEmailSettings } from './email-validate.mjs';
@@ -396,7 +396,7 @@ async function removeFile(request, env) {
   // its D1 row is gone. Log the server-made key separately because reportFailure
   // redacts exception details; the owner still gets a successful removal.
   try { await env.CMS_MEDIA.delete(row.object_key); }
-  catch (error) { console.error(JSON.stringify({ event: 'mail_orphan', key: row.object_key })); reportFailure(error, 'mail'); }
+  catch (error) { reportMailOrphan(row.object_key); reportFailure(error, 'mail'); }
   return json({ removed: true });
 }
 
