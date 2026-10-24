@@ -10,6 +10,7 @@ import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
 import { applyProjectChanges, validateProjectChanges } from './project-changes.mjs';
 import { SKIFT_PATH } from '../content/skift.mjs';
+import { handleEmailAdmin } from './email-api.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 // The one ingress for every project a client sends. Old tabs and drafts: A1a
@@ -29,6 +30,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     const identity = await authenticateAdmin(request, env);
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/admin/api/')) return env.ASSETS.fetch(request);
+    if (url.pathname === '/admin/api/contact' || url.pathname.startsWith('/admin/api/mail/')) return await handleEmailAdmin(request, env, { identity, url, head: publishedBaseline });
     if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
     if (request.method === 'GET' || request.method === 'HEAD') {
       if (url.pathname === '/admin/api/state') {

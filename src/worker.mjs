@@ -4,6 +4,7 @@ import { routes } from './content/site.mjs';
 import { CSP } from '../.generated/csp.mjs';
 import { seed, initial, built } from '../.generated/cms-seed.mjs';
 import { handleAdmin, assetResponse } from './cms/api.mjs';
+import { serveMailFile } from './cms/email-api.mjs';
 import { ADMIN_CSP, publicContent } from './cms/render.mjs';
 import { isSkiftPath, skiftCsp } from './cms/skift.mjs';
 import { errorResponse } from './cms/http.mjs';
@@ -110,11 +111,14 @@ export default {
       secured.headers.set('X-Robots-Tag','noindex, nofollow');
       return request.method === 'HEAD' ? new Response(null,secured) : secured;
     }
-    if (url.pathname.startsWith('/media/')) {
+    if (url.pathname.startsWith('/mail-file/')) {
+      try { response = await serveMailFile(request,env); } catch (error) { response = errorResponse(error,'mail'); }
+    }
+    else if (url.pathname.startsWith('/media/')) {
       try { response = await assetResponse(request,env); } catch (error) { response = errorResponse(error,'media'); }
     }
     else if (url.pathname === '/api/contact') response = await handleContact(request,env);
-    else if (url.pathname === '/api/contact/config') response = ['GET','HEAD'].includes(request.method) ? contactConfig(env) : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
+    else if (url.pathname === '/api/contact/config') response = ['GET','HEAD'].includes(request.method) ? await contactConfig(env) : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname === '/api/event') response = await eventResponse(request,env,url);
     else if (url.pathname === '/api/config') {
       response = request.method === 'GET' || request.method === 'HEAD'
