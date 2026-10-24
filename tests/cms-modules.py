@@ -511,6 +511,23 @@ with sync_playwright() as pw:
             return result
         finally: page.close()
 
+    def page_metadata_maxlength_and_input():
+        page = make_page()
+        try:
+            result = page.evaluate("""()=>{
+              const calls=[];
+              cmsTest.pageInspector({name:'Om',path:'/om/',title:'Om mig',description:'Kort text'},{update:(key,value)=>calls.push([key,value]),addPage(){},removePage(){},protectedPage:false});
+              const limits={name:document.querySelector('#page-name').maxLength,title:document.querySelector('#page-title').maxLength,description:document.querySelector('#page-description').maxLength};
+              const title=document.querySelector('#page-title');
+              title.value='Ny titel';
+              title.dispatchEvent(new Event('input',{bubbles:true}));
+              return {limits, calls};
+            }""")
+            assert result['limits'] == {'name': 80, 'title': 160, 'description': 320}, result
+            assert result['calls'] == [['title', 'Ny titel']], result
+            return result
+        finally: page.close()
+
     def usability_view_state_and_mobile_center():
         page = make_page(SHELL.replace('<aside id="side">','<aside class="right-panel" id="side" style="height:180px;overflow:auto">'))
         try:
@@ -686,6 +703,7 @@ with sync_playwright() as pw:
     run('merge-export-inherited-theme-and-current-width', export_context)
     run('cms-usability-resize-nudge-and-style-mode', usability_editor_primitives)
     run('cms-extra-style-rejects-image-urls', extra_style_rejects_image_urls)
+    run('cms-page-metadata-maxlength-and-input', page_metadata_maxlength_and_input)
     run('cms-usability-view-state-and-mobile-center', usability_view_state_and_mobile_center)
     run('cms-usability-selection-identity-structural-history', usability_selection_identity_survives_structural_history)
     run('cms-client-shared-content-sync', client_shared_content_sync)
