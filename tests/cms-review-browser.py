@@ -311,7 +311,72 @@ with sync_playwright() as pw:
                 shot(page,'resource-slot-'+slot)
         finally: ctx.close()
 
+    TAGLINE = '[data-cms-shared="footer.tagline"]'
+    def set_tagline(page, text):
+        node = Q.frame(page).locator(TAGLINE)
+        node.scroll_into_view_if_needed(); node.click(); node.dblclick()
+        page.keyboard.press('ControlOrMeta+a'); page.keyboard.type(text)
+        page.wait_for_timeout(600)
+
+    def shared_everywhere(ctx, text):
+        project = api(ctx, 'state').json()['project']
+        assert project['sharedContent']['footer.tagline'] == text, project['sharedContent']
+        assert all(text in item['html'] for item in project['pages']), [item['path'] for item in project['pages'] if text not in item['html']]
+        return project
+
+    def tagline_then_new_page():
+        # A3 phase 0: a changed tagline and a page created from the blank template save with 200.
+        ctx = context()
+        try:
+            page = admin(ctx)
+            set_tagline(page, 'Ny tagline före ny sida')
+            page.locator('[data-action=add-page]').click()
+            page.locator('#new-page-name').fill('Tagline-test'); page.locator('#new-page-path').fill('/tagline-test/')
+            page.locator('#create-page').click(); Q.wait_canvas(page)
+            save(page)
+            project = shared_everywhere(ctx, 'Ny tagline före ny sida')
+            assert any(item['path'] == '/tagline-test/' for item in project['pages'])
+        finally: ctx.close()
+
+    def two_tabs_keep_mine():
+        # A3 phase 0: stale tab saves 409, Sammanför + Behåll mina, then Spara is 200 with one tagline on every page.
+        ctx = context()
+        try:
+            a, b = admin(ctx), admin(ctx)
+            set_tagline(a, 'Flik A:s tagline'); save(a)
+            set_tagline(b, 'Flik B:s tagline')
+            b.locator('[data-action=save]').click()
+            expect(b.locator('#dialog-content')).to_contain_text('En nyare version finns')
+            b.locator('[data-action=reconcile]').click()
+            expect(b.locator('#dialog-content')).to_contain_text('Välj dina ändringar')
+            Q.confirm_yes(b); Q.wait_canvas(b)
+            save(b)
+            shared_everywhere(ctx, 'Flik B:s tagline')
+        finally: ctx.close()
+
+    def save_error_stays():
+        # A7: the last save error stays in #save-status past the 12 s toast until a 200 clears it.
+        ctx = context()
+        try:
+            page = admin(ctx); message = 'Människan: Länken har en otillåten adress.'
+            def reject(route): route.fulfill(status=422, content_type='application/json', body=json.dumps({'error': message}))
+            page.route('**/admin/api/save', reject)
+            page.locator('#page-description').fill('Ett utkast som sparas fel')
+            page.locator('[data-action=save]').click()
+            expect(page.locator('#save-status')).to_contain_text(message)
+            page.wait_for_timeout(13000)
+            expect(page.locator('#studio-toast')).to_be_hidden()
+            expect(page.locator('#save-status')).to_contain_text(message)
+            page.locator('#page-description').fill('Ett utkast som sparas fel igen')
+            expect(page.locator('#save-status')).to_contain_text(message)
+            page.unroute('**/admin/api/save')
+            save(page)
+            expect(page.locator('#save-status')).not_to_contain_text(message)
+            expect(page.locator('#save-status')).to_contain_text('Alla ändringar sparade')
+        finally: ctx.close()
+
     cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('rapid-inline-save-diagnostic',rapid_inline_save_diagnostic),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
+    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays)]
     selected=os.environ.get('CMS_REVIEW_CASE')
     for name,run in cases:
         if not selected or selected in name: report.run(name,run)
