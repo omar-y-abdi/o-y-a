@@ -27,7 +27,7 @@ export default defineConfig({
     { name: 'chromium-webgl', grep: /@webgl/, workers: 1, dependencies: ['chromium'] },
 
     // The studio editor must behave the same in every engine; other specs stay chromium-only.
-    { name: 'firefox', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'firefox', channel: undefined, launchOptions: {} } },
-    { name: 'webkit', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'webkit', channel: undefined, launchOptions: {} } },
+    { name: 'firefox', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'firefox', channel: '', launchOptions: {} } },
+    { name: 'webkit', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'webkit', channel: '', launchOptions: {} } },
   ],
 });

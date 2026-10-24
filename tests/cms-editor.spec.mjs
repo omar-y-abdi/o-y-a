@@ -30,14 +30,16 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
     window.__studio = window.createEditor({ page: { html, css, path: '/t/', bodyClass }, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onAssetPick: null,
       onReady: editor => { window.__ed = editor; resolve(); } });
   }), [html, css, bodyClass]);
+  // GrapesJS starts click-to-select in a timeout after 'load' (grapes.mjs:51545).
+  await expect.poll(() => page.evaluate(() => window.__ed.Commands.isActive('select-comp'))).toBe(true);
 }
 const nextFrames = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 const setDevice = async (page, name) => {
-  await page.evaluate(name => window.__ed.setDevice(name), name);
+  await page.evaluate(name => { window.__ed.setDevice(name); }, name);
   await expect.poll(() => page.evaluate(() => window.__ed.Canvas.getWindow().innerWidth)).toBe(name === 'Mobil' ? 390 : 1440);
   await nextFrames(page);
 };
-const select = (page, selector) => page.evaluate(selector => window.__ed.select(window.__ed.getWrapper().find(selector)[0]), selector);
+const select = (page, selector) => page.evaluate(selector => { window.__ed.select(window.__ed.getWrapper().find(selector)[0]); }, selector);
 const undoSize = page => page.evaluate(() => window.__ed.UndoManager.getStack().length);
 
 // The CSS the editor would save, split into the global and the phone rule of #box.
@@ -102,8 +104,8 @@ for (const [label, css] of Object.entries(STARTS)) for (const device of ['Dator'
     expect(px(rules[key]['min-height'])).toBeGreaterThan(floor + 250);
     expect(Math.abs(size.height - px(rules[key]['min-height']))).toBeLessThanOrEqual(1);
     expect(rules[other]).toEqual(start[other]);
-    const css = await page.evaluate(() => window.__ed.getCss());
-    expect(() => validateCss(css)).not.toThrow();
+    const saved = await page.evaluate(() => window.__ed.getCss());
+    expect(() => validateCss(saved)).not.toThrow();
   });
 }
 
@@ -180,7 +182,7 @@ test('A12 shapes inside the managed SVG are selectable, the root stays fixed and
   expect(await selected()).toBe('path');
   expect(await page.evaluate(() => window.__ed.getWrapper().find('svg')[0].get('resizable'))).toBe(false);
 
-  await page.evaluate(() => window.__ed.getSelected().addAttributes({ fill: '#ff0000' }));
+  await page.evaluate(() => { window.__ed.getSelected().addAttributes({ fill: '#ff0000' }); });
   const fill = id => page.evaluate(id => window.__ed.getWrapper().find(id)[0].getAttributes().fill, id);
   expect(await fill('#shape')).toBe('#ff0000');
   expect(await fill('#dot')).toBe('#00ff00');
