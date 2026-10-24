@@ -1,6 +1,6 @@
 # Deploy the portfolio and CMS
 
-Production deployment is a separate step **after merge**. This branch provisions and verifies only staging. GitHub Actions performs checks and retains browser evidence; it has no deployment job or production secrets.
+Production is the only Worker, `omar-portfolio`, configured by `wrangler.jsonc`. Workers Builds deploys it about 30 s after each push to `main`. GitHub Actions performs checks and retains browser evidence; it has no deployment job or production secrets.
 
 ## Cloudflare Workers Builds
 
@@ -20,23 +20,14 @@ npx wrangler deploy --config wrangler.jsonc
 
 R2 has no SQL schema migration step. A CMS boot failure caused by missing D1 columns/tables is not repaired by replacing or reconnecting the R2 bucket.
 
-## Existing staging
+## Production data runbook
 
-- Worker: `omar-portfolio-cms-staging`
-- URL: https://omar-portfolio-cms-staging.s2305975.workers.dev
-- Config: `wrangler.staging.jsonc`
-- Dedicated D1 and R2 resources share the staging name.
-- Cloudflare Access protects `/admin`; the Worker repeats exact owner verification.
-- `CMS_ADMIN_EMAIL` is a Worker secret. It is not recorded in Git.
+There is no staging Worker or staging config. Before any production data change:
 
-```sh
-npm ci
-npm run check
-npx wrangler d1 migrations apply omar-portfolio-cms-staging --remote --config wrangler.staging.jsonc
-npx wrangler deploy --config wrangler.staging.jsonc
-```
+1. Record a Time Travel bookmark: `npx wrangler d1 time-travel info CMS_DB`.
+2. Rehearse migrations on a local copy built from page-wise read-only `SELECT`s.
 
-A migration or deploy command succeeding is not proof of working login or publication. Visit `/login/`, complete Access sign-in and verify Save from the studio through a fresh public request. Use the same hostname for all steps.
+Branches are not isolated: preview versions bind production D1 and R2.
 
 ## Image validation prerequisite for this release
 
@@ -50,7 +41,7 @@ See [Images binding](https://developers.cloudflare.com/images/optimization/bindi
 
 ## Prepare production after merge
 
-Retain the existing production Worker `omar-portfolio`, domain routes, ASSETS, contact configuration and `ANALYTICS_ENABLED: "false"`. Do not copy staging database IDs, bucket names or Access audience into production.
+Retain the existing production Worker `omar-portfolio`, domain routes, ASSETS, contact configuration and `ANALYTICS_ENABLED: "false"`. Do not copy database IDs, bucket names or Access audience from other configs into production.
 
 1. Record the current Worker version and take a D1 export if production CMS data already exists. Inspect existing account resources before creating duplicates.
 2. Create a separate production D1 database and R2 Standard bucket, for example `omar-portfolio-cms`, with Wrangler. Add their actual returned identifiers to `wrangler.jsonc` as `CMS_DB` and `CMS_MEDIA`, using `migrations_dir: "migrations"`. R2 free allowances are not an unlimited billing cap; review account usage/notifications.
