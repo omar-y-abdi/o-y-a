@@ -135,11 +135,15 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
   });
   // One resize gesture is exactly one studio undo step: close the previous step, hold back
   // debounced flushes while dragging, then flush the result and close this step.
-  editor.on('component:resize:start', () => { flush(); onBoundary(); resizing = true; });
-  editor.on('component:resize:end', ({ component }) => {
+  // GrapesJS also fires component:resize:start on every pointer move, so the once-per-gesture
+  // start is read from component:resize with type 'start'.
+  editor.on('component:resize', ({ type }) => { if (type !== 'start') return; flush(); onBoundary(); resizing = true; });
+  editor.on('component:resize:end', ({ component, moved }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
     if (['a', 'span'].includes(tag) && component.getStyle?.().width && !component.getStyle().display) component.addStyle({ display: 'inline-block' });
-    resizing = false; flush(); onBoundary();
+    // GrapesJS raises its dirty count in a setTimeout(0), so it is still 0 here: force the snapshot.
+    // The deferred 'update' flush then sees an unchanged snapshot and adds no second Draft change.
+    resizing = false; flush(Boolean(moved)); onBoundary();
   });
   editor.on('component:selected', component => onSelect(component, editor));
   editor.on('component:deselected', () => { if (!editor.getSelected()) onSelect(null, editor); });
