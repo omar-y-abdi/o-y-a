@@ -124,10 +124,13 @@ function setKey(node, key) {
   if (existing) existing.value = key; else node.attrs.push({ name: 'data-cms-node', value: key });
 }
 const textOf = node => { let text = ''; traverse(node, child => { if (child.nodeName === '#text') text += child.value; }); return text.replace(/\s+/g, ' ').trim(); };
-// Codex b1d #3: what announces or lets the visitor reach a consent button besides its text, on the button and every descendant.
-const announces = a => a.name.startsWith('aria-') || ['title', 'role', 'hidden', 'alt', 'inert', 'tabindex'].includes(a.name);
+// Codex b1d #3: what announces, shows or lets the visitor reach a consent button besides its text, on the button and every descendant.
+const announces = a => a.name.startsWith('aria-') || ['title', 'role', 'hidden', 'alt', 'inert', 'tabindex', 'style'].includes(a.name);
 const announced = (node, path = '') => [...(node.attrs ?? []).filter(announces).map(a => `${path}:${a.name}=${a.value}`), ...(node.childNodes ?? []).filter(child => child.tagName).flatMap((child, index) => announced(child, `${path}>${index}${child.tagName}`))];
-const accessibleName = node => JSON.stringify(announced(node).sort());
+// Ancestors up to the consent root, never body (absent from stored fragments), hide or disable it too; '^' keeps them apart from descendants.
+const consentRoot = node => attr(node, 'data-consent-banner') !== undefined || attr(node, 'data-privacy-dialog') !== undefined;
+const ancestors = node => { const out = []; for (let parent = node.parentNode; parent?.tagName && parent.tagName !== 'body'; parent = parent.parentNode) { out.push(...parent.attrs.filter(announces).map(a => `^${parent.tagName}:${a.name}=${a.value}`)); if (consentRoot(parent)) break; } return out; };
+const accessibleName = node => JSON.stringify([...announced(node), ...ancestors(node)].sort());
 // A label names the button it wraps, or the one its for attribute points at.
 const labelled = (node, elements) => { for (let parent = node.parentNode; parent; parent = parent.parentNode) if (parent.tagName === 'label') return true; const id = attr(node, 'id'); return id !== undefined && elements.some(item => item.tagName === 'label' && attr(item, 'for') === id); };
 
