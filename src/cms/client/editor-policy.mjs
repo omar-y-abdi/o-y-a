@@ -47,6 +47,12 @@ export function responsiveResizeStyle(style, tag) {
   return next;
 }
 
+// Pasted content is plain text only: Word and Docs markup would fail validation
+// or publish foreign inline styles. Line breaks become <br>.
+export function pastedTextHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>');
+}
+
 export function applyStyleMode(editor, mode = 'normal') {
   const manager = editor.StyleManager;
   const definitions = mode === 'website' ? websiteStyleSectors : mode === 'svg' ? svgStyleSectors : normalStyleSectors;

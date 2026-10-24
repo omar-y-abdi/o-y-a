@@ -149,3 +149,26 @@ test('A2 an SVG icon shrinks to 50x50 and an image keeps its proportions', async
   expect(pic.style.height).toBe('auto');
   expect(pic.style['min-height']).toBeUndefined();
 });
+
+const WORD = '<html xmlns:o="urn:schemas-microsoft-com:office:office"><body><!--StartFragment--><p class=MsoNormal style="margin:0cm"><span style="font-size:12.0pt">Rad ett<o:p></o:p></span></p><p class=MsoNormal><span style="font-size:12.0pt">Rad två<o:p></o:p></span></p><!--EndFragment--></body></html>';
+const DOCS = `<meta charset='utf-8'><b style="font-weight:normal;" id="docs-internal-guid-1"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000">Rad ett</span><br><span style="font-size:11pt;font-family:Arial,sans-serif;color:#ff0000">Rad två</span></b>`;
+for (const [source, html] of [['Word', WORD], ['Google Docs', DOCS]]) {
+  test(`A5 pasting ${source} gives plain text with <br> that passes validation`, async ({ page }) => {
+    await openStudio(page, { html: '<div><p id="t">Före</p></div>' });
+    const canvas = page.frameLocator('iframe.gjs-frame');
+    await canvas.locator('#t').dblclick();
+    const result = await canvas.locator('#t').evaluate((el, [html]) => {
+      const doc = el.ownerDocument, win = doc.defaultView, selection = doc.getSelection(), range = doc.createRange();
+      el.focus(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range);
+      const data = new win.DataTransfer();
+      data.setData('text/plain', 'Rad ett\nRad två');
+      data.setData('text/html', html);
+      el.dispatchEvent(new win.ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      return el.innerHTML;
+    }, [html]);
+    expect(result).toBe('Rad ett<br>Rad två');
+    const saved = await page.evaluate(() => window.__studio.snapshot(true));
+    expect(saved.html).not.toMatch(/o:p|class=|style=|<!--/);
+    expect(() => validateHtml(saved.html)).not.toThrow();
+  });
+}

@@ -71,3 +71,10 @@ test('SVG group resize composes a geometry scale transform instead of CSS width 
   resize.updateTarget(null,{w:80,h:40},{store:false});
   assert.match(group.getAttributes().transform,/rotate\(5\).*scale\(2 2\)/);
 });
+
+test('pasted text is escaped and keeps line breaks as <br>',async()=>{
+  const { pastedTextHtml }=await import('../src/cms/client/editor-policy.mjs');
+  assert.equal(pastedTextHtml('a\r\nb\nc\rd'),'a<br>b<br>c<br>d');
+  assert.equal(pastedTextHtml('1 < 2 & <o:p>'),'1 &lt; 2 &amp; &lt;o:p&gt;');
+  assert.equal(pastedTextHtml(''),'');
+});

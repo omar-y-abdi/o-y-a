@@ -1,7 +1,7 @@
 import grapesjs from 'grapesjs';
 import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
-import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle } from './editor-policy.mjs';
+import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle, pastedTextHtml } from './editor-policy.mjs';
 import { ensureComponentIdentity } from './view-state.mjs';
 
 export function createEditor({ page, cssPath, assets, onChange, onSelect, onReady, onAssetPick }) {
@@ -29,6 +29,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     storageManager: { type: null, autosave: false, autoload: false }, noticeOnUnload: false, panels: { defaults: [] },
     fromElement: false, avoidInlineStyle: true, protectedCss: '',
     selectorManager: { componentFirst: true },
+    richTextEditor: { onPaste: ({ ev, rte }) => { ev.preventDefault(); rte.doc.execCommand('insertHTML', false, pastedTextHtml(ev.clipboardData.getData('text'))); } },
     parser: { optionsHtml: { allowScripts: false, allowUnsafeAttr: false, allowUnsafeAttrValue: false } },
     canvas: { styles: [cssPath], scripts: [], frameContent: '<!doctype html><html lang="sv"><head></head><body></body></html>' },
     canvasCss: 'html{scroll-behavior:auto!important}body{margin:0!important}.gjs-dashed *[data-cms-node]{outline-offset:0}.js-only[hidden]{display:initial!important}',
