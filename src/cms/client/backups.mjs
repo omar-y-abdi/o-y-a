@@ -49,7 +49,7 @@ export class Backups {
     modal.addEventListener('cancel', keepOpen);
     dialog('<span class="dialog-eyebrow">RESERVUTKAST</span><h2>Återställer utkastet</h2><p role="status">Kontrollerar och läser in din reservkopia. Vänta tills utkastet är redo.</p>');
     try {
-      const verified = await api('recover', { project: record.project, pendingSave: record.pendingSave, baseVersion: record.version });
+      const verified = await api('recover', { project: record.project, pendingSave: record.pendingSave });
       if (verified.pendingSave && verified.pendingSave.baseVersion !== record.version) throw new Error('Reservutkastet hör till en annan version.');
       const base = await api(`revision/${record.version}`);
       this.flush();

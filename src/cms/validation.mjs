@@ -326,17 +326,22 @@ export function rekeyHtml(source) {
   return serialize(tree);
 }
 
-// Tabs, drafts and backups from older builds carry positional keys. Rename them
-// with a map from the stored base revision's raw HTML, never from the draft.
-export function migrateKeys(project, stored) {
-  if (!Array.isArray(project?.pages) || !Array.isArray(stored?.pages)) return project;
+const own = (table, key) => typeof key === 'string' && table && Object.hasOwn(table, key) ? table[key] : undefined;
+// Tabs, drafts and backups from builds up to e5592bc carry positional keys.
+// Rename them through that build's frozen map (src/cms/legacy-keys.json),
+// chosen by template lineage as validateProject chooses contracts (page id,
+// then sourceId, then blank). Never from the draft's attributes or a revision.
+export function migrateKeys(project, legacy) {
+  if (!Array.isArray(project?.pages) || !legacy) return project;
   const pages = project.pages.map(page => {
-    const base = stored.pages.find(item => item?.id === page?.id);
-    if (typeof page?.html !== 'string' || typeof base?.html !== 'string' || hasSignatureKeys(page.html)) return page;
-    const map = new Map(keyed(base.html).pairs.map(([node, key]) => [attr(node, 'data-cms-node'), key]).filter(([old, key]) => old && old !== key));
+    if (typeof page?.html !== 'string' || hasSignatureKeys(page.html)) return page;
+    const map = own(legacy.pages, page.id) ?? own(legacy.pages, page.sourceId) ?? legacy.blank;
     const tree = parseFragment(page.html, { scriptingEnabled: true });
     let renamed = false;
-    traverse(tree, node => { const key = node.tagName && map.get(attr(node, 'data-cms-node')); if (key) { setKey(node, key); renamed = true; } });
+    traverse(tree, node => {
+      const old = node.tagName && attr(node, 'data-cms-node'), key = own(map, old);
+      if (key && key !== old) { setKey(node, key); renamed = true; }
+    });
     return renamed ? { ...page, html: serialize(tree) } : page;
   });
   return pages.every((page, index) => page === project.pages[index]) ? project : { ...project, pages };

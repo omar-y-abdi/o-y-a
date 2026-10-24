@@ -4,6 +4,7 @@ import { errorResponse, HttpError, json, readBytes, readJson, requireWriteReques
 import { validateProject } from './project.mjs';
 import { migrateKeys } from './validation.mjs';
 import { normalizeStoredProject, refreshDevelopers } from './shared-content.mjs';
+import LEGACY_KEYS from './legacy-keys.json' with { type: 'json' };
 import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
@@ -11,12 +12,14 @@ import { applyProjectChanges, validateProjectChanges } from './project-changes.m
 import { SKIFT_PATH } from '../content/skift.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
+// The one ingress for every project a client sends. Old tabs and drafts: A1a
+// refreshes a stale /developers/ first (fingerprint on raw bytes), then their
+// positional keys go through the frozen e5592bc map. Stored data uses rekeyHtml.
+export const normalizeClientProject = (project, seed) => migrateKeys(refreshDevelopers(project, seed), LEGACY_KEYS);
 
 export async function handleAdmin(request, env, { seed, initial, built }) {
   const storedProject = project => normalizeStoredProject(project, seed, initial);
-  // Old tabs and drafts: refresh a stale /developers/ (A1a fingerprint on raw
-  // bytes) before positional keys are mapped through the stored base revision.
-  const fromClient = (project, base) => migrateKeys(refreshDevelopers(project, seed), base);
+  const fromClient = project => normalizeClientProject(project, seed);
   try {
     const identity = await authenticateAdmin(request, env);
     const url = new URL(request.url);
@@ -73,7 +76,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       if (body.action === 'finalize') {
         const operation = await managedSvgOperation(env, builtin, body.operationId);
         if (!operation.derivative_media_id || !['prepared','committed','completed'].includes(operation.state)) throw new HttpError(409, 'SVG-sparningen saknar ett färdigt PNG-derivat.');
-        const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });
+        const project = validateProject(fromClient(body.project), seed, null, { publication: false, origins: [url.origin] });
         const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), operation.derivative_media_id].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
         const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
         const assets = resourceCatalog(builtinSeed, selectedAssets, project);
@@ -93,14 +96,14 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const { id, ...patch } = body;
         return json({ asset: builtin ? await updateBuiltinAsset(env.CMS_DB, builtin, patch) : await updateAsset(env.CMS_DB, id, patch) });
       }
-      const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });
+      const project = validateProject(fromClient(body.project), seed, null, { publication: false, origins: [url.origin] });
       if (url.pathname === '/admin/api/asset-usage') return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }, project));
       const input = { action: body.action, baseVersion: body.baseVersion, baseSiteVersion: body.baseSiteVersion, project };
       return json(builtin ? await transitionBuiltinAsset(env.CMS_DB, builtin, input) : await transitionAsset(env, { id: body.id, ...input }));
     }
     if (['/admin/api/replace-resource', '/admin/api/resource-usage'].includes(url.pathname)) {
       const body = await readJson(request, 16 * 1024 * 1024);
-      const project = validateProject(body.project, seed, null, { publication: false, origins: [url.origin] });
+      const project = validateProject(fromClient(body.project), seed, null, { publication: false, origins: [url.origin] });
       const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
       const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
       const assets = resourceCatalog(builtinSeed, selectedAssets, project);
@@ -115,9 +118,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     if (url.pathname === '/admin/api/recover') {
       const body = await readJson(request, 16 * 1024 * 1024);
-      // Old drafts carry positional keys: map them via their stored base revision.
-      const stored = Number.isSafeInteger(body.baseVersion) && body.baseVersion > 0 ? await readSite(env.CMS_DB, body.baseVersion) : null;
-      const project = validateProject(fromClient(body.project, stored?.project), seed, null, { origins: [url.origin], publication: false });
+      const project = validateProject(fromClient(body.project), seed, null, { origins: [url.origin], publication: false });
       const warnings = [];
       try { publicationChunks(validateProject(structuredClone(project), seed, null, { origins: [url.origin] })); }
       catch (error) { if (![422, 413].includes(error.status)) throw error; warnings.push(error.message); }
@@ -132,8 +133,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const allowed = new Set(['baseVersion', 'requestId', legacy ? 'project' : 'changes']);
         if ((!legacy && !delta) || Object.keys(pending).some(key => !allowed.has(key)) || delta && body.baseVersion !== undefined && pending.baseVersion !== body.baseVersion) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
         if (legacy) {
-          const pendingBase = pending.baseVersion > 0 ? await readSite(env.CMS_DB, pending.baseVersion) : null;
-          validateProject(fromClient(structuredClone(pending.project), pendingBase?.project), seed, null, { origins: [url.origin], publication: false });
+          validateProject(fromClient(structuredClone(pending.project)), seed, null, { origins: [url.origin], publication: false });
           pendingSave = { project: pending.project, baseVersion: pending.baseVersion, requestId: pending.requestId };
         } else {
           if (pending.baseVersion === 0) throw new HttpError(422, 'Första reservutkastet kräver hela webbplatsen.');
@@ -146,7 +146,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
           let candidate;
           try { candidate = applyProjectChanges(base, changes); }
           catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
-          validateProject(fromClient(candidate, saved.project), seed, base, { origins: [url.origin], publication: false });
+          validateProject(fromClient(candidate), seed, base, { origins: [url.origin], publication: false });
           pendingSave = pending;
         }
       }
@@ -156,7 +156,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const body = await readJson(request, 8 * 1024 * 1024);
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
+      const project = validateProject(fromClient(body.project), seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project);
       if (body.resources !== undefined) await validatePackageResources(env.CMS_DB, body.resources);
       await publicationMedia(env.CMS_DB, project);
@@ -205,17 +205,14 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         try { candidate = applyProjectChanges(baseline, changes); }
         catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
         // After the replay check, so a replayed pendingSave keeps its payload hash.
-        const project = validateProject(fromClient(candidate, stored?.project), seed, baseline, { origins: [url.origin] });
+        const project = validateProject(fromClient(candidate), seed, baseline, { origins: [url.origin] });
         const references = resourceReferences(project);
         await validateReferencedMedia(env, project, references);
         return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references }));
       }
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      // A replayed full save finds its revision in publishSite, after validation:
-      // map its positional keys through the revision it was based on.
-      const base = (stored?.version ?? 0) === body.baseVersion ? stored : await readSite(env.CMS_DB, body.baseVersion);
-      const project = validateProject(fromClient(body.project, base?.project), seed, baseline, { origins: [url.origin] });
+      const project = validateProject(fromClient(body.project), seed, baseline, { origins: [url.origin] });
       const references = resourceReferences(project);
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));
