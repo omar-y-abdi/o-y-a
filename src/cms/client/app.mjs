@@ -237,7 +237,7 @@ function openWin(id) {
       document.querySelectorAll('[data-card-text] br').forEach(br => br.replaceWith('\n'));
       const text = document.querySelector('[data-card-text]')?.textContent ?? card().text;
       updateCard(id, { text, design: values });
-    }, onSelect: inspect, onAssetPick: pickImage,
+    }, onBoundary: () => draft.boundary(), onSelect: inspect, onAssetPick: pickImage,
     onReady: editor => {
       editor.getWrapper().find('[data-card-text]').forEach(component => { for (let node = component; node; node = node.parent()) protectComponent(node); });
       editor.Canvas.getDocument().addEventListener('keydown', shortcuts, true); $('#loading-state').hidden = true; setDevice(device === 'compare' ? 'desktop' : device, false); if (!restorePendingView(editor)) { fit(); inspect(null, editor); }

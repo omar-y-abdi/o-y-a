@@ -432,8 +432,52 @@ with sync_playwright() as pw:
             assert width() == mid, ('only the second resize reverts', original, mid, second, width())
         finally: ctx.close()
 
+    def resize_then_immediate_edit(page, locate, select_target):
+        # Resize, then at once (no wait) an inspector colour edit: Undo reverts only the colour, a second Undo the size.
+        def width(): return round(locate().evaluate('el => el.getBoundingClientRect().width'))
+        def colour(): return locate().evaluate('el => getComputedStyle(el).backgroundColor')
+        select_target()
+        original, original_colour = width(), colour()
+        handle = page.locator('.gjs-resizer-h-br'); expect(handle).to_be_visible()
+        box = handle.bounding_box(); x, y = box['x']+box['width']/2, box['y']+box['height']/2
+        page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x+40, y, steps=4); page.mouse.move(x+80, y, steps=4); page.mouse.up()
+        page.locator('summary', has_text='Fler stilegenskaper').click()
+        page.locator('#extra-property').fill('background-color'); page.locator('#extra-value').fill('rgb(200,10,10)')
+        page.locator('#apply-property').click()
+        resized = width(); assert resized > original, (original, resized)
+        page.locator('[data-action=undo]').click(); ready(page); select_target()
+        assert width() == resized and colour() == original_colour, ('first Undo reverts only the colour', original, resized, width(), colour())
+        page.locator('[data-action=undo]').click(); ready(page); select_target()
+        assert width() == original, ('second Undo reverts the size', original, width())
+
+    def resize_then_immediate_edit_page():
+        ctx = context()
+        try:
+            state = api(ctx, 'state').json(); project = state['project']
+            box = '<div id="rbox2" style="width:200px;height:100px;background-color:rgb(10,20,30)"></div>'
+            project['pages'].append({**state['blank'], 'id': 'review-resize2', 'sourceId': 'blank', 'path': '/review-resize2/', 'html': state['blank']['html'].replace('</main>', box+'</main>')})
+            publish(ctx, project)
+            page = admin(ctx); page.locator('[data-page-id=review-resize2]').click(); ready(page)
+            locate = lambda: Q.frame(page).locator('#rbox2')
+            def select_target(): locate().scroll_into_view_if_needed(); locate().click()
+            resize_then_immediate_edit(page, locate, select_target)
+        finally: ctx.close()
+
+    def resize_then_immediate_edit_card():
+        # Card editors share the Draft via updateCard (group win-<id>); the first card's first element stands in for the box.
+        ctx = context()
+        try:
+            page = admin(ctx)
+            page.locator('[data-library=assets]').click(); page.locator('[data-special=wins]').click()
+            page.locator('.win-card').first.click(); ready_win = page.locator('#win-text'); expect(ready_win).to_be_visible(timeout=15000)
+            qa.CMSBrowserQA.wait_canvas(page)
+            locate = lambda: Q.frame(page).locator('[data-card-text]').locator('xpath=..')
+            def select_target(): locate().click(); page.locator('#select-parent').click() if not page.locator('.gjs-resizer-h-br').count() else None
+            resize_then_immediate_edit(page, locate, select_target)
+        finally: ctx.close()
+
     cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('rapid-inline-save-diagnostic',rapid_inline_save_diagnostic),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
-    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save),('resize-is-one-undo-step',resize_is_one_undo_step)]
+    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save),('resize-is-one-undo-step',resize_is_one_undo_step),('resize-then-immediate-edit-page',resize_then_immediate_edit_page),('resize-then-immediate-edit-card',resize_then_immediate_edit_card)]
     selected=os.environ.get('CMS_REVIEW_CASE')
     for name,run in cases:
         if not selected or selected in name: report.run(name,run)
