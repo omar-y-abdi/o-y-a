@@ -189,3 +189,17 @@ test('A12 shapes inside the managed SVG are selectable, the root stays fixed and
   await dragCorner(page, 60, 60);
   expect(await page.evaluate(() => window.__ed.getWrapper().find('#grp')[0].getAttributes().transform)).toMatch(/scale\(/);
 });
+
+test('Backspace and Delete remove a fully selected text block', async ({ page }) => {
+  for (const key of ['Backspace', 'Delete']) {
+    await openStudio(page, { html: '<div><p id="t">Hela texten</p></div>' });
+    const canvas = page.frameLocator('iframe.gjs-frame');
+    await canvas.locator('#t').dblclick();
+    await canvas.locator('#t').evaluate(el => {
+      const doc = el.ownerDocument, selection = doc.getSelection(), range = doc.createRange();
+      el.focus(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range);
+    });
+    await page.keyboard.press(key);
+    await expect.poll(() => canvas.locator('#t').evaluate(el => el.textContent.trim())).toBe('');
+  }
+});
