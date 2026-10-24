@@ -21,7 +21,11 @@ function text(value, name, max = 200, min = 1) {
   return value.trim();
 }
 
-export function validateProject(input, seed, baseline, { origins = [], publication = true } = {}) {
+export const validateProject = (input, seed, baseline, options) => validateProjectWithReferences(input, seed, baseline, options).project;
+
+// A16: a publication also returns the resource references it computed, so the
+// save path walks the project once. References are null for a draft check.
+export function validateProjectWithReferences(input, seed, baseline, { origins = [], publication = true } = {}) {
   if (!input || input.schemaVersion !== 1 || !Array.isArray(input.pages) || input.pages.length < 1 || input.pages.length > 64) fail('Projektets sidregister är ogiltigt.');
   input = normalizeFooterProject(input, seed);
   input = normalizeSkiftProject(input, seed);
@@ -136,15 +140,20 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
     if (publication && variables(value) !== variables(seed.runtime?.[key] ?? '')) fail(`Texten ${key} måste behålla samma dynamiska värden inom klamrar.`);
   }
   const sharedContent = normalizeSharedContent(input.sharedContent, seed);
-  validateSharedInstances(pages, sharedContent, { publication, requiredEverywhere: Object.keys(seed.sharedContent ?? {}) });
+  // A16: a published baseline already passed this check for every page whose HTML it
+  // still holds, so only changed pages (all pages when sharedContent changed) are parsed.
+  const storedHtml = new Map((baseline?.pages ?? []).map(page => [page.id, page.html]));
+  const sharedUnchanged = JSON.stringify(baseline?.sharedContent) === JSON.stringify(sharedContent);
+  validateSharedInstances(sharedUnchanged ? pages.filter(page => storedHtml.get(page.id) !== page.html) : pages, sharedContent, { publication, requiredEverywhere: Object.keys(seed.sharedContent ?? {}) });
   const result = { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources), sharedContent };
+  const references = publication ? resourceReferences(result) : null;
   if (publication && seed.staticPaths) {
     const inventory = new Set(seed.staticPaths);
-    for (const path of resourceReferences(result).keys()) {
+    for (const path of references.keys()) {
       if (/^\/(?:assets|social|mail|cms-public)\//.test(path) || ['/favicon.svg', '/apple-touch-icon.png'].includes(path)) {
         if (!inventory.has(path)) fail(`Resursen ${path} finns inte i webbplatsens byggda filer.`);
       }
     }
   }
-  return result;
+  return { project: result, references };
 }

@@ -1,7 +1,7 @@
 import { authenticateAdmin } from './auth.mjs';
 import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, completeManagedSvg, finalizeManagedSvg, managedSvgOperation, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, prepareManagedSvg, stageManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateManagedSvg, validatePackageResources, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
-import { validateProject } from './project.mjs';
+import { validateProject, validateProjectWithReferences } from './project.mjs';
 import { migrateKeys } from './validation.mjs';
 import { normalizeStoredProject, refreshDevelopers } from './shared-content.mjs';
 import LEGACY_KEYS from './legacy-keys.json' with { type: 'json' };
@@ -205,15 +205,13 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         try { candidate = applyProjectChanges(baseline, changes); }
         catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
         // After the replay check, so a replayed pendingSave keeps its payload hash.
-        const project = validateProject(fromClient(candidate), seed, baseline, { origins: [url.origin] });
-        const references = resourceReferences(project);
+        const { project, references } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
         await validateReferencedMedia(env, project, references);
         return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references }));
       }
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      const project = validateProject(fromClient(body.project), seed, baseline, { origins: [url.origin] });
-      const references = resourceReferences(project);
+      const { project, references } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));
     }
