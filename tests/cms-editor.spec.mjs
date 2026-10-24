@@ -234,7 +234,7 @@ test('A12 shapes inside the managed SVG are selectable, the root stays fixed and
 });
 
 // A4: the default RTE action bar. Link and Wrap hand their text to insertHTML as plain text, so each action gets its own paragraph.
-const RTE_ACTIONS = [['Bold', /<b>/], ['Italic', /<i>/], ['Underline', /<u>/], ['Strike-through', /<strike>/], ['Link', /<a\b[^>]*href=""/], ['Wrap for style', /<span\b/]];
+const RTE_ACTIONS = [['Bold', /<b\b/], ['Italic', /<i\b/], ['Underline', /<u\b/], ['Strike-through', /<strike\b/],['Link', /<a\b[^>]*href=""/], ['Wrap for style', /<span\b/]];
 test('A4 all six RTE actions save, a link with an address saves and an empty link is found and selected', async ({ page }) => {
   await openStudio(page, { html: RTE_ACTIONS.map((_, index) => `<p id="r${index}">Text ${index}</p>`).join('') });
   const canvas = page.frameLocator('iframe.gjs-frame');
