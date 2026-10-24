@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { publishSite } from '../src/cms/store.mjs';
+import { DEFAULT_EMAIL } from '../src/server/email-render.mjs';
 
 let runtime, authorization;
 before(async () => { runtime = await cmsRuntime(); authorization = await runtime.token(); });
@@ -304,4 +305,31 @@ test('version-zero deltas are rejected while legacy full-snapshot recovery remai
     assert.equal(legacyRecovery.status, 200, await legacyRecovery.clone().text());
     assert.deepEqual((await legacyRecovery.json()).pendingSave, legacyPending);
   } finally { await isolated.close(); }
+});
+
+test('a revision without email gets default templates and restores', async () => {
+  const emailRow = async version => (await runtime.db.prepare("SELECT html FROM cms_rendered WHERE version = ? AND path = '@email'").bind(version).first())?.html;
+  const first = await versionedState();
+  assert.equal(Object.hasOwn(first.project, 'email'), false);
+  assert.equal(await emailRow(first.version), 'null');
+
+  const email = structuredClone(DEFAULT_EMAIL);
+  email.templates.receipt.subject = 'Ett nytt litet kvitto';
+  const edit = await admin('save', { baseVersion: first.version, requestId: crypto.randomUUID(), changes: { email } });
+  assert.equal(edit.status, 200, await edit.clone().text());
+  const edited = await (await admin('state')).json();
+  assert.deepEqual(edited.project.email, email);
+  assert.deepEqual(JSON.parse(await emailRow(edited.version)), email);
+
+  // Restoring the first revision as a delta removes the key with email: null.
+  const historical = await (await admin(`revision/${first.version}`)).json();
+  const pendingSave = { baseVersion: edited.version, requestId: crypto.randomUUID(), changes: { email: null } };
+  const recovered = await admin('recover', { project: historical.project, pendingSave });
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  assert.deepEqual((await recovered.json()).pendingSave, pendingSave);
+  const restored = await admin('save', pendingSave);
+  assert.equal(restored.status, 200, await restored.clone().text());
+  const head = await (await admin('state')).json();
+  assert.equal(Object.hasOwn(head.project, 'email'), false);
+  assert.equal(await emailRow(head.version), 'null');
 });
