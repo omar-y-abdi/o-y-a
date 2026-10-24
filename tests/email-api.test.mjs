@@ -371,6 +371,123 @@ test('a refusal on a retry retains an older ambiguous intent and its claim', asy
   assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, 'mail/' + request.requestId);
 });
 
+test('every E3/E4 provider refusal on an existing intent remains uncertain', async () => {
+  for (const kind of ['test', 'send']) for (const [status, cmsStatus] of [[400, 422], [401, 502], [403, 502], [409, 409], [422, 422], [429, 429]]) {
+    const request = kind === 'test' ? { requestId: crypto.randomUUID(), template: 'receipt', email: null } : compose();
+    const path = '/admin/api/mail/' + kind, key = `${kind === 'test' ? 'mail-test' : 'mail'}/${request.requestId}`;
+    assert.equal((await run(post(path, request), env(), provider(() => new Response('down', { status: 500 })).fetch)).status, 503);
+    const p = provider(() => Response.json({ message: 'refused' }, { status }));
+    const response = await run(post(path, request), env(), p.fetch);
+    assert.equal(response.status, cmsStatus);
+    const error = await response.json();
+    assert.equal(error.details?.uncertain, true);
+    assert.match(error.error, /första försöket kan redan ha skickats/i);
+    assert.match(error.error, /Kontrollera.*https:\/\/resend.com\/emails/);
+    assert.equal((await requestRow(key)).resend_id, null);
+    assert.equal(p.calls.length, 1);
+  }
+});
+
+test('existing intents keep uncertainty on validation, limiter and storage errors', async t => {
+  const logs = [];
+  t.mock.method(console, 'error', entry => logs.push(JSON.parse(entry)));
+  const file = await addFile(10, iso(START + 2 * 3600000));
+  const requests = [
+    ['send', compose({ scheduledAt: iso(START + 120000) }), 'scheduledAt'],
+    ['send', compose({ attachments: [{ kind: 'upload', id: file }] }), 'attachments'],
+    ['test', { requestId: crypto.randomUUID(), template: 'receipt', email: structuredClone(DEFAULT_EMAIL) }, 'templates.receipt.subject'],
+  ];
+  for (const [kind, request, field] of requests) {
+    clock = START;
+    const path = '/admin/api/mail/' + kind;
+    assert.equal((await run(post(path, request), env(), provider(() => new Response('down', { status: 500 })).fetch)).status, 503);
+    if (kind === 'test') request.email.templates.receipt.subject = '';
+    clock = START + (field === 'attachments' ? 3600001 : 60001);
+    const p = provider(), response = await run(post(path, request), env(), p.fetch);
+    assert.equal(response.status, 422);
+    const error = await response.json();
+    assert.equal(error.details.field, field);
+    assert.equal(error.details?.uncertain, true);
+    assert.match(error.error, /https:\/\/resend.com\/emails/);
+    assert.equal((await requestRow(`${kind === 'test' ? 'mail-test' : 'mail'}/${request.requestId}`)).resend_id, null);
+    assert.equal(p.calls.length, 0);
+  }
+  for (const kind of ['test', 'send']) {
+    clock = START;
+    limiter.success = true;
+    const request = kind === 'test' ? { requestId: crypto.randomUUID(), template: 'receipt', email: null } : compose();
+    const path = '/admin/api/mail/' + kind;
+    assert.equal((await run(post(path, request), env(), provider(() => new Response('down', { status: 500 })).fetch)).status, 503);
+    limiter.success = false;
+    const p = provider(), response = await run(post(path, request), env(), p.fetch);
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get('Retry-After'), '60');
+    const error = await response.json();
+    assert.equal(error.details?.uncertain, true);
+    assert.match(error.error, /https:\/\/resend.com\/emails/);
+    assert.equal((await requestRow(`${kind === 'test' ? 'mail-test' : 'mail'}/${request.requestId}`)).resend_id, null);
+    assert.equal(p.calls.length, 0);
+    const db = { prepare(sql) {
+      if (sql.includes('FROM cms_builtin_resource_state')) throw new Error('D1_ERROR: read lost');
+      return runtime.db.prepare(sql);
+    }, batch: statements => runtime.db.batch(statements) };
+    const failed = await run(post(path, request), env({ CMS_DB: db }), p.fetch);
+    assert.equal(failed.status, 503);
+    assert.equal((await failed.json()).details?.uncertain, true);
+    assert.equal((await requestRow(`${kind === 'test' ? 'mail-test' : 'mail'}/${request.requestId}`)).resend_id, null);
+    assert.equal(p.calls.length, 0);
+  }
+  assert.ok(logs.some(entry => entry.event === 'cms_failure' && entry.operation === 'mail' && entry.code === 'storage-d1'));
+});
+
+test('duplicate upload and resource attachment ids fail before claiming or calling Resend', async () => {
+  for (const [kind, id] of [['upload', await addFile(10, iso(START + 86400000))], ['resource', await addMedia('image/png')]]) {
+    const p = provider(), response = await run(post('/admin/api/mail/send', compose({ attachments: [{ kind, id }, { kind, id }] })), env(), p.fetch);
+    assert.equal(response.status, 422);
+    const error = await response.json();
+    assert.equal(error.details.field, 'attachments');
+    assert.match(error.error, /samma bilaga/i);
+    assert.equal(p.calls.length, 0);
+    assert.equal(await sentCount(), 0);
+  }
+});
+
+test('E3/E4 require published, non-trashed block images, including Outlook and slots', async () => {
+  const published = await addMedia('image/png'), unpublished = await addMedia('image/png', false), trashed = await addMedia('image/png');
+  await runtime.db.prepare('UPDATE cms_media SET trashed_at = ? WHERE id = ?').bind(iso(START), trashed).run();
+  for (const kind of ['test', 'send']) for (const field of ['src', 'msoSrc', 'slot']) for (const [id, status] of [[published, 200], [unpublished, 422], [trashed, 422], [crypto.randomUUID(), 422]]) {
+    const email = structuredClone(DEFAULT_EMAIL), index = email.templates.receipt.blocks.findIndex(block => block.type === 'image');
+    const block = email.templates.receipt.blocks[index], src = `/media/${id}.png`;
+    block[field === 'slot' ? 'src' : field] = field === 'slot' ? 'emailStatic' : src;
+    block.alt = 'En bild';
+    const request = kind === 'test' ? { requestId: crypto.randomUUID(), template: 'receipt', email } : compose({ blocks: email.templates.receipt.blocks });
+    const p = provider(() => Response.json({ id: crypto.randomUUID() }));
+    const response = await run(post('/admin/api/mail/' + kind, request), env(), p.fetch, field === 'slot' ? { resources: { emailStatic: src } } : {});
+    assert.equal(response.status, status, `${kind}/${field}/${id}`);
+    assert.equal(p.calls.length, status === 200 ? 1 : 0);
+    if (status === 422) {
+      const error = await response.json();
+      assert.equal(error.details.field, `${kind === 'test' ? 'templates.receipt.' : ''}blocks[${index}].${field === 'slot' ? 'src' : field}`);
+      assert.match(error.error, /Bilden.*publicerad/);
+    }
+  }
+});
+
+test('E3/E4 check all block image references in one media query', async () => {
+  const ids = [await addMedia('image/png'), await addMedia('image/png')];
+  for (const kind of ['test', 'send']) {
+    const email = structuredClone(DEFAULT_EMAIL), image = email.templates.receipt.blocks.find(block => block.type === 'image');
+    Object.assign(image, { src: `/media/${ids[0]}.png`, msoSrc: `/media/${ids[1]}.png`, alt: 'Två bilder' });
+    let queries = 0;
+    const db = { prepare(sql) { if (sql.includes('FROM cms_media')) queries++; return runtime.db.prepare(sql); }, batch: statements => runtime.db.batch(statements) };
+    const request = kind === 'test' ? { requestId: crypto.randomUUID(), template: 'receipt', email } : compose({ blocks: email.templates.receipt.blocks });
+    const p = provider(() => Response.json({ id: crypto.randomUUID() }));
+    assert.equal((await run(post('/admin/api/mail/' + kind, request), env({ CMS_DB: db }), p.fetch)).status, 200);
+    assert.equal(queries, 1);
+    assert.equal(p.calls.length, 1);
+  }
+});
+
 test('custom mail replies go to the site address', async () => {
   const p = provider();
   const request = compose();
@@ -610,6 +727,24 @@ test('removal between eligibility and intent prevents sending and releases parti
   assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(ids[0]).first()).claimed_by, null);
 });
 
+test('claim mismatch still returns 422 and reports a failed discard', async t => {
+  const id = await addFile(10, iso(START + 86400000)), logs = [];
+  t.mock.method(console, 'error', entry => logs.push(JSON.parse(entry)));
+  let batches = 0;
+  const db = { prepare: sql => runtime.db.prepare(sql), async batch(statements) {
+    if (++batches === 1) {
+      await runtime.db.prepare('DELETE FROM cms_mail_files WHERE id = ?').bind(id).run();
+      return runtime.db.batch(statements);
+    }
+    throw new Error('D1_ERROR: discard lost');
+  } };
+  const p = provider(), response = await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id }] })), env({ CMS_DB: db }), p.fetch);
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).details.field, 'attachments');
+  assert.equal(p.calls.length, 0);
+  assert.ok(logs.some(entry => entry.event === 'cms_failure' && entry.operation === 'mail' && entry.code === 'storage-d1'));
+});
+
 test('unconfirmed retries stop after 23 hours for E3 and E4', async () => {
   for (const kind of ['test', 'send']) {
     clock = START;
@@ -630,15 +765,21 @@ test('unconfirmed retries stop after 23 hours for E3 and E4', async () => {
   }
 });
 
-test('young unconfirmed intents survive eviction and remain listed beyond latest 100', async () => {
+test('unconfirmed intents older than 24 hours survive finalize, stay listed and cannot reach Resend on retry', async () => {
   const request = compose({ subject: 'Obekräftat äldre utskick' });
   assert.equal((await run(post('/admin/api/mail/send', request), env(), provider(() => new Response('down', { status: 500 })).fetch)).status, 503);
+  clock = START + 25 * 3600000;
   const p = provider();
   for (let index = 0; index < 101; index++) assert.equal((await run(post('/admin/api/mail/test', { requestId: crypto.randomUUID(), template: 'receipt', email: null }), env(), p.fetch)).status, 200);
   const { items } = await (await run(get('/admin/api/mail/sent'), env())).json();
   assert.equal(items.length, 101);
   assert.ok(items.some(item => item.subject === request.subject && !item.confirmed));
   assert.equal(await sentCount(), items.length);
+  assert.equal((await requestRow('mail/' + request.requestId)).resend_id, null);
+  const retry = provider(), response = await run(post('/admin/api/mail/send', request), env(), retry.fetch);
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).details.uncertain, true);
+  assert.equal(retry.calls.length, 0);
 });
 
 test('cleanup relinquishes D1 rows before deleting R2 objects', async () => {
@@ -663,6 +804,7 @@ test('remove succeeds and reports private orphan when R2 deletion fails', async 
   assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(id).first(), null);
   assert.ok(bucket.objects.has('mail-private/' + id));
   assert.ok(logs.some(entry => entry.event === 'cms_failure' && entry.operation === 'mail' && entry.code === 'storage-r2'));
+  assert.ok(logs.some(entry => entry.event === 'mail_orphan' && entry.key === 'mail-private/' + id));
 });
 
 test('failed cancel reconciles canceled status and records it once', async () => {
