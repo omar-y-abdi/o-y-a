@@ -226,12 +226,14 @@ export async function transitionAsset(env, { id, action, baseVersion, baseSiteVe
   const now = new Date().toISOString();
   const values = action === 'archive' ? [now, null] : action === 'restore' ? [null, null] : [null, now];
   const statement = action === 'trash'
-    ? env.CMS_DB.prepare('UPDATE cms_media SET archived_at = ?, trashed_at = ?, version = version + 1 WHERE id = ? AND version = ? AND deleting_at IS NULL AND (SELECT version FROM cms_head WHERE id = 1) = ? RETURNING *').bind(values[0], values[1], id, baseVersion, baseSiteVersion)
+    ? env.CMS_DB.prepare('UPDATE cms_media SET archived_at = ?, trashed_at = ?, version = version + 1 WHERE id = ? AND version = ? AND deleting_at IS NULL AND (SELECT version FROM cms_head WHERE id = 1) = ? AND NOT EXISTS (SELECT 1 FROM cms_revision_resource_index WHERE version = (SELECT version FROM cms_head WHERE id = 1) AND src = ?) RETURNING *').bind(values[0], values[1], id, baseVersion, baseSiteVersion, src)
     : env.CMS_DB.prepare('UPDATE cms_media SET archived_at = ?, trashed_at = ?, version = version + 1 WHERE id = ? AND version = ? AND deleting_at IS NULL RETURNING *').bind(values[0], values[1], id, baseVersion);
   const updated = await statement.first();
   if (!updated) {
     const latest = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
     if (!latest) throw new HttpError(404, 'Filen finns inte.');
+    // A18: the UPDATE itself refuses a file the published head uses; this read only names the reason.
+    if (action === 'trash' && await env.CMS_DB.prepare('SELECT 1 AS used FROM cms_revision_resource_index WHERE version = (SELECT version FROM cms_head WHERE id = 1) AND src = ?').bind(src).first()) throw new HttpError(409, 'Filen används på den publicerade webbplatsen. Spara utkastet utan filen först.', { asset: record(latest) });
     throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.', { asset: record(latest) });
   }
   return { asset: record(updated), usage: { currentReferences: refs, historyReferences: await retainedResourceUsage(env.CMS_DB, src) } };
