@@ -80,17 +80,25 @@ export function validateProject(input, seed, baseline, { origins = [], publicati
   });
   if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
   const targets = new Map([[SKIFT_PATH, new Set(seed.skiftIds ?? [])], ...pages.map(page => [page.path, new Set(page.facts.ids)])]);
-  for (const page of publication ? pages : []) for (const href of page.facts.links) {
+  // A3: every page with a broken link is reported in one 422, not one per save.
+  const linkProblem = (page, href) => {
     let link;
-    try { link = resolveSiteLink(href, page.path, origins); } catch { fail('Länkens adress eller ankare är ogiltigt.'); }
-    if (link.kind === 'external') continue;
+    try { link = resolveSiteLink(href, page.path, origins); } catch { return `Länkens adress eller ankare på ${page.path} är ogiltigt.`; }
+    if (link.kind === 'external') return null;
     if (link.kind === 'resource') {
-      if (link.path === '/login/' || link.path === '/login' || /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(link.path) || seed.staticPaths?.includes(link.path)) continue;
-      fail(`Länken ${href} på ${page.path} går till en resurs som saknas.`);
+      if (link.path === '/login/' || link.path === '/login' || /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(link.path) || seed.staticPaths?.includes(link.path)) return null;
+      return `Länken ${href} på ${page.path} går till en resurs som saknas.`;
     }
-    if (!targets.has(link.path)) fail(`Länken ${href} på ${page.path} går till en sida som saknas. Uppdatera länken innan du sparar.`);
-    if (link.hash && link.hash !== 'top' && !targets.get(link.path).has(link.hash)) fail(`Länken ${href} på ${page.path} saknar ett mål.`);
+    if (!targets.has(link.path)) return `Länken ${href} på ${page.path} går till en sida som saknas. Uppdatera länken innan du sparar.`;
+    if (link.hash && link.hash !== 'top' && !targets.get(link.path).has(link.hash)) return `Länken ${href} på ${page.path} saknar ett mål.`;
+    return null;
+  };
+  const brokenLinks = [];
+  for (const page of publication ? pages : []) {
+    const problem = page.facts.links.map(href => linkProblem(page, href)).find(Boolean);
+    if (problem) brokenLinks.push(problem);
   }
+  if (brokenLinks.length) fail(brokenLinks.join(' '));
   const cards = input.cards;
   if (!Array.isArray(cards) || cards.length > 2000) fail('Vinstbiblioteket är ogiltigt eller för stort.');
   const cardIds = new Set();
