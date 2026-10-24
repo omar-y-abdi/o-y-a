@@ -20,6 +20,11 @@ export const normalizeClientProject = (project, seed) => migrateKeys(refreshDeve
 export async function handleAdmin(request, env, { seed, initial, built }) {
   const storedProject = project => normalizeStoredProject(project, seed, initial);
   const fromClient = project => normalizeClientProject(project, seed);
+  // A16: the published head is the cache for pages a request leaves unchanged.
+  const publishedBaseline = async () => {
+    const stored = await readSite(env.CMS_DB);
+    return stored ? storedProject(stored.project) : initial;
+  };
   try {
     const identity = await authenticateAdmin(request, env);
     const url = new URL(request.url);
@@ -76,7 +81,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       if (body.action === 'finalize') {
         const operation = await managedSvgOperation(env, builtin, body.operationId);
         if (!operation.derivative_media_id || !['prepared','committed','completed'].includes(operation.state)) throw new HttpError(409, 'SVG-sparningen saknar ett färdigt PNG-derivat.');
-        const project = validateProject(fromClient(body.project), seed, null, { publication: false, origins: [url.origin] });
+        const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
         const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), operation.derivative_media_id].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
         const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
         const assets = resourceCatalog(builtinSeed, selectedAssets, project);
@@ -96,14 +101,14 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const { id, ...patch } = body;
         return json({ asset: builtin ? await updateBuiltinAsset(env.CMS_DB, builtin, patch) : await updateAsset(env.CMS_DB, id, patch) });
       }
-      const project = validateProject(fromClient(body.project), seed, null, { publication: false, origins: [url.origin] });
+      const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
       if (url.pathname === '/admin/api/asset-usage') return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }, project));
       const input = { action: body.action, baseVersion: body.baseVersion, baseSiteVersion: body.baseSiteVersion, project };
       return json(builtin ? await transitionBuiltinAsset(env.CMS_DB, builtin, input) : await transitionAsset(env, { id: body.id, ...input }));
     }
     if (['/admin/api/replace-resource', '/admin/api/resource-usage'].includes(url.pathname)) {
       const body = await readJson(request, 16 * 1024 * 1024);
-      const project = validateProject(fromClient(body.project), seed, null, { publication: false, origins: [url.origin] });
+      const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
       const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
       const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
       const assets = resourceCatalog(builtinSeed, selectedAssets, project);
@@ -118,9 +123,10 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     if (url.pathname === '/admin/api/recover') {
       const body = await readJson(request, 16 * 1024 * 1024);
-      const project = validateProject(fromClient(body.project), seed, null, { origins: [url.origin], publication: false });
+      const baseline = await publishedBaseline();
+      const project = validateProject(fromClient(body.project), seed, baseline, { origins: [url.origin], publication: false });
       const warnings = [];
-      try { publicationChunks(validateProject(structuredClone(project), seed, null, { origins: [url.origin] })); }
+      try { publicationChunks(validateProject(structuredClone(project), seed, baseline, { origins: [url.origin] })); }
       catch (error) { if (![422, 413].includes(error.status)) throw error; warnings.push(error.message); }
       // Recovery may replay an unresolved save only after the same security
       // validation. Keep its original payload, not a newly normalized attempt.
@@ -133,7 +139,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const allowed = new Set(['baseVersion', 'requestId', legacy ? 'project' : 'changes']);
         if ((!legacy && !delta) || Object.keys(pending).some(key => !allowed.has(key)) || delta && body.baseVersion !== undefined && pending.baseVersion !== body.baseVersion) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
         if (legacy) {
-          validateProject(fromClient(structuredClone(pending.project)), seed, null, { origins: [url.origin], publication: false });
+          validateProject(fromClient(structuredClone(pending.project)), seed, baseline, { origins: [url.origin], publication: false });
           pendingSave = { project: pending.project, baseVersion: pending.baseVersion, requestId: pending.requestId };
         } else {
           if (pending.baseVersion === 0) throw new HttpError(422, 'Första reservutkastet kräver hela webbplatsen.');

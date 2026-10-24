@@ -52,7 +52,8 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
     // An exact cache key avoids hash collisions and follows live contracts.
     // Only facts loaded from the trusted database may satisfy this comparison.
     const validationKey = JSON.stringify([VALIDATION_POLICY, contracts, publication]);
-    const compatible = saved?.facts?.validationKey === validationKey;
+    // Facts proven for a publication also satisfy a draft check, which asks for less.
+    const compatible = saved?.facts?.validationKey === validationKey || !publication && saved?.facts?.validationKey === JSON.stringify([VALIDATION_POLICY, contracts, true]);
     let html, facts;
     if (compatible && saved.sourceId === (source?.id ?? 'blank') && page.html === saved.html) {
       html = saved.html; facts = saved.facts;
