@@ -5,7 +5,7 @@ import { parseFragment, serialize } from 'parse5';
 import { initial, seed } from '../.generated/cms-seed.mjs';
 import { normalizeStoredProject, refreshDevelopers } from '../src/cms/shared-content.mjs';
 import { validateProject } from '../src/cms/project.mjs';
-import { hasSignatureKeys, migrateKeys, rekeyHtml, validateCss } from '../src/cms/validation.mjs';
+import { hasSignatureKeys, migrateKeys, rekeyHtml, validateCss, VALIDATION_POLICY } from '../src/cms/validation.mjs';
 import { normalizeClientProject } from '../src/cms/api.mjs';
 import { normalizeSkiftProject } from '../src/cms/skift.mjs';
 import { positionalKeys } from '../scripts/legacy-keys.mjs';
@@ -110,6 +110,23 @@ for (const [label, [path, change, expected]] of Object.entries(CASES)) {
     for (const [name, run] of Object.entries(paths)) expectOutcome(() => run(project), expected, `${label} (${name})`);
   });
 }
+
+// Stored facts let a page skip validateHtml while its HTML is unchanged. Facts proven
+// under policy 3 predate the consent lock, so they must not vouch for a locked button.
+test('A1b: a stored page accepted under the old validation policy is checked again on every path', () => {
+  const stored = validateProject(structuredClone(base), seed, structuredClone(base), opts);
+  const forged = edit(stored, '/om/', E => { setAttr(consent(E)[0], 'inert', ''); });
+  const page = forged.pages.find(item => item.path === '/om/');
+  const contracts = (seed.pages.find(item => item.id === page.id) ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank).contracts;
+  const baseline = policy => ({ ...forged, pages: forged.pages.map(item => item === page ? { ...item, facts: { ...item.facts, validationKey: JSON.stringify([policy, contracts, true]) } } : item) });
+  // Control: facts under the current policy are trusted, so the old key alone is what forces the check.
+  assert.doesNotThrow(() => validateProject(structuredClone(forged), seed, baseline(VALIDATION_POLICY), opts));
+  const old = baseline('cms-policy-3-canonical-editor-widget-preview');
+  assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), opts), NAME, 'full Save');
+  const draft = structuredClone(old); draft.pages.find(item => item.path === '/').description = 'Ändrad på en annan sida.';
+  assert.throws(() => validateProject(applyProjectChanges(structuredClone(old), validateProjectChanges(projectChanges(old, draft))), seed, structuredClone(old), opts), NAME, 'delta Save');
+  assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), { ...opts, publication: false }), NAME, 'recovery against a stored baseline');
+});
 
 // An old tab or browser draft holds raw v185 HTML: positional keys only.
 const oldDraft = () => { const draft = structuredClone(v185); draft.pages[0].description = 'Ändrad i en gammal flik.'; return draft; };
