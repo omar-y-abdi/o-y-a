@@ -51,6 +51,7 @@ export function validateCss(source, context = 'stylesheet') {
   catch { invalid('Stilmallen innehåller ogiltig CSS.'); }
   css.walk(tree, function (node) {
     if (node.type === 'Raw') invalid('Stilmallen innehåller CSS som inte kan kontrolleras säkert.');
+    if (node.type === 'AttributeSelector' && /(^|\|)data-cms-node$/i.test(css.ident.decode(node.name.name))) invalid('Stilmallen får inte använda studions interna nodnycklar.');
     if (node.type === 'Atrule' && !AT_RULES.has(css.ident.decode(node.name).toLowerCase())) invalid('Den här CSS-regeln är inte tillåten.');
     if (node.type === 'Url' && !resourceUrl(node.value)) invalid('CSS får bara hämta webbplatsens egna bilder och typsnitt.');
     if (node.type === 'Function') {
@@ -88,6 +89,42 @@ function checkAttribute(name, value, tag) {
   if (['fill', 'stroke', 'clip-path'].includes(lower)) validateCss(`${lower}:${value}`, 'declarationList');
 }
 
+// Contract identity comes from what a functional element is, never from where it sits.
+const IDENTITY_ATTRS = new Set(['name', 'type', 'for', 'action', 'method']);
+const SPECIAL_IDS = ['main', 'mobile-menu', 'share-url'];
+const classesOf = node => (attr(node, 'class') ?? '').split(/\s+/);
+const isFunctionalAttr = a => a.name.startsWith('data-') && !a.name.startsWith('data-cms-');
+function isSpecial(node) {
+  return node.attrs.some(isFunctionalAttr) || node.tagName === 'form' || node.tagName === 'label' || CONTROLS.has(node.tagName) || node.tagName === 'noscript' || SPECIAL_IDS.includes(attr(node, 'id')) || classesOf(node).some(name => LOCKED_CLASSES.has(name));
+}
+function signature(node) {
+  const parts = node.attrs.filter(a => isFunctionalAttr(a) || IDENTITY_ATTRS.has(a.name) || a.name === 'value' && semanticValue(node)).map(a => `${a.name}=${a.value}`);
+  if (SPECIAL_IDS.includes(attr(node, 'id'))) parts.push(`id=${attr(node, 'id')}`);
+  for (const name of classesOf(node)) if (LOCKED_CLASSES.has(name)) parts.push(`.${name}`);
+  return `${node.tagName}|${parts.sort().join('&')}`;
+}
+function fnv(text) { let h = 0x811c9dc5; for (let i = 0; i < text.length; i++) { h = Math.imul(h ^ text.charCodeAt(i), 0x01000193); } return (h >>> 0).toString(36); }
+// Document-order list of [element, key]. Equal signatures get an ordinal suffix.
+function identityKeys(elements) {
+  const seen = new Map();
+  return elements.filter(isSpecial).flatMap(node => {
+    if (attr(node, 'data-skift-link') !== undefined) return [[node, 'skift-nav']];
+    if (attr(node, 'data-skift-mobile-link') !== undefined) return [[node, 'skift-nav-mobile']];
+    const base = 'k' + fnv(signature(node)), count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    const key = count ? `${base}-${count}` : base, pairs = [[node, key]];
+    // The print control writes its live label into the first span: that span is part of the contract.
+    const label = attr(node, 'data-print') !== undefined && node.childNodes?.find(child => child.tagName === 'span');
+    if (label) pairs.push([label, `${key}>span`]);
+    return pairs;
+  });
+}
+function setKey(node, key) {
+  const existing = node.attrs.find(a => a.name === 'data-cms-node');
+  if (existing) existing.value = key; else node.attrs.push({ name: 'data-cms-node', value: key });
+}
+const textOf = node => { let text = ''; traverse(node, child => { if (child.nodeName === '#text') text += child.value; }); return text.replace(/\s+/g, ' ').trim(); };
+
 export function preparePage(document) {
   const tree = parse(document, { scriptingEnabled: false });
   let body;
@@ -95,11 +132,15 @@ export function preparePage(document) {
   if (!body) invalid('Dokumentets body saknas.');
   const contracts = [];
   let index = 0;
+  const all = []; traverse(body, node => { if (node.tagName && node !== body) all.push(node); });
+  const identity = new Map(identityKeys(all));
   traverse(body, node => {
     if (!node.tagName || node === body) return;
     const skiftDesktop = attr(node, 'data-skift-link') !== undefined;
     const skiftMobile = attr(node, 'data-skift-mobile-link') !== undefined;
-    const key = skiftDesktop ? 'skift-nav' : skiftMobile ? 'skift-nav-mobile' : `n${index++}`;
+    // Other nodes keep their positional keys: only contract nodes get signature keys.
+    const positional = skiftDesktop ? 'skift-nav' : skiftMobile ? 'skift-nav-mobile' : `n${index++}`;
+    const key = identity.get(node) ?? positional;
     node.attrs.push({ name: 'data-cms-node', value: key });
     const functional = node.attrs.some(a => a.name.startsWith('data-') && !a.name.startsWith('data-cms-'));
     const classes = (attr(node, 'class') ?? '').split(/\s+/);
@@ -109,6 +150,8 @@ export function preparePage(document) {
       contracts.push({ key, tag: node.tagName, attrs: Object.fromEntries(node.attrs.filter(a => FIXED.has(a.name) || a.name === 'value' && semanticValue(node) || a.name.startsWith('data-') && !a.name.startsWith('data-cms-')).map(a => [a.name, a.value])), classes: classes.filter(Boolean) });
       // The print control reads its first span as the live button label.
       if (functional && attr(node, 'data-print') !== undefined) contracts.at(-1).span = true;
+      // Owner decision 2026-10-24: a consent button's label is part of its contract.
+      if (attr(node, 'data-consent') !== undefined) contracts.at(-1).text = textOf(node);
       if (skiftDesktop || skiftMobile) Object.assign(contracts.at(-1), { containerClass: skiftDesktop ? 'primary-nav' : 'mobile-menu', attrs: { ...contracts.at(-1).attrs, href: '/play/skift/' } });
     }
   });
@@ -132,7 +175,8 @@ export function preparePage(document) {
 
 function canonicalFallback(source) {
   const tree = parseFragment(source, { scriptingEnabled: false });
-  traverse(tree, node => node.attrs?.sort((a, b) => a.name.localeCompare(b.name)));
+  // Editor keys are identity bookkeeping, not part of the trusted fallback markup.
+  traverse(tree, node => { if (node.attrs) node.attrs = node.attrs.filter(a => a.name !== 'data-cms-node').sort((a, b) => a.name.localeCompare(b.name)); });
   return serialize(tree);
 }
 
@@ -188,6 +232,7 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
       if ((parent ? attr(parent, 'data-cms-node') : null) !== contract.parent) invalid('Ett funktionselement har flyttats utanför sin funktion. Flytta hela gruppen i stället.');
     }
     for (const [name, value] of Object.entries(contract.attrs)) if (attr(node, name) !== value) invalid('Ett skyddat funktionsattribut har ändrats.');
+    if (contract.text !== undefined && textOf(node) !== contract.text) invalid('Samtyckesknappens text är låst.');
     if (CONTROLS.has(node.tagName) || node.tagName === 'form') {
       for (const name of STATE_ATTRIBUTES) if (attr(node, name) !== contract.attrs[name]) invalid('Ett skyddat formulärfält har fått ändrat tillstånd.');
       if (semanticValue(node) && attr(node, 'value') !== contract.attrs.value) invalid('Ett funktionsvärde får inte ändras.');
@@ -262,4 +307,37 @@ export function validateEditorData(data, contracts = []) {
   }
   inspect(data);
   return data;
+}
+
+// Signature keys start with "k"; older builds wrote only positional "n" keys.
+export const hasSignatureKeys = html => html.includes('data-cms-node="k');
+function keyed(source) {
+  const tree = parseFragment(source, { scriptingEnabled: true }), all = [];
+  traverse(tree, node => { if (node.tagName) all.push(node); });
+  return { tree, pairs: identityKeys(all) };
+}
+
+// Re-key trusted stored HTML from older builds on read, so the editor finds
+// every contract under the key the server validates. Never for incoming HTML.
+export function rekeyHtml(source) {
+  if (typeof source !== 'string' || hasSignatureKeys(source)) return source;
+  const { tree, pairs } = keyed(source);
+  for (const [node, key] of pairs) setKey(node, key);
+  return serialize(tree);
+}
+
+// Tabs, drafts and backups from older builds carry positional keys. Rename them
+// with a map from the stored base revision's raw HTML, never from the draft.
+export function migrateKeys(project, stored) {
+  if (!Array.isArray(project?.pages) || !Array.isArray(stored?.pages)) return project;
+  const pages = project.pages.map(page => {
+    const base = stored.pages.find(item => item?.id === page?.id);
+    if (typeof page?.html !== 'string' || typeof base?.html !== 'string' || hasSignatureKeys(page.html)) return page;
+    const map = new Map(keyed(base.html).pairs.map(([node, key]) => [attr(node, 'data-cms-node'), key]).filter(([old, key]) => old && old !== key));
+    const tree = parseFragment(page.html, { scriptingEnabled: true });
+    let renamed = false;
+    traverse(tree, node => { const key = node.tagName && map.get(attr(node, 'data-cms-node')); if (key) { setKey(node, key); renamed = true; } });
+    return renamed ? { ...page, html: serialize(tree) } : page;
+  });
+  return pages.every((page, index) => page === project.pages[index]) ? project : { ...project, pages };
 }
