@@ -81,6 +81,27 @@ test('required shared slot is enforced once per page rather than by global count
   assert.throws(()=>validateProject(broken,sharedSeed),/alla sidor/i);
 });
 
+test('A7: a rejected page names itself, and a message that already holds the path is left alone', () => {
+  const project = structuredClone(seed);
+  const page = project.pages.find(item => item.path === '/om/');
+  page.name = 'Människan';
+  page.html = page.html.replace('</main>', '<a href="javascript:alert(1)">x</a></main>');
+  assert.throws(() => validateProject(project, seed), error => error.status === 422 && error.message === 'Människan: Länken har en otillåten adress.');
+  page.name = '';
+  assert.throws(() => validateProject(project, seed), error => error.status === 422 && error.message === '/om/: Länken har en otillåten adress.');
+  const duplicate = structuredClone(seed);
+  duplicate.pages.push({ ...duplicate.pages[0], id: 'duplicate', name: 'Kopia' });
+  assert.throws(() => validateProject(duplicate, seed), error => error.status === 422 && error.message === `Adressen ${duplicate.pages[0].path} används redan.`);
+});
+
+test('A9: a page title of 160 characters validates and 161 is rejected', () => {
+  const project = structuredClone(seed);
+  project.pages[0].title = 'a'.repeat(160);
+  assert.doesNotThrow(() => validateProject(structuredClone(project), seed));
+  project.pages[0].title = 'a'.repeat(161);
+  assert.throws(() => validateProject(project, seed), error => error.status === 422 && /Sidtitel saknas eller har ogiltig längd/.test(error.message));
+});
+
 test('A3: deleting a page that others link to gives one 422 naming every linking page', async () => {
   const stored = normalizeStoredProject(JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8')), generatedSeed, initial);
   const project = structuredClone(stored);
