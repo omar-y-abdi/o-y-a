@@ -5,7 +5,8 @@ import { nudgeComponent, resetComponentPosition } from './position.mjs';
 
 export function pageInspector(page, { update, addPage, removePage, protectedPage }) {
   $('#custom-inspector').innerHTML = `<section class="inspector-section"><h2>Sidans innehåll</h2>${field('Namn i studion', 'page-name', page.name)}${field('Adress', 'page-path', page.path, { readonly: true })}${field('Titel för sök och delning', 'page-title', page.title)}${field('Beskrivning', 'page-description', page.description, { textarea: true })}<div class="inspector-actions"><button type="button" class="small-button" id="duplicate-page">Duplicera sida</button>${protectedPage ? '' : '<button type="button" class="small-button danger" id="delete-page">Ta bort sida</button>'}</div><p class="inspector-help">Klicka på text eller en form i arbetsytan för att redigera den direkt.</p></section>`;
-  for (const key of ['name', 'title', 'description']) $(`#page-${key}`).addEventListener('input', event => update(key, event.target.value));
+  // Same limits as text() in src/cms/project.mjs (name 80, title 160, description 320).
+  for (const [key, maxLength] of Object.entries({ name: 80, title: 160, description: 320 })) { const input = $(`#page-${key}`); input.maxLength = maxLength; input.addEventListener('input', event => update(key, event.target.value)); }
   $('#duplicate-page').addEventListener('click', addPage);
   $('#delete-page')?.addEventListener('click', removePage);
   $('#traits-panel').hidden = true;
