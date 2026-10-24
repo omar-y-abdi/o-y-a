@@ -167,8 +167,8 @@ test('A1a + A14: published v185 serves every page, opens the studio, saves, rest
 
 test('A1a: a public read-time migration failure serves the stored page instead of 503', async () => {
   const drifted = structuredClone(v185);
-  // One byte off the known seed: not replaced, and invalid under current contracts.
-  developers(drifted).html = developers(drifted).html.replace('</main>', '<p>Ägarens tillägg.</p></main>');
+  // Off the known seed: not replaced, and a forged binding stays invalid under signature keys.
+  developers(drifted).html = developers(drifted).html.replace('</main>', '<p data-contact-form="">Ägarens tillägg.</p></main>');
   const { version } = await readSite(runtime.db);
   await publishSite(runtime.db, { project: drifted, baseVersion: version, requestId: crypto.randomUUID(), actor: runtime.email });
   const response = await runtime.mf.dispatchFetch(runtime.url + '/developers/');
@@ -176,5 +176,5 @@ test('A1a: a public read-time migration failure serves the stored page instead o
   const body = await response.text();
   assert.match(body, /Ägarens tillägg\./);
   assert.ok(!body.includes(UPDATED));
-  assert.equal((await admin('state')).status, 200, 'A1b: the studio opens the edited page under signature keys');
+  assert.equal((await admin('state')).status, 422, 'Studio reads still report the incompatible page');
 });
