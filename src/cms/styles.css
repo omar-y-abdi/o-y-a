@@ -146,3 +146,9 @@
 .email-setting-field{display:flex;align-items:flex-end;gap:8px}
 .email-setting-field>.inspector-field{flex:1;min-width:0}
 .email-setting-field>.small-button{margin-bottom:12px;min-height:44px}
+@media(max-width:699px){
+  .email-panel{padding:16px}
+  .email-block-title small{display:none}
+  .email-block-tools button{width:40px}
+  .email-actions .small-button{min-height:44px}
+}
