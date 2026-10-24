@@ -66,7 +66,7 @@ const addFile = (bytes, expiresAt, extra = {}) => {
   bucket.objects.set('mail-private/' + id, { bytes: Buffer.alloc(1), options: {} });
   return runtime.db.prepare('INSERT INTO cms_mail_files(id,object_key,name,mime,bytes,created_at,expires_at,sent_at) VALUES(?,?,?,?,?,?,?,?)').bind(id, 'mail-private/' + id, extra.name ?? 'fil.pdf', 'application/pdf', bytes, iso(START), expiresAt, extra.sentAt ?? null).run().then(() => id);
 };
-const addSent = (id, scheduledAt = null) => runtime.db.prepare("INSERT INTO cms_sent_mail(resend_id,kind,recipients,subject,attachments,created_at,scheduled_at,actor) VALUES(?,'custom','{\"to\":[\"ada@example.net\"],\"cc\":[],\"bcc\":[]}','Ämne',0,?,?,'owner')").bind(id, iso(START), scheduledAt).run();
+const addSent = (id, scheduledAt = null) => runtime.db.prepare("INSERT INTO cms_sent_mail(request_id,sender,resend_id,kind,recipients,subject,attachments,created_at,scheduled_at,actor) VALUES('mail/' || ?1,'Omar Yusuf <hej@hej.omaryusuf.se>',?1,'custom','{\"to\":[\"ada@example.net\"],\"cc\":[],\"bcc\":[]}','Ämne',0,?,?,'owner')").bind(id, iso(START), scheduledAt).run();
 const upload = async (name = 'offert.pdf', bytes = new TextEncoder().encode('%PDF-1.7 test')) => run(uploadRequest(name, bytes), env());
 
 beforeEach(async () => {
@@ -361,7 +361,8 @@ test('sent list holds no secrets and is owner-only', async () => {
   const text = await response.text();
   const { items } = JSON.parse(text);
   assert.equal(items.length, 1);
-  assert.deepEqual(Object.keys(items[0]), ['id', 'kind', 'to', 'cc', 'bcc', 'subject', 'createdAt', 'scheduledAt', 'canceledAt', 'attachments']);
+  assert.equal(items[0].confirmed, true);
+  assert.deepEqual(Object.keys(items[0]), ['id', 'confirmed', 'kind', 'to', 'cc', 'bcc', 'subject', 'createdAt', 'scheduledAt', 'canceledAt', 'attachments']);
   assert.deepEqual([items[0].id, items[0].kind, items[0].to, items[0].cc, items[0].bcc], ['resend-1', 'custom', ['ada@example.net'], ['cc@example.net'], []]);
   for (const secret of [KEY, MASTER]) assert.ok(!text.includes(secret));
 });
@@ -422,3 +423,59 @@ test('only the latest 100 are kept', async () => {
   assert.equal(await runtime.db.prepare("SELECT id FROM cms_sent_mail WHERE resend_id = 'resend-1'").first(), null);
   assert.ok(await runtime.db.prepare("SELECT id FROM cms_sent_mail WHERE resend_id = 'resend-101'").first());
 });
+
+// D1 that loses the second batch (the finalize after the intent insert) once.
+const flakyDb = () => { let batches = 0; return { prepare: sql => runtime.db.prepare(sql), batch: statements => (++batches === 2 ? Promise.reject(new Error('D1_ERROR: finalize lost')) : runtime.db.batch(statements)) }; };
+const requestRow = requestId => runtime.db.prepare('SELECT resend_id FROM cms_sent_mail WHERE request_id = ?').bind(requestId).first();
+
+test('a lost response replays the confirmed result without Resend', async () => {
+  const { id: file } = await (await upload()).json();
+  const p = provider();
+  const request = compose({ attachments: [{ kind: 'upload', id: file }] });
+  const first = await (await run(post('/admin/api/mail/send', request), env(), p.fetch)).json();
+  assert.equal(first.id, 'resend-1');
+  assert.ok((await runtime.db.prepare('SELECT sent_at FROM cms_mail_files WHERE id = ?').bind(file).first()).sent_at);
+  const replay = await run(post('/admin/api/mail/send', request), env(), p.fetch);
+  assert.equal(replay.status, 200);
+  assert.deepEqual(await replay.json(), first);
+  assert.equal(p.calls.length, 1);
+  assert.equal(await sentCount(), 1);
+  const test = { requestId: crypto.randomUUID(), template: 'receipt', email: null };
+  const sent = await (await run(post('/admin/api/mail/test', test), env(), p.fetch)).json();
+  assert.deepEqual(await (await run(post('/admin/api/mail/test', test), env(), p.fetch)).json(), sent);
+  assert.equal(p.calls.length, 2);
+});
+
+test('an accepted send whose finalize failed is confirmed by the retry', async () => {
+  const p = provider(() => Response.json({ id: 'accepted-1' }));
+  const e = env({ CMS_DB: flakyDb() });
+  const request = compose({ scheduledAt: iso(START + 86400000) });
+  assert.equal((await run(post('/admin/api/mail/send', request), e, p.fetch)).status, 503);
+  assert.equal((await requestRow('mail/' + request.requestId)).resend_id, null);
+  const listed = (await (await run(get('/admin/api/mail/sent'), env())).json()).items;
+  assert.deepEqual([listed[0].id, listed[0].confirmed], [null, false]);
+  assert.equal((await run(get('/admin/api/mail/status?id=accepted-1'), env(), p.fetch)).status, 404);
+  const retry = await run(post('/admin/api/mail/send', request), e, p.fetch);
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).id, 'accepted-1');
+  assert.equal(p.calls.length, 2);
+  assert.equal(p.calls[0].init.headers['Idempotency-Key'], p.calls[1].init.headers['Idempotency-Key']);
+  assert.equal(p.calls[0].init.body, p.calls[1].init.body);
+  assert.equal((await requestRow('mail/' + request.requestId)).resend_id, 'accepted-1');
+  assert.equal(await sentCount(), 1);
+});
+
+test('a pending scheduled send survives eviction and stays cancellable', async () => {
+  const p = provider();
+  const pending = await (await run(post('/admin/api/mail/send', compose({ scheduledAt: iso(START + 86400000) })), env(), p.fetch)).json();
+  for (let index = 0; index < 101; index += 1) assert.equal((await run(post('/admin/api/mail/test', { requestId: crypto.randomUUID(), template: 'receipt', email: null }), env(), p.fetch)).status, 200);
+  assert.equal(await sentCount(), 101);
+  const { items } = await (await run(get('/admin/api/mail/sent'), env())).json();
+  assert.equal(items.length, 101);
+  assert.ok(items.some(item => item.id === pending.id));
+  const cancel = provider(() => Response.json({ object: 'email', id: pending.id }));
+  assert.deepEqual(await (await run(post('/admin/api/mail/cancel', { id: pending.id }), env(), cancel.fetch)).json(), { id: pending.id, canceledAt: iso(START) });
+  assert.equal((await run(post('/admin/api/mail/test', { requestId: crypto.randomUUID(), template: 'receipt', email: null }), env(), p.fetch)).status, 200);
+  assert.equal(await runtime.db.prepare('SELECT id FROM cms_sent_mail WHERE resend_id = ?').bind(pending.id).first(), null);
+});
+

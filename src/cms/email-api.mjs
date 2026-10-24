@@ -61,13 +61,39 @@ function sentId(result) {
   return result.id;
 }
 
-// A retry of a confirmed send replays the same Resend id; DO NOTHING keeps it
-// from failing on the UNIQUE column.
-const sentStatements = (db, { id, kind, recipients, subject, attachments, createdAt, scheduledAt, actor }) => [
-  db.prepare('INSERT INTO cms_sent_mail(resend_id,kind,recipients,subject,attachments,created_at,scheduled_at,actor) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(resend_id) DO NOTHING')
-    .bind(id, kind, JSON.stringify(recipients), subject, attachments, createdAt, scheduledAt, actor),
-  db.prepare('DELETE FROM cms_sent_mail WHERE id NOT IN (SELECT id FROM cms_sent_mail ORDER BY id DESC LIMIT 100)'),
-];
+// Every send is keyed by its Idempotency-Key (`mail/…` or `mail-test/…`) in
+// cms_sent_mail.request_id. The intent row is written before Resend is called
+// and confirmed (resend_id set) after it answers, so:
+// - a retry of a confirmed request returns the stored result without Resend;
+// - a retry of an unconfirmed one (Resend accepted, D1 finalize failed) calls
+//   Resend again with the same key, which replays, and then confirms.
+// Pending scheduled sends and young unconfirmed intents are never evicted.
+const PENDING = "(COALESCE(scheduled_at, '') > ?1 AND canceled_at IS NULL) OR (resend_id IS NULL AND created_at > ?2)";
+const sentByRequest = (env, requestId) => env.CMS_DB.prepare('SELECT resend_id, scheduled_at, sender FROM cms_sent_mail WHERE request_id = ?').bind(requestId).first();
+
+async function deliver(env, existing, intent, call, reserve = []) {
+  const db = env.CMS_DB;
+  if (!existing) {
+    await db.batch([
+      db.prepare('INSERT INTO cms_sent_mail(request_id,kind,recipients,subject,sender,attachments,created_at,scheduled_at,actor) VALUES(?,?,?,?,?,?,?,?,?)')
+        .bind(intent.requestId, intent.kind, JSON.stringify(intent.recipients), intent.subject, intent.sender, intent.attachments, intent.createdAt, intent.scheduledAt, intent.actor),
+      ...reserve,
+    ]);
+  }
+  try { return sentId(await call()); }
+  catch (error) {
+    // A fresh intent that Resend refused stores nothing (Kantfall 29). An older
+    // intent may stand for an accepted send, so it stays for the next retry.
+    if (!existing) await db.prepare('DELETE FROM cms_sent_mail WHERE request_id = ? AND resend_id IS NULL').bind(intent.requestId).run().catch(cleanupError => reportFailure(cleanupError, 'mail'));
+    throw error;
+  }
+}
+
+const finalize = (env, requestId, id, nowMs, extra = []) => env.CMS_DB.batch([
+  env.CMS_DB.prepare('UPDATE cms_sent_mail SET resend_id = ? WHERE request_id = ?').bind(id, requestId),
+  ...extra,
+  env.CMS_DB.prepare(`DELETE FROM cms_sent_mail WHERE id NOT IN (SELECT id FROM cms_sent_mail ORDER BY id DESC LIMIT 100) AND NOT (${PENDING})`).bind(iso(nowMs), iso(nowMs - 86400000)),
+]);
 
 async function rateLimited(env, identity) {
   if (typeof env.CONTACT_RATE_LIMIT?.limit !== 'function') throw new HttpError(503, 'Hastighetsgränsen saknas. Inget skickades.');
@@ -172,6 +198,9 @@ async function testMail(request, env, { identity, url, head, transport, now }) {
   requireWriteRequest(request);
   const body = await readJson(request, 256 * 1024);
   if (!isRecord(body) || typeof body.requestId !== 'string' || !UUID.test(body.requestId) || !['receipt', 'notification'].includes(body.template)) throw reject('Provmejlet är ogiltigt.');
+  const requestId = `mail-test/${body.requestId}`;
+  const existing = await sentByRequest(env, requestId);
+  if (existing?.resend_id) return json({ id: existing.resend_id });
   const draft = validateEmailSettings(body.email);
   const project = await head();
   const rendered = renderEmail(draft, body.template, { resources: await resolveResources(env.CMS_DB, project), origin: url.origin, visitor: SAMPLE });
@@ -179,9 +208,10 @@ async function testMail(request, env, { identity, url, head, transport, now }) {
   if (!isEmailAddress(values.CONTACT_TO)) throw new HttpError(503, NOT_CONFIGURED);
   const limited = await rateLimited(env, identity);
   if (limited) return limited;
-  const subject = '[Prov] ' + rendered.subject;
-  const id = sentId(await resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: `mail-test/${body.requestId}`, body: { from: rendered.from, to: [values.CONTACT_TO], subject, html: rendered.html, text: rendered.text } }));
-  await env.CMS_DB.batch(sentStatements(env.CMS_DB, { id, kind: 'test', recipients: { to: [values.CONTACT_TO], cc: [], bcc: [] }, subject, attachments: 0, createdAt: iso(now()), scheduledAt: null, actor: identity.email }));
+  const subject = '[Prov] ' + rendered.subject, nowMs = now();
+  const intent = { requestId, kind: 'test', recipients: { to: [values.CONTACT_TO], cc: [], bcc: [] }, subject, sender: rendered.from, attachments: 0, createdAt: iso(nowMs), scheduledAt: null, actor: identity.email };
+  const id = await deliver(env, existing, intent, () => resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: requestId, body: { from: rendered.from, to: [values.CONTACT_TO], subject, html: rendered.html, text: rendered.text } }));
+  await finalize(env, requestId, id, nowMs);
   return json({ id });
 }
 
@@ -189,6 +219,11 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   requireWriteRequest(request);
   const body = await readJson(request, 256 * 1024);
   if (!isRecord(body) || typeof body.requestId !== 'string' || !UUID.test(body.requestId)) throw reject(INVALID_SEND);
+  // A confirmed request is answered from storage before any eligibility check:
+  // its uploads are already consumed by this very request.
+  const requestId = `mail/${body.requestId}`;
+  const existing = await sentByRequest(env, requestId);
+  if (existing?.resend_id) return json({ id: existing.resend_id, scheduledAt: existing.scheduled_at, from: existing.sender });
   const nowMs = now();
   const lists = recipients(body);
   const mail = validateCustomMail({ subject: body.subject, preheader: body.preheader, blocks: body.blocks, design: body.design });
@@ -210,24 +245,29 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
     path: file.kind === 'upload' ? url.origin + await signFileLink(env, file.id, scheduledExp ?? Math.floor(Date.parse(file.expires_at) / 1000)) : new URL('/media/' + file.object_key, url.origin).href,
   })));
   const scheduledAt = scheduledMs === null ? null : iso(scheduledMs);
-  const id = sentId(await resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: `mail/${body.requestId}`, body: {
+  const uploads = JSON.stringify(files.filter(file => file.kind === 'upload').map(file => file.id));
+  const uploadCount = files.filter(file => file.kind === 'upload').length;
+  const intent = { requestId, kind: 'custom', recipients: lists, subject: rendered.subject, sender: rendered.from, attachments: files.length, createdAt: iso(nowMs), scheduledAt, actor: identity.email };
+  // A scheduled send keeps its files until an hour after delivery, extended
+  // with the intent so a failed finalize cannot let cleanup take them early.
+  const reserve = uploadCount && scheduledExp !== null ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET expires_at = MAX(expires_at, ?) WHERE id IN (SELECT value FROM json_each(?))').bind(iso(scheduledExp * 1000), uploads)] : [];
+  const id = await deliver(env, existing, intent, () => resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: requestId, body: {
     from: rendered.from, to: lists.to, ...(lists.cc.length ? { cc: lists.cc } : {}), ...(lists.bcc.length ? { bcc: lists.bcc } : {}),
     subject: rendered.subject, html: rendered.html, text: rendered.text,
     ...(scheduledAt ? { scheduled_at: scheduledAt } : {}), ...(attachments.length ? { attachments } : {}),
-  } }));
-  const uploads = files.filter(file => file.kind === 'upload').map(file => file.id);
-  await env.CMS_DB.batch([
-    ...sentStatements(env.CMS_DB, { id, kind: 'custom', recipients: lists, subject: rendered.subject, attachments: files.length, createdAt: iso(nowMs), scheduledAt, actor: identity.email }),
-    ...(uploads.length ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ?, expires_at = COALESCE(?, expires_at) WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), scheduledExp === null ? null : iso(scheduledExp * 1000), JSON.stringify(uploads))] : []),
-  ]);
+  } }), reserve);
+  await finalize(env, requestId, id, nowMs, uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), uploads)] : []);
   return json({ id, scheduledAt, from: rendered.from });
 }
 
-async function sentList(env) {
-  const { results } = await env.CMS_DB.prepare('SELECT resend_id, kind, recipients, subject, attachments, created_at, scheduled_at, canceled_at FROM cms_sent_mail ORDER BY id DESC LIMIT 100').all();
+// The newest 100 plus every pending scheduled send, newest first. An
+// unconfirmed intent is listed with id null; status and cancel need an id.
+async function sentList(env, { now }) {
+  const nowMs = now();
+  const { results } = await env.CMS_DB.prepare(`SELECT resend_id, kind, recipients, subject, attachments, created_at, scheduled_at, canceled_at FROM cms_sent_mail WHERE id IN (SELECT id FROM cms_sent_mail ORDER BY id DESC LIMIT 100) OR (COALESCE(scheduled_at, '') > ?1 AND canceled_at IS NULL) ORDER BY id DESC`).bind(iso(nowMs)).all();
   return json({ items: results.map(row => {
     const { to, cc, bcc } = JSON.parse(row.recipients);
-    return { id: row.resend_id, kind: row.kind, to, cc, bcc, subject: row.subject, createdAt: row.created_at, scheduledAt: row.scheduled_at, canceledAt: row.canceled_at, attachments: row.attachments };
+    return { id: row.resend_id, confirmed: row.resend_id !== null, kind: row.kind, to, cc, bcc, subject: row.subject, createdAt: row.created_at, scheduledAt: row.scheduled_at, canceledAt: row.canceled_at, attachments: row.attachments };
   }) });
 }
 
@@ -307,7 +347,7 @@ export async function handleEmailAdmin(request, env, { identity, url, head, tran
   if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
   const context = { identity, url, head, transport, now };
   try {
-    if (read && url.pathname === '/admin/api/mail/sent') return await sentList(env);
+    if (read && url.pathname === '/admin/api/mail/sent') return await sentList(env, context);
     if (read && url.pathname === '/admin/api/mail/status') return await mailStatus(env, context);
     const handler = WRITES[url.pathname];
     if (!handler) throw new HttpError(404, 'Åtgärden finns inte.');
