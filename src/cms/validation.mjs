@@ -6,7 +6,7 @@ import { validateEditorShape } from './editor-schema.mjs';
 import { attribute as attr, walk as traverse } from './html-tree.mjs';
 import { RESERVED } from './routes.mjs';
 
-export const VALIDATION_POLICY = 'cms-policy-4-consent-lock';
+export const VALIDATION_POLICY = 'cms-policy-5-html-namespace';
 
 const TAGS = new Set('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup dd del details dfn dialog div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i img input kbd label legend li main mark nav noscript ol optgroup option output p picture pre progress q rp rt ruby s samp section select small source span strike strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var svg g path circle rect ellipse line polyline polygon defs lineargradient radialgradient stop clippath title desc mask pattern use'.split(' '));
 const ATTRS = new Set('id class title role lang dir tabindex hidden inert href target rel src srcset sizes alt width height loading decoding type name value checked disabled required readonly multiple min max step minlength maxlength autocomplete placeholder for rows cols method action novalidate open aria-label aria-labelledby aria-describedby aria-controls aria-live aria-atomic aria-hidden aria-expanded aria-pressed aria-current aria-disabled aria-invalid aria-busy scope colspan rowspan start reversed datetime cite download style viewbox fill fill-rule fill-opacity stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity d points x y x1 x2 y1 y2 cx cy r rx ry transform opacity offset stop-color stop-opacity gradientunits gradienttransform clip-path clip-rule preserveaspectratio xmlns'.split(' '));
@@ -156,7 +156,7 @@ export function preparePage(document) {
     const inForm = node.tagName === 'form' || node.tagName === 'label' || CONTROLS.has(node.tagName);
     const special = functional || inForm || node.tagName === 'noscript' || ['main', 'mobile-menu', 'share-url'].includes(attr(node, 'id')) || classes.some(name => LOCKED_CLASSES.has(name));
     if (special) {
-      contracts.push({ key, tag: node.tagName, attrs: Object.fromEntries(node.attrs.filter(a => FIXED.has(a.name) || a.name === 'value' && semanticValue(node) || a.name.startsWith('data-') && !a.name.startsWith('data-cms-')).map(a => [a.name, a.value])), classes: classes.filter(Boolean) });
+      contracts.push({ key, tag: node.tagName, ns: node.namespaceURI, attrs: Object.fromEntries(node.attrs.filter(a => FIXED.has(a.name) || a.name === 'value' && semanticValue(node) || a.name.startsWith('data-') && !a.name.startsWith('data-cms-')).map(a => [a.name, a.value])), classes: classes.filter(Boolean) });
       // The print control reads its first span as the live button label.
       if (functional && attr(node, 'data-print') !== undefined) contracts.at(-1).span = true;
       // Owner decision 2026-10-24: a consent button's label is part of its contract.
@@ -234,6 +234,8 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
   for (const contract of contracts) {
     const node = nodes.get(contract.key);
     if (!node || node.tagName !== contract.tag) invalid('Ett element som behövs för navigation, formulär eller lekar saknas.');
+    // An <svg> wrapper keeps a <button> in the SVG namespace: same tag name, but it neither renders nor works.
+    if (node.namespaceURI !== contract.ns) invalid('Ett funktionselement har bytt namnrymd.');
     if (contract.containerClass && !(attr(node.parentNode, 'class') ?? '').split(/\s+/).includes(contract.containerClass)) invalid('Spellänken måste ligga kvar i toppmenyn.');
     if (Object.hasOwn(contract, 'parent')) {
       let parent = node.parentNode;

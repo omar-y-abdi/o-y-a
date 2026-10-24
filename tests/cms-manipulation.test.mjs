@@ -24,6 +24,7 @@ const opts = { origins: ['https://omaryusuf.se'] };
 const ATTRIBUTE = /Ett skyddat funktionsattribut har ändrats\./;
 const LABEL = /Samtyckesknappens text är låst\./;
 const NAME = /Samtyckesknappens tillgängliga namn är låst\./;
+const NAMESPACE = /Ett funktionselement har bytt namnrymd\./;
 
 const has = (node, name, value) => attribute(node, name) !== undefined && (value === undefined || attribute(node, name) === value);
 const hasClass = (node, name) => (attribute(node, 'class') ?? '').split(/\s+/).includes(name);
@@ -36,6 +37,8 @@ const setText = (node, value) => { node.childNodes = [{ nodeName: '#text', value
 const consent = nodes => nodes.filter(node => has(node, 'data-consent'));
 const swap = (x, y, name) => { const a = attribute(x, name), b = attribute(y, name); setAttr(x, name, b); setAttr(y, name, a); };
 const fragment = html => parseFragment(html).childNodes[0];
+// Re-parsed, a <button> inside <svg> stays in the SVG namespace (no breakout from foreign content).
+const svgWrap = node => { const svg = fragment('<svg></svg>'); insertBefore(node, svg); svg.childNodes.push(detach(node)); node.parentNode = svg; };
 // Move a node's children, text included, into a new element: the visible label stays the same.
 const wrap = (node, html) => { const inner = fragment(html); inner.childNodes = node.childNodes; inner.childNodes.forEach(child => { child.parentNode = inner; }); inner.parentNode = node; node.childNodes = [inner]; };
 
@@ -76,6 +79,7 @@ const CASES = {
   'N18 style="display:none" on the dialog deny button': ['/om/', E => { setAttr(consent(E)[2], 'style', 'display:none'); }, NAME],
   'N19 hidden on the existing actions row around the dialog allow button': ['/om/', E => { setAttr(consent(E)[3].parentNode, 'hidden', ''); }, NAME],
   'N20 a plain <div> around the banner deny button': ['/om/', E => { const button = consent(E)[0], div = fragment('<div></div>'); insertBefore(button, div); div.childNodes.push(detach(button)); button.parentNode = div; }, true],
+  'N21 an <svg> around the banner deny button and the dialog allow button': ['/om/', E => { for (const button of [consent(E)[0], consent(E)[3]]) svgWrap(button); }, NAMESPACE],
   'N11 a plain span around the banner allow label': ['/om/', E => { wrap(consent(E)[1], '<span></span>'); }, true],
   'T01 remove data-back-top': ['/om/', E => { const n = E.find(n => has(n, 'data-back-top')); n.attrs = n.attrs.filter(a => a.name !== 'data-back-top'); }, false],
   'T02 remove hidden from the consent banner': ['/om/', E => { const n = E.find(n => has(n, 'data-consent-banner')); n.attrs = n.attrs.filter(a => a.name !== 'hidden'); }, false],
@@ -117,19 +121,27 @@ for (const [label, [path, change, expected]] of Object.entries(CASES)) {
 
 // Stored facts let a page skip validateHtml while its HTML is unchanged. Facts proven
 // under policy 3 predate the consent lock, so they must not vouch for a locked button.
-test('A1b: a stored page accepted under the old validation policy is checked again on every path', () => {
+function cachedBaseline(change, expected, oldPolicies) {
   const stored = validateProject(structuredClone(base), seed, structuredClone(base), opts);
-  const forged = edit(stored, '/om/', E => { setAttr(consent(E)[0], 'inert', ''); });
+  const forged = edit(stored, '/om/', change);
   const page = forged.pages.find(item => item.path === '/om/');
   const contracts = (seed.pages.find(item => item.id === page.id) ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank).contracts;
   const baseline = policy => ({ ...forged, pages: forged.pages.map(item => item === page ? { ...item, facts: { ...item.facts, validationKey: JSON.stringify([policy, contracts, true]) } } : item) });
   // Control: facts under the current policy are trusted, so the old key alone is what forces the check.
   assert.doesNotThrow(() => validateProject(structuredClone(forged), seed, baseline(VALIDATION_POLICY), opts));
-  const old = baseline('cms-policy-3-canonical-editor-widget-preview');
-  assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), opts), NAME, 'full Save');
-  const draft = structuredClone(old); draft.pages.find(item => item.path === '/').description = 'Ändrad på en annan sida.';
-  assert.throws(() => validateProject(applyProjectChanges(structuredClone(old), validateProjectChanges(projectChanges(old, draft))), seed, structuredClone(old), opts), NAME, 'delta Save');
-  assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), { ...opts, publication: false }), NAME, 'recovery against a stored baseline');
+  for (const policy of oldPolicies) {
+    const old = baseline(policy);
+    assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), opts), expected, `full Save (${policy})`);
+    const draft = structuredClone(old); draft.pages.find(item => item.path === '/').description = 'Ändrad på en annan sida.';
+    assert.throws(() => validateProject(applyProjectChanges(structuredClone(old), validateProjectChanges(projectChanges(old, draft))), seed, structuredClone(old), opts), expected, `delta Save (${policy})`);
+    assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), { ...opts, publication: false }), expected, `recovery against a stored baseline (${policy})`);
+  }
+}
+test('A1b: a stored page accepted under the old validation policy is checked again on every path', () => {
+  cachedBaseline(E => { setAttr(consent(E)[0], 'inert', ''); }, NAME, ['cms-policy-3-canonical-editor-widget-preview', 'cms-policy-4-consent-lock']);
+});
+test('A1b: a stored page with an svg-wrapped consent button, accepted under policy 4, is checked again on every path', () => {
+  cachedBaseline(E => { svgWrap(consent(E)[0]); }, NAMESPACE, ['cms-policy-4-consent-lock']);
 });
 
 // An old tab or browser draft holds raw v185 HTML: positional keys only.
