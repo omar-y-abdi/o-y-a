@@ -26,8 +26,8 @@ export default defineConfig({
     // Software-rendered worlds share CI's CPU; finish other cases first.
     { name: 'chromium-webgl', grep: /@webgl/, workers: 1, dependencies: ['chromium'] },
 
-    // The studio editor and mail preview images need every engine; other email cases skip there.
-    { name: 'firefox', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs'], use: { browserName: 'firefox', channel: '', launchOptions: {} } },
-    { name: 'webkit', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs'], use: { browserName: 'webkit', channel: '', launchOptions: {} } },
+    // The studio editor, mail preview images and public startup need every engine; other email cases skip there.
+    { name: 'firefox', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs'], use: { browserName: 'firefox', channel: '', launchOptions: {} } },
+    { name: 'webkit', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs'], use: { browserName: 'webkit', channel: '', launchOptions: {} } },
   ],
 });
