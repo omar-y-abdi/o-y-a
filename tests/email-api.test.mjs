@@ -206,7 +206,7 @@ test('attachment size and type checked before send', async () => {
 });
 
 test('signed link: tampered, expired, other object refused; valid streams', async () => {
-  const created = await upload('Offert å.pdf', new TextEncoder().encode('%PDF-1.7 hela filen'));
+  const created = await upload("Omar's offert (å).pdf", new TextEncoder().encode('%PDF-1.7 hela filen'));
   assert.equal(created.status, 201);
   const { id, size, mime, expiresAt } = await created.json();
   assert.equal(size, 19);
@@ -220,7 +220,7 @@ test('signed link: tampered, expired, other object refused; valid streams', asyn
   const valid = await fetchLink(link);
   assert.equal(valid.status, 200);
   assert.equal(await valid.text(), '%PDF-1.7 hela filen');
-  assert.equal(valid.headers.get('Content-Disposition'), `attachment; filename*=UTF-8''${encodeURIComponent('Offert å.pdf')}`);
+  assert.equal(valid.headers.get('Content-Disposition'), "attachment; filename*=UTF-8''Omar%27s%20offert%20%28%C3%A5%29.pdf");
   assert.equal(valid.headers.get('Cache-Control'), 'private, no-store');
   assert.equal(valid.headers.get('X-Robots-Tag'), 'noindex');
   assert.deepEqual(bucket.buffered, []);

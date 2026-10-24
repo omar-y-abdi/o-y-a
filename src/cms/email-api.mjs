@@ -333,7 +333,7 @@ export async function serveMailFile(request, env, now = Date.now) {
   if (!object) return json({ error: 'Filen finns inte längre.' }, 404);
   return new Response(request.method === 'HEAD' ? null : object.body, { headers: {
     'Content-Type': row.mime,
-    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(row.name)}`,
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(row.name).replace(/['()*]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase())}`,
     'Cache-Control': 'private, no-store',
     'X-Robots-Tag': 'noindex',
   } });
