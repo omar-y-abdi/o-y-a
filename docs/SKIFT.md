@@ -31,9 +31,13 @@ footer migration still runs first.
 The built game page is always served. A stored CMS page for this route is
 never used. The published sitemap includes the new route. Game assets use their
 own `/play/skift/assets/` and `/play/skift/audio/` paths, bypassing CMS page
-fallbacks. Unversioned game files must be revalidated rather than cached as
+fallbacks. The content-hashed bootstrap entry and shared public modules live
+under `/assets/`; main imports the bootstrap without awaiting it. The bootstrap
+shares main's copy promise, then loads `/play/skift/assets/app.js`. Because the
+game page is code-owned, its runtime copy still uses `/data/runtime.json`.
+Unversioned game files must be revalidated rather than cached as
 immutable. `media-src 'self' blob:` is scoped to game HTML; other public pages
-and owner authentication retain their existing policies.
+use the base public CSP. The admin CSP is unchanged.
 
 ## Updating the game
 

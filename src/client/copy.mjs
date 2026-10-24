@@ -133,6 +133,11 @@ export async function loadCopy() {
       return activeCopy;
     }
     try {
+      const runtime = globalThis.document?.head?.querySelector('script#cms-runtime[type="application/json"]');
+      if (runtime) {
+        copyFromRuntime(JSON.parse(runtime.textContent));
+        return activeCopy;
+      }
       const response = await fetch('/data/runtime.json', { credentials:'same-origin', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(1500) });
       if (response.ok) copyFromRuntime(await response.json());
     } catch { /* Public runtime copy is optional; built-in copy remains authoritative. */ }

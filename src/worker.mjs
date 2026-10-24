@@ -1,12 +1,12 @@
 import { handleContact, contactConfig } from './server/contact.mjs';
 import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
-import { CSP } from '../.generated/csp.mjs';
+import { CSP, SKIFT_CSP } from './csp.mjs';
 import { seed, initial, built } from '../.generated/cms-seed.mjs';
 import { handleAdmin, assetResponse } from './cms/api.mjs';
 import { serveMailFile } from './cms/email-api.mjs';
 import { ADMIN_CSP, publicContent } from './cms/render.mjs';
-import { isSkiftPath, skiftCsp } from './cms/skift.mjs';
+import { isSkiftPath } from './cms/skift.mjs';
 import { errorResponse } from './cms/http.mjs';
 import { reportFailure } from './cms/diagnostics.mjs';
 import { negotiatePublicPage } from './server/markdown.mjs';
@@ -130,7 +130,7 @@ export default {
     else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
-      try { response = await publicContent(request,env,built,CSP,seed) ?? await env.ASSETS.fetch(request); }
+      try { response = await publicContent(request,env,built,seed) ?? await env.ASSETS.fetch(request); }
       catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
     }
     if (url.pathname === '/404.html' && response.status === 200) {
@@ -139,7 +139,7 @@ export default {
     response = await negotiatePublicPage(request, response);
     if (isSkiftPath(url.pathname) && response.headers.get('Content-Type')?.includes('text/html')) {
       response = new Response(response.body, response);
-      response.headers.set('Content-Security-Policy', skiftCsp(response.headers.get('Content-Security-Policy') || CSP));
+      response.headers.set('Content-Security-Policy', SKIFT_CSP);
     }
     const secured = versionedApi
       ? withApiVersion(secure(response,url.protocol === 'https:'))

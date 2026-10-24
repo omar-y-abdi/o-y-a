@@ -55,7 +55,7 @@ With public and analytics preview servers running, `python tests/http_checks.py`
 
 | Layer | Evidence |
 | --- | --- |
-| Public build | Internal links, fragments, metadata, CSP hashes, assets and fixed transfer budgets |
+| Public build | Internal links, fragments, metadata, fixed CSP constants, absence of inline executable scripts, content-hashed entries/chunks and fixed transfer budgets |
 | Owner boundary | Valid owner, wrong owner, missing/expired/invalid JWT, wrong issuer/audience, unsigned identity headers and missing configuration |
 | Write boundary | Origin, content type, request marker, Fetch Metadata, route encoding and bounded bodies |
 | Content | Active HTML, CSS escapes/imports/URLs, editor JSON execution fields, structural hooks, functional parents, image alternatives and links |
@@ -64,7 +64,23 @@ With public and analytics preview servers running, `python tests/http_checks.py`
 | Difficult editor cases | Keyboard block insertion, inline-style preservation, memory style after hydration/reset, real R2 image selection, archival recovery, locked win preview, two-tab conflicts and local draft recovery |
 | Public browser | All routes and responsive widths, navigation, no-JS content, privacy choices, motion, four workshop stations and contact fixtures |
 
-The native public modules retain their original combined 14,000-byte gzip budget. The separate lazy win renderer/export bundle is capped at 8,000 gzip bytes; it loads only when needed. Editor JavaScript is isolated under `/admin/` with a 350,000-byte combined gzip cap. Every public page's CSS remains below 14,000 gzip bytes; home HTML remains below 9,000. These are enforced transfer-size contracts, not latency or field Core Web Vitals.
+The native public modules retain their original combined 14,000-byte gzip budget. The separate lazy win renderer/export bundle is capped at 8,000 gzip bytes; it loads only when needed. Editor JavaScript is isolated under `/admin/` with a 350,000-byte combined gzip cap. CSS and HTML budgets remain enforced in `tests/assets.test.mjs`. These are enforced transfer-size contracts, not latency or field Core Web Vitals.
+
+The public esbuild graph has separate hashed main and SKIFT bootstrap entries with shared copy state; the existing win renderer remains external and lazy. `tests/public-runtime.test.mjs` covers inert JSON escaping, preview precedence, missing-block fallback and failed copy loads. `tests/cms-store.test.mjs` checks one-query page/runtime reads and revision consistency; `tests/cms-api.test.mjs` checks the embedded data and retained API endpoint through the real Worker.
+
+After building, run the dedicated startup checks explicitly (the existing named browser scripts do not include this file):
+
+```sh
+npx playwright test tests/public-startup.spec.mjs --project=chromium --workers=1
+```
+
+That file selects Chromium, Firefox and WebKit within its suites. It checks embedded-copy requests and CSP violations, real HTTP fallback, initialization while copy is delayed, and the SKIFT shell before its game import. Its delayed-copy cases control only the fetch promise; they do not measure wall-clock latency or AbortSignal deadlines.
+
+`tests/public-evidence.spec.mjs` captures the five phase-2 reference pages at 390/1440 px from real published D1 rows, their selected DOM/style properties, and local unthrottled js-ready timings for those pages plus SKIFT. Run the same file in the baseline and changed checkouts with distinct `P2B_EVIDENCE_DIR` values; compare every PNG and properties JSON byte for byte. `boot.json` includes its lab profile and resource timings; these local samples do not establish the plan's throttled-mobile targets.
+
+```sh
+P2B_EVIDENCE_DIR=/tmp/p2b-after npx playwright test tests/public-evidence.spec.mjs --project=chromium --workers=1
+```
 
 ## Visual evidence
 

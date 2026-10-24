@@ -1,11 +1,11 @@
 import { readConsent, consentCookie } from './privacy.mjs';
 import { loadCopy, t } from './copy.mjs';
 
-await loadCopy();
+const copyLoaded = loadCopy();
 
 // The 3D runtime is fetched only on its own page, including CMS previews.
 // Not awaited, so a failed load cannot block the shell; the browser logs the error.
-if (document.querySelector('[data-skift-root]')) import('/play/skift/assets/bootstrap.js');
+if (document.querySelector('[data-skift-root]')) import('./skift-bootstrap.mjs');
 
 document.documentElement.classList.add('js-ready');
 document.querySelectorAll('.js-only').forEach(element => { element.hidden = false; });
@@ -57,7 +57,7 @@ motionButton?.addEventListener('click', () => {
   toast(t(motionChoice ? 'runtime.motion.toast.paused' : 'runtime.motion.toast.enabled'));
 });
 reduced.addEventListener('change', applyMotion);
-applyMotion();
+copyLoaded.then(applyMotion);
 document.addEventListener('visibilitychange', () => { root.dataset.background = String(document.hidden); });
 
 const dialog = document.querySelector('[data-privacy-dialog]');
@@ -123,13 +123,14 @@ document.querySelectorAll('[data-consent]').forEach(button => button.addEventLis
   else toast(t(choice === 'allow' ? 'runtime.privacy.toast.allowed' : 'runtime.privacy.toast.denied'));
   if (choice === 'allow' && persisted) track('page_view');
 }));
-updatePrivacyStatus();
+copyLoaded.then(updatePrivacyStatus);
 (!document.body.dataset.cmsPreview ? fetch('/api/config', { credentials:'same-origin', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(4000) }) : Promise.resolve(new Response('{"analytics":false}')))
   .then(response => response.ok ? response.json() : null)
   .then(config => { analyticsAvailable = config?.analytics === true; })
   .catch(() => { analyticsAvailable = false; })
-  .finally(() => {
+  .finally(async () => {
     configChecked = true;
+    await copyLoaded;
     updatePrivacyStatus();
     if (banner) banner.hidden = !analyticsAvailable || !!readConsent(document.cookie) || privacySignal();
     track('page_view');
@@ -147,7 +148,8 @@ fold?.addEventListener('click', () => {
 });
 
 if (document.querySelector('[data-machine], [data-bubble]')) {
-  import('./joy.mjs').then(module => module.initJoy({ toast, track })).catch(() => {
+  import('./joy.mjs').then(async module => { await copyLoaded; module.initJoy({ toast, track }); }).catch(async () => {
+    await copyLoaded;
     const note = document.querySelector('[data-machine-status]');
     if (note) note.textContent = t('runtime.error.machineInit');
   });
@@ -160,10 +162,12 @@ document.querySelector('[data-back-top]')?.addEventListener('click', event => {
   window.scrollTo({ top:0, left:0, behavior:root.dataset.motion === 'off' ? 'instant' : 'smooth' });
 });
 if (document.querySelector('[data-contact-form]')) {
-  import('./contact.mjs').then(module => module.initContact()).catch(() => {
+  import('./contact.mjs').then(async module => { await copyLoaded; module.initContact(); }).catch(async () => {
+    await copyLoaded;
     document.querySelector('[data-contact-status]').textContent = t('runtime.error.contactInit');
   });
 }
-if (document.querySelector('[data-memory-grid]')) import('./games.mjs').then(module => module.initGames()).catch(() => {
+if (document.querySelector('[data-memory-grid]')) import('./games.mjs').then(async module => { await copyLoaded; module.initGames(); }).catch(async () => {
+  await copyLoaded;
   document.querySelector('[data-memory-status]').textContent = t('runtime.error.gamesInit');
 });

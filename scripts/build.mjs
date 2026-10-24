@@ -1,9 +1,10 @@
 import { mkdir, rm, readFile, writeFile, cp, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, basename } from 'node:path';
 import { routes, site } from '../src/content/site.mjs';
-import { layout, structuredData } from '../src/templates/layout.mjs';
+import { layout } from '../src/templates/layout.mjs';
+import { CSP } from '../src/csp.mjs';
 import { home } from '../src/templates/home.mjs';
 import { workshop, about, furl, contact, notFound } from '../src/templates/pages.mjs';
 import { projectDetail } from '../src/templates/expansion.mjs';
@@ -13,7 +14,7 @@ import { developers } from '../src/templates/developers.mjs';
 import { openApi } from '../src/content/openapi.mjs';
 import { llmsTxt } from '../src/content/llms.mjs';
 import { buildCms } from './build-cms.mjs';
-import { build, transform } from 'esbuild';
+import { build } from 'esbuild';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
@@ -27,20 +28,14 @@ const winCode = winBundle.outputFiles[0].text;
 const winPath = `/cms-public/win.${hash(winCode)}.mjs`;
 await mkdir('dist/cms-public', { recursive:true });
 await writeFile(`dist${winPath}`, winCode);
-const js = {};
-for (const name of ['privacy','previewdata','copy','cards','playlogic','memory','games','joy','contact','main']) {
-  let code = await readFile(`src/client/${name}.mjs`, 'utf8');
-  code = code.replaceAll("'./win.mjs'", `'${winPath}'`);
-  for (const [dependency, filename] of Object.entries(js)) code = code.replaceAll(`'./${dependency}.mjs'`, `'./${filename}'`);
-  code = (await transform(code, { minify: true, format: 'esm', target: 'es2022' })).code;
-  const filename = `${name}.${hash(code)}.mjs`;
-  await writeFile(`dist/assets/${filename}`,code);
-  js[name] = filename;
-}
-await writeFile('dist/play/skift/assets/bootstrap.js', `import { loadCopy } from '/assets/${js.copy}';
-globalThis.__OY_SKIFT_COPY__ = await loadCopy();
-await import('./app.js');
-`);
+const entries = { main: 'src/client/main.mjs', 'skift-bootstrap': 'src/client/skift-bootstrap.mjs' };
+const bundle = await build({
+  entryPoints: entries, outdir: 'dist/assets', entryNames: '[name].[hash]', chunkNames: 'chunk.[hash]', outExtension: { '.js': '.mjs' },
+  bundle: true, splitting: true, format: 'esm', minify: true, target: 'es2022', metafile: true,
+  external: ['/play/skift/assets/app.js'],
+  plugins: [{ name: 'lazy-win', setup(builder) { builder.onResolve({ filter: /^\.\/win\.mjs$/ }, () => ({ path: winPath, external: true })); } }],
+});
+const js = Object.fromEntries(Object.entries(entries).map(([name, entry]) => [name, basename(Object.keys(bundle.metafile.outputs).find(path => bundle.metafile.outputs[path].entryPoint === entry))]));
 const baseStyles = await Promise.all(['base','home','pages'].map(name => readFile(`src/styles/${name}.css`,'utf8')));
 const baseCss = baseStyles.join('\n').trim();
 const additions = { home:['showcase','toys'], workshop:['toys','games'], skift:['skift'], about:['showcase'], blade:['showcase'], backhaul:['showcase'], contact:['postbox'] };
@@ -60,10 +55,7 @@ for (const page of routes) {
   await mkdir(dirname(destination), { recursive:true });
   await writeFile(destination,layout(page,content,{css:styles[page.template], main:`/assets/${js.main}`}));
 }
-const scriptHashes = routes.map(page => `'sha256-${createHash('sha256').update(structuredData(page)).digest('base64')}'`);
-const csp = ["default-src 'self'", `script-src 'self' https://challenges.cloudflare.com ${scriptHashes.join(' ')}`, "style-src 'self'", "style-src-attr 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self'", "connect-src 'self' https://challenges.cloudflare.com", "frame-src https://challenges.cloudflare.com", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"].join('; ');
-await writeFile('.generated/csp.mjs',`export const CSP = ${JSON.stringify(csp)};\n`);
-await writeFile('dist/_headers',`/*\n  Content-Security-Policy: ${csp}\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n  X-Frame-Options: DENY\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n`);
+await writeFile('dist/_headers',`/*\n  Content-Security-Policy: ${CSP}\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n  X-Frame-Options: DENY\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n`);
 await writeFile('dist/openapi.json',JSON.stringify(openApi,null,2)+'\n');
 await writeFile('dist/robots.txt',`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${site.origin}/sitemap.xml\n`);
 const indexed = routes.filter(page => !page.noindex);
@@ -71,4 +63,4 @@ await writeFile('dist/sitemap.xml',`<?xml version="1.0" encoding="UTF-8"?>\n<url
 await writeFile('dist/llms.txt',llmsTxt(indexed,site));
 const cms = await buildCms({ styles, js });
 await writeFile('.generated/build.json',JSON.stringify({routes:indexed.map(page => page.path),js,styles,cms},null,2));
-console.log(`Built ${routes.length} public pages, ${Object.keys(js).length} native public modules, and the isolated CMS editor.`);
+console.log(`Built ${routes.length} public pages, ${Object.keys(js).length} public entry points, and the isolated CMS editor.`);

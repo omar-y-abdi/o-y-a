@@ -19,12 +19,19 @@ test('unpublished database has an explicit empty state', async () => {
 });
 
 test('a durable publication is immediately visible to a separate public read', async () => {
-  const result = await publishSite(db, { project: project('Första'), baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
+  const published = project('Första');
+  published.runtime = { 'runtime.nav.menu.open': 'Första menyn' };
+  const result = await publishSite(db, { project: published, baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
   revision = result.version;
   assert.equal(revision, 1);
   const state = await readSite(db);
   assert.equal(state.project.pages[0].html, '<main id="main"><h1>Första</h1></main>');
-  assert.match((await readPublicPage(db, '/')).html, /Första/);
+  let queries = 0;
+  const page = await readPublicPage({ prepare(sql) { queries++; return db.prepare(sql); } }, '/');
+  assert.match(page.html, /Första/);
+  assert.deepEqual(page.runtime, published.runtime);
+  assert.equal(page.version, result.version);
+  assert.equal(queries, 1, 'Page and runtime must use one D1 round trip');
 });
 
 test('simultaneous tabs cannot both overwrite the same base revision', async () => {
@@ -35,6 +42,7 @@ test('simultaneous tabs cannot both overwrite the same base revision', async () 
   assert.equal(failure.reason.status, 409);
   revision = (await readSite(db)).version;
   assert.equal(revision, baseVersion + 1);
+  assert.deepEqual((await readPublicPage(db, '/')).runtime, {}, 'Current page must not reuse an older revision\'s runtime');
 });
 
 test('retrying a committed request is idempotent but reusing its ID for different content fails', async () => {
@@ -52,7 +60,10 @@ test('history restore produces a new revision and preserves intervening history'
   const old = await readSite(db, 1);
   const restored = await publishSite(db, { project: old.project, baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
   revision = restored.version;
-  assert.match((await readPublicPage(db, '/')).html, /Första/);
+  const page = await readPublicPage(db, '/');
+  assert.match(page.html, /Första/);
+  assert.equal(page.version, revision);
+  assert.deepEqual(page.runtime, old.project.runtime);
   const history = await readHistory(db);
   assert.equal(history.items.length, revision);
   assert.equal(history.items[0].version, revision);

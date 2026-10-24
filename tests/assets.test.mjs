@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
+import { parse } from 'parse5';
 import { routes, site } from '../src/content/site.mjs';
-import { CSP } from '../.generated/csp.mjs';
+import { CSP, SKIFT_CSP } from '../src/csp.mjs';
 
 async function htmlFor(route) {
   return readFile(route.noindex ? 'dist/404.html' : `dist${route.path}index.html`, 'utf8');
@@ -32,26 +32,53 @@ test('native module imports resolve to content-hashed files with no source maps'
   const files = await readdir('dist/assets');
   assert.ok(files.every(name => !name.endsWith('.map')));
   for (const file of files) {
-    assert.match(file, /^[a-z]+\.[a-f0-9]{12}\.(mjs|css)$/);
+    assert.match(file, /^(?:[a-z-]+\.[A-Z0-9]{8}\.mjs|site\.[a-f0-9]{12}\.css)$/);
     const code = await readFile(join('dist/assets', file), 'utf8');
     assert.ok(!code.includes('sourceMappingURL'));
-    for (const match of code.matchAll(/(?:from\s*|import\()["']\.\/([^"']+)["']/g)) {
+    for (const match of code.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["']\.\/([^"']+)["']/g)) {
       assert.ok(files.includes(match[1]), `Missing imported module ${match[1]}`);
     }
-    for (const match of code.matchAll(/(?:from\s*|import\()["'](\/cms-public\/[^"']+)["']/g)) assert.ok((await stat('dist' + match[1])).isFile(), `Missing lazy module ${match[1]}`);
+    for (const match of code.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["'](\/(?:cms-public|play\/skift\/assets)\/[^"']+)["']/g)) assert.ok((await stat('dist' + match[1])).isFile(), `Missing lazy module ${match[1]}`);
   }
 });
 
-test('all structured-data scripts match actual CSP hashes and identity facts', async () => {
+test('public shell has one shared dependency and a separate lazy SKIFT entry', async () => {
+  const files = await readdir('dist/assets');
+  const entry = name => files.find(file => file.startsWith(name + '.') && file.endsWith('.mjs'));
+  const main = entry('main'), bootstrap = entry('skift-bootstrap');
+  assert.ok(main && bootstrap);
+  const mainCode = await readFile(join('dist/assets', main), 'utf8');
+  const bootstrapCode = await readFile(join('dist/assets', bootstrap), 'utf8');
+  const imports = code => [...code.matchAll(/(?:from\s*|import\s*)["']\.\/([^"']+)["']/g)].map(match => match[1]);
+  const shared = imports(mainCode);
+  assert.equal(shared.length, 1, 'HTML → main → shared copy is the complete static shell graph');
+  assert.deepEqual(imports(bootstrapCode), shared, 'Both entries must share one copy loader/cache');
+  assert.deepEqual(imports(await readFile(join('dist/assets', shared[0]), 'utf8')), []);
+  assert.ok(mainCode.includes(`import("./${bootstrap}")`), 'SKIFT stays a dynamic import');
+  assert.ok(bootstrapCode.includes('/play/skift/assets/app.js'));
+  assert.doesNotMatch(mainCode, /\/play\/skift\/assets\/app\.js/);
+});
+
+test('public CSP constants permit external scripts and inert data blocks only', async () => {
+  assert.equal(CSP.split('; ').find(directive => directive.startsWith('script-src ')), "script-src 'self' https://challenges.cloudflare.com");
+  assert.equal(SKIFT_CSP, CSP + "; media-src 'self' blob:");
+  assert.ok((await readFile('dist/_headers', 'utf8')).includes(`Content-Security-Policy: ${CSP}\n`));
   for (const route of routes) {
     const html = await htmlFor(route);
+    const visit = node => {
+      if (node.tagName === 'script') {
+        const attrs = Object.fromEntries(node.attrs.map(attr => [attr.name, attr.value]));
+        assert.ok(attrs.src || ['application/ld+json', 'application/json'].includes(attrs.type), `${route.path}: inline executable script`);
+      }
+      for (const child of node.childNodes ?? []) visit(child);
+      if (node.content) visit(node.content);
+    };
+    visit(parse(html));
     for (const match of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
       const data = JSON.parse(match[1]);
       assert.equal(data['@context'], 'https://schema.org');
       assert.ok(data['@graph'].some(node => node['@type'] === 'Person' && node.name === 'Omar Yusuf'));
       assert.ok(!match[1].includes('LocalBusiness'), 'A private person is not an invented local business');
-      const hash = createHash('sha256').update(match[1]).digest('base64');
-      assert.ok(CSP.includes(`'sha256-${hash}'`), `Missing CSP hash for ${route.path}`);
     }
     assert.equal((html.match(/<script[^>]*src=/g) || []).length, 1);
     assert.ok(!/<(?:iframe|video)\b/i.test(html));

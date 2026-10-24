@@ -47,7 +47,4 @@ export function normalizeSkiftProject(input, seed) {
   return runtime === input.runtime && pages.length === input.pages.length && pages.every((page, index) => page === input.pages[index]) ? input : { ...input, pages, runtime };
 }
 
-export function skiftCsp(policy) {
-  return policy.includes("media-src 'self' blob:") ? policy : policy + "; media-src 'self' blob:";
-}
 export const isSkiftPath = path => path === SKIFT_PATH || path === SKIFT_PATH.slice(0, -1);
