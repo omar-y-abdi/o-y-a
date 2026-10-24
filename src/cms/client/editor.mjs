@@ -128,7 +128,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   });
   editor.on('component:resize:update', ({ component, style, updateStyle }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
-    if (tag !== 'g') updateStyle(responsiveResizeStyle(style, tag));
+    updateStyle(tag === 'g' ? {} : responsiveResizeStyle(style, tag));
   });
   editor.on('component:resize:end', ({ component }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();

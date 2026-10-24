@@ -16,7 +16,9 @@ export function svgGroupResizeOptions(component){
       if(!base?.rect.width||!base?.rect.height||!base.box)return;
       const sx=Math.max(.01,rect.w/base.rect.width),sy=Math.max(.01,rect.h/base.rect.height),{x,y}=base.box;
       const scale=`translate(${x} ${y}) scale(${sx} ${sy}) translate(${-x} ${-y})`;
-      component.addAttributes?.({transform:[base.transform,scale].filter(Boolean).join(' ')});
+      // Backbone skips an unchanged value: reset silently so the final write is a change that is stored once, with the pre-drag transform as undo target.
+      if(store)component.addAttributes?.({transform:base.transform},{avoidStore:true});
+      component.addAttributes?.({transform:[base.transform,scale].filter(Boolean).join(' ')},{avoidStore:!store});
       if(store)base={...base,rect:{...base.rect,width:rect.w,height:rect.h}};
     },
   };
