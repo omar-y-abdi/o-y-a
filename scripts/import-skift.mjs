@@ -12,6 +12,26 @@ const source = process.argv[2];
 if (!source) throw new Error('Usage: node scripts/import-skift.mjs <SKIFT project directory>');
 const release = resolve(source, 'dist/play/skift');
 const target = 'public/play/skift';
+const original = await readFile(`${release}/assets/app.js`, 'utf8');
+let code = original;
+const copyKeys = ['workshop', 'line1', 'line2', 'intro', 'start', 'resumeRun', 'newRun', 'noInstall', 'saving', 'loading', 'ready', 'footer'];
+const { STRINGS } = await import(pathToFileURL(resolve(source, 'src/i18n.js')).href);
+const landingCopy = Object.fromEntries(['sv', 'en'].flatMap(language => copyKeys.map(key => [`runtime.skift.${language}.${key}`, STRINGS[language][key]])));
+const translation = code.match(/t\(e\)\{return (\w+)\[this\.settings\.language\]\[e\]\|\|e\}/);
+if (!translation) throw new Error('Release adapter cannot locate the translation method.');
+code = code.replace(translation[0], `t(e){return (${JSON.stringify(copyKeys)}.includes(e)?globalThis.__OY_SKIFT_COPY__?.["runtime.skift."+this.settings.language+"."+e]:undefined)??(${translation[1]}[this.settings.language][e]||e)}`);
+const readiness = code.match(/if\((\w+)\)if\((\w+)==="start"\)/);
+if (!readiness || code.split(readiness[0]).length !== 2) throw new Error('Release adapter cannot locate the unique gameplay readiness guard.');
+// Closing Help/Settings only changes UI; gameplay still requires completed startup.
+code = code.replace(readiness[0], `if(${readiness[1]}||${readiness[2]}==="close")if(${readiness[2]}==="start")`);
+for (const [before, after] of [
+  ['new URL("./audio/",document.baseURI)', 'new URL("/play/skift/audio/",document.baseURI)'],
+  ['".site-header nav"', '"[data-skift-menu]"'],
+]) {
+  if (code.split(before).length !== 2) throw new Error(`Release adapter requires exactly one ${before}`);
+  code = code.replace(before, after);
+}
+code = code.replace(/\s*\/\/[#@] sourceMappingURL=.*$/gm, '').replace(/[\t ]+$/gm, '');
 await mkdir(`${target}/assets`, { recursive: true });
 await cp(`${release}/audio`, `${target}/audio`, { recursive: true });
 for (const name of ['THIRD-PARTY-LICENSES.txt', 'assets/app.js.LEGAL.txt']) {
@@ -28,27 +48,7 @@ css.walk(stylesheet, { visit: 'Rule', enter(rule, item, list) {
   if (rule.prelude.children.isEmpty) list.remove(item);
 } });
 await writeFile(`${target}/assets/app.css`, css.generate(stylesheet));
-const original = await readFile(`${release}/assets/app.js`, 'utf8');
-let code = original;
-const copyKeys = ['workshop', 'line1', 'line2', 'intro', 'start', 'resumeRun', 'newRun', 'noInstall', 'saving', 'loading', 'ready', 'footer'];
-const { STRINGS } = await import(pathToFileURL(resolve(source, 'src/i18n.js')).href);
-const landingCopy = Object.fromEntries(['sv', 'en'].flatMap(language => copyKeys.map(key => [`runtime.skift.${language}.${key}`, STRINGS[language][key]])));
 await writeFile('src/content/skift-copy.mjs', `// Landing copy uses textContent only. Modal HTML stays code-owned.\nexport const skiftCopy = ${JSON.stringify(landingCopy, null, 2)};\n`);
-const translation = code.match(/t\(e\)\{return (\w+)\[this\.settings\.language\]\[e\]\|\|e\}/);
-if (!translation) throw new Error('Release adapter cannot locate the translation method.');
-code = code.replace(translation[0], `t(e){return (${JSON.stringify(copyKeys)}.includes(e)?globalThis.__OY_SKIFT_COPY__?.["runtime.skift."+this.settings.language+"."+e]:undefined)??(${translation[1]}[this.settings.language][e]||e)}`);
-const readiness = code.match(/if\((\w+)\)if\((\w+)==="start"\)/);
-if (!readiness || code.split(readiness[0]).length !== 2) throw new Error('Release adapter cannot locate the unique gameplay readiness guard.');
-// Closing Help/Settings only changes UI; gameplay still requires completed startup.
-code = code.replace(readiness[0], `if(${readiness[1]}||${readiness[2]}==="close")if(${readiness[2]}==="start")`);
-for (const [before, after] of [
-  ['new URL("./audio/",document.baseURI)', 'new URL("/play/skift/audio/",document.baseURI)'],
-  ['".site-header nav"', '"[data-skift-menu]"'],
-]) {
-  if (code.split(before).length !== 2) throw new Error(`Release adapter requires exactly one ${before}`);
-  code = code.replace(before, after);
-}
-code = code.replace(/\s*\/\/[#@] sourceMappingURL=.*$/gm, '').replace(/[\t ]+$/gm, '');
 await writeFile(`${target}/assets/app.js`, code);
 const document = parse(await readFile(`${release}/index.html`, 'utf8'), { scriptingEnabled: false });
 const body = document.childNodes.find(node => node.tagName === 'html').childNodes.find(node => node.tagName === 'body');
