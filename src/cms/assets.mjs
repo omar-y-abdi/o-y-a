@@ -2,7 +2,7 @@ import { imageDimensionsFromData } from 'image-dimensions';
 import { authenticateAdmin } from './auth.mjs';
 import { HttpError } from './http.mjs';
 import { digest, retainedResourceUsage } from './store.mjs';
-import { decodeRaster } from './raster-integrity.mjs';
+import { cleanRaster, decodeRaster } from './raster-integrity.mjs';
 import { resourceReferences } from './resources.mjs';
 import { sanitizeManagedSvg } from './svg.mjs';
 
@@ -74,6 +74,7 @@ export async function uploadAsset(env, { id, bytes, name, alt = '' }) {
   if (!env.CMS_DB || !env.CMS_MEDIA) throw new HttpError(503, 'Mediebiblioteket är inte tillgängligt.');
   if (!UUID.test(id) || typeof name !== 'string' || !name.trim() || name.length > 200 || /[\u0000-\u001f]/.test(name) || typeof alt !== 'string' || alt.length > 1000) throw new HttpError(422, 'Filnamn eller alternativtext är ogiltigt.');
   const info = inspectAsset(bytes);
+  bytes = cleanRaster(bytes, info);
   const hash = await digest(bytes);
   const existing = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
   if (existing) {
