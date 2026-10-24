@@ -34,7 +34,7 @@ const TYPES = {
   text: { name: 'Text', icon: '¶', make: section => ({ text: 'Skriv något vänligt här.', style: look(16, 26, 0, 17, 0, ink(section)), rule: null }) },
   image: { name: 'Bild', icon: '▧', make: section => ({ src: 'emailStatic', msoSrc: null, alt: null, width: 96, height: 96, placement: section === 'band' ? 'beside' : 'block', align: 'left' }) },
   button: { name: 'Knapp', icon: '▭', make: () => ({ label: 'Läs mer', href: 'https://omaryusuf.se/', align: 'left' }) },
-  divider: { name: 'Avdelare', icon: '—', make: () => ({ gap: 16 }) },
+  divider: { name: 'Avdelare', icon: '–', make: () => ({ gap: 16 }) },
   receiptRow: { name: 'Rad med etikett och värde', icon: '≡', make: () => ({ label: 'Etikett', value: 'Värde' }) },
   visitor: { name: 'Besökarens uppgifter', icon: '☺', make: () => ({ fromLabel: 'FRÅN', messageLabel: 'MEDDELANDE', emptyMessage: 'Inget meddelande. Bara en öppen dörr till ett samtal.', emptyMessageText: 'Inget meddelande lämnades.' }) },
 };
@@ -374,7 +374,7 @@ function statusCell(item) {
 
 function sentRow(item) {
   const everyone = [...item.to, ...item.cc, ...item.bcc];
-  return `<tr data-email-sent-id="${escape(item.id)}"><td data-label="Tid"><time datetime="${escape(item.createdAt)}">${dateLabel(item.createdAt)}</time></td><td data-label="Slag">${escape(KIND_LABEL[item.kind] ?? item.kind)}</td><td data-label="Till" title="${escape(everyone.join(', '))}">${escape(everyone[0] ?? '—')}${everyone.length > 1 ? ` +${everyone.length - 1}` : ''}</td><td data-label="Ämne">${escape(item.subject)}</td><td data-label="Schemalagd">${item.scheduledAt ? dateLabel(item.scheduledAt) : '—'}</td><td data-label="Status" data-email-status>${statusCell(item)}</td></tr>`;
+  return `<tr data-email-sent-id="${escape(item.id)}"><td data-label="Tid"><time datetime="${escape(item.createdAt)}">${dateLabel(item.createdAt)}</time></td><td data-label="Slag">${escape(KIND_LABEL[item.kind] ?? item.kind)}</td><td data-label="Till" title="${escape(everyone.join(', '))}">${escape(everyone[0] ?? '–')}${everyone.length > 1 ? ` +${everyone.length - 1}` : ''}</td><td data-label="Ämne">${escape(item.subject)}</td><td data-label="Schemalagd">${item.scheduledAt ? dateLabel(item.scheduledAt) : '–'}</td><td data-label="Status" data-email-status>${statusCell(item)}</td></tr>`;
 }
 
 const sentBody = () => state.sentError ? `<p class="inline-error" role="alert">${escape(state.sentError)}</p>`
@@ -541,7 +541,7 @@ function renderPreview() {
   catch (error) { failure.textContent = `Förhandsvisningen kunde inte skapas: ${error.message}`; failure.hidden = false; return; }
   failure.hidden = true;
   pane.querySelector('[data-email-preview-note]').textContent = state.tab === 'compose' ? 'Så här ser mejlet ut hos mottagaren' : 'Exempeluppgifter · samma mall som utskicket';
-  pane.querySelector('[data-email-preview-subject]').textContent = mail.subject || '—';
+  pane.querySelector('[data-email-preview-subject]').textContent = mail.subject || '–';
   pane.querySelector('[data-email-preview-from]').textContent = mail.from;
   pane.querySelector('[data-email-preview-frame]').srcdoc = mail.html;
   fitPreview();
