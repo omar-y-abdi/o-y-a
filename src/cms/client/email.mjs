@@ -41,7 +41,7 @@ const TYPES = {
 
 const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false }, sent: null, sentError: '', status: {}, settings: null, settingsError: '' };
 // Skriv mejl lives only here: never part of the project, never saved by Save.
-let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null;
+let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null, sending = false;
 
 const emailOf = project => project.email ?? DEFAULT_EMAIL;
 const keys = path => path.split(/[.\[\]]+/).filter(Boolean);
@@ -181,14 +181,14 @@ const recipientCount = mail => mail.to.length + mail.cc.length + mail.bcc.length
 const chipItems = (name, mail) => mail[name].map(address => `<li class="email-chip"><span>${escape(address)}</span><button type="button" data-email-chip-remove="${name}" data-email-address="${escape(address)}" aria-label="Ta bort ${escape(address)}">✕</button></li>`).join('');
 const chipField = (name, label, mail) => `<div class="email-field" data-email-field="${name}"><span class="email-label" id="email-label-${name}">${label}</span><div class="email-chips"><ul class="email-chip-list" data-email-chip-list="${name}" aria-label="${label}, valda adresser">${chipItems(name, mail)}</ul><input type="text" inputmode="email" autocomplete="off" spellcheck="false" placeholder="namn@exempel.se" aria-labelledby="email-label-${name}" data-email-chip-input="${name}"></div></div>`;
 const attachmentState = file => file.status === 'uploading' ? 'Laddar upp…' : file.status === 'error' ? file.message : file.kind === 'resource' ? 'Från Resurser' : 'Uppladdad';
-const attachmentItems = mail => mail.attachments.map((file, index) => `<li class="email-attachment" data-email-attachment="${file.status}"><span class="email-attachment-name">${escape(file.name)}</span><small>${megabytes(file.bytes)} MB · ${escape(attachmentState(file))}</small><button type="button" data-email-attachment-remove="${index}" aria-label="Ta bort ${escape(file.name)}"${file.status === 'uploading' ? ' disabled' : ''}>✕</button></li>`).join('') || '<li class="email-hint">Inga bilagor.</li>';
+const attachmentItems = mail => mail.attachments.map((file, index) => `<li class="email-attachment" data-email-attachment="${file.status}"><span class="email-attachment-name">${escape(file.name)}</span><small>${megabytes(file.bytes)} MB · ${escape(attachmentState(file))}</small><button type="button" data-email-attachment-remove="${index}" aria-label="Ta bort ${escape(file.name)}"${file.status === 'uploading' || sending ? ' disabled' : ''}>✕</button></li>`).join('') || '<li class="email-hint">Inga bilagor.</li>';
 function attachmentTotal(mail) {
   const files = mail.attachments.filter(file => file.status !== 'error'), bytes = files.reduce((sum, file) => sum + encoded(file.bytes), 0);
   return `${files.length} av högst ${MAX_ATTACHMENTS} bilagor · ${megabytes(bytes)} MB av 40 MB efter kodning${bytes > MAX_ENCODED ? '. Över gränsen.' : '.'} En fil från datorn kan skickas inom ett dygn efter uppladdningen.`;
 }
 
 function composeHtml() {
-  const mail = composing(), email = emailOf(ctx.project());
+  const mail = composing(), email = emailOf(ctx.project()), locked = sending ? ' disabled' : '';
   return `<h2 class="email-panel-title">Skriv mejl</h2>
 <p class="email-hint">Från: ${escape(senderAddress(email))}. Avsändaren ändras under Kvitto eller Avisering. Utkastet finns bara här och sparas inte med webbplatsen.</p>
 ${LISTS.map(([name, label]) => chipField(name, label, mail)).join('')}
@@ -197,9 +197,9 @@ ${designHtml('compose', mail, '')}
 ${field('Ämne', 'subject', textInput('subject', mail.subject, 200))}
 ${field('Förtext', 'preheader', textInput('preheader', mail.preheader, 200), 'Den lilla raden som visas efter ämnet i inkorgen.')}
 ${blocksSection(mail, '', 'compose')}
-<section class="email-attachments" data-email-field="attachments" aria-label="Bilagor"><h3>Bilagor</h3><div class="email-actions"><button type="button" class="small-button" data-email-pick-resource>Från Resurser</button></div><div class="email-field"><label class="inspector-field"><span>Från datorn</span><input type="file" multiple data-email-file></label></div><ul class="email-attachment-list" data-email-attachment-list>${attachmentItems(mail)}</ul><p class="email-hint" data-email-attachment-total>${attachmentTotal(mail)}</p></section>
+<section class="email-attachments" data-email-field="attachments" aria-label="Bilagor"><h3>Bilagor</h3><div class="email-actions"><button type="button" class="small-button" data-email-pick-resource${locked}>Från Resurser</button></div><div class="email-field"><label class="inspector-field"><span>Från datorn</span><input type="file" multiple data-email-file${locked}></label></div><ul class="email-attachment-list" data-email-attachment-list>${attachmentItems(mail)}</ul><p class="email-hint" data-email-attachment-total>${attachmentTotal(mail)}</p></section>
 ${field('Schemalägg', 'scheduledAt', `<input type="datetime-local" min="${minLocal()}" value="${escape(mail.scheduledAt)}" ${attrs('scheduledAt')}>`, 'Lämna tomt för att skicka direkt. Ett schemalagt mejl kan avbrytas under Skickade tills det skickas.')}
-<div class="email-actions"><button type="button" class="small-button primary" data-email-send>${mail.scheduledAt ? 'Schemalägg' : 'Skicka'}</button></div>`;
+<div class="email-actions"><button type="button" class="small-button primary" data-email-send${locked}>${mail.scheduledAt ? 'Schemalägg' : 'Skicka'}</button></div>`;
 }
 
 function renderChips() {
@@ -250,6 +250,7 @@ function removeAddress(name, address) {
 }
 
 function pickResource() {
+  if (sending) return;
   const mail = composing();
   const images = ctx.assets().filter(asset => !asset.builtin && asset.publishedAt && (asset.state ?? 'active') === 'active' && RESOURCE_MIMES.includes(asset.mime));
   dialog(`<span class="dialog-eyebrow">BILAGA FRÅN RESURSER</span><h2>Välj en bild.</h2><p>Bara publicerade bilder kan bifogas. En bild blir publicerad när den används på en sparad sida.</p>${images.length ? `<div class="asset-grid">${images.map(asset => `<button type="button" class="asset-card" data-email-resource="${escape(asset.id)}"${mail.attachments.some(file => file.id === asset.id) ? ' disabled' : ''}><div class="asset-image"><img src="${escape(asset.src)}" alt="${escape(asset.alt ?? '')}"></div><div class="asset-card-meta"><strong>${escape(asset.name)}</strong></div></button>`).join('')}</div>` : '<p>Det finns inga publicerade bilder än.</p>'}<div class="dialog-buttons"><button type="button" class="small-button" data-action="close-dialog">Stäng</button></div>`);
@@ -263,6 +264,7 @@ function pickResource() {
 
 // Each file is uploaded on its own (E8); a failure marks that file only.
 async function uploadFiles(files) {
+  if (sending) return;
   const mail = composing(), queue = [];
   for (const file of files) {
     const entry = { kind: 'upload', id: null, name: file.name, bytes: file.size, status: 'uploading', message: '' };
@@ -282,12 +284,22 @@ async function uploadFiles(files) {
 
 async function removeAttachment(index) {
   const mail = composing(), file = mail.attachments[index];
-  if (!file || file.status === 'uploading') return;
+  if (!file || file.status === 'uploading' || sending) return;
   if (file.kind === 'upload' && file.id) {
     try { await api('mail/attachment-remove', { id: file.id }); }
     catch (error) { if (error.status !== 404) throw error; }
   }
   mail.attachments.splice(mail.attachments.indexOf(file), 1);
+  renderAttachments();
+}
+
+// While a send is in flight the attachments it names must not change: removing one
+// deletes it on the server (E9) before the request has used it. The attachment
+// controls and the send button stay disabled until the send has settled.
+function lockSend(locked) {
+  sending = locked;
+  if (!mounted() || state.tab !== 'compose') return;
+  for (const control of root.querySelectorAll('[data-email-file], [data-email-pick-resource], [data-email-send]')) control.disabled = locked;
   renderAttachments();
 }
 
@@ -309,12 +321,15 @@ async function sendMail(button) {
   const fingerprint = JSON.stringify(body);
   if (mail.fingerprint !== fingerprint) { mail.requestId = crypto.randomUUID(); mail.fingerprint = fingerprint; }
   await run(button, async () => {
-    const result = await api('mail/send', { requestId: mail.requestId, ...body });
-    compose = null;
-    state.sent = null;
-    state.status = {};
-    toast(result.scheduledAt ? `Mejlet är schemalagt ${dateLabel(result.scheduledAt)}.` : 'Mejlet är skickat.');
-    if (mounted() && state.tab === 'compose') { selectTab('sent'); root.querySelector('[data-email-tab=sent]').focus(); }
+    lockSend(true);
+    try {
+      const result = await api('mail/send', { requestId: mail.requestId, ...body });
+      compose = null;
+      state.sent = null;
+      state.status = {};
+      toast(result.scheduledAt ? `Mejlet är schemalagt ${dateLabel(result.scheduledAt)}.` : 'Mejlet är skickat.');
+      if (mounted() && state.tab === 'compose') { selectTab('sent'); root.querySelector('[data-email-tab=sent]').focus(); }
+    } finally { lockSend(false); }
   });
 }
 
