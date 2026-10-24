@@ -11,6 +11,7 @@ import { attribute, elements } from './html-tree.mjs';
 import { SKIFT_PATH } from '../content/skift.mjs';
 
 import { validateTheme } from './theme.mjs';
+import { validateEmailSettings } from './email-validate.mjs';
 export { fontFamilies, defaultTheme, themeCss } from './theme.mjs';
 const FLAVORS = ['kind', 'joke', 'pause', 'roast'];
 const CARD_STATES = new Set(['active', 'archived', 'trash']);
@@ -146,7 +147,9 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
   const storedHtml = new Map((baseline?.pages ?? []).map(page => [page.id, page.html]));
   const sharedUnchanged = JSON.stringify(baseline?.sharedContent) === JSON.stringify(sharedContent);
   validateSharedInstances(sharedUnchanged ? pages.filter(page => storedHtml.get(page.id) !== page.html) : pages, sharedContent, { publication, requiredEverywhere: Object.keys(seed.sharedContent ?? {}) });
-  const result = { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources), sharedContent };
+  // The published head already passed this check, so unchanged mail settings are reused.
+  const email = baseline && JSON.stringify(baseline.email) === JSON.stringify(input.email) ? baseline.email : validateEmailSettings(input.email);
+  const result = { schemaVersion: 1, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources), sharedContent, ...(email === undefined ? {} : { email }) };
   const references = publication ? resourceReferences(result) : null;
   if (publication && seed.staticPaths) {
     const inventory = new Set(seed.staticPaths);

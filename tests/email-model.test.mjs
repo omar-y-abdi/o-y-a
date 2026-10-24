@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_EMAIL, renderEmail } from '../src/server/email-render.mjs';
 import { validateEmailSettings, validateCustomMail } from '../src/cms/email-validate.mjs';
+import { applyProjectChanges, projectChanges, validateProjectChanges } from '../src/cms/project-changes.mjs';
+import { mergeProjects } from '../src/cms/client/merge.mjs';
+import { replaceResource, resourceReferences } from '../src/cms/resources.mjs';
+import { publicationChunks } from '../src/cms/store.mjs';
 
 const MEDIA = '/media/00000000-0000-4000-8000-000000000001.png';
 const edited = change => { const email = structuredClone(DEFAULT_EMAIL); change(email); return email; };
@@ -104,4 +108,53 @@ test('custom mail shares the block and design rules', () => {
   rejects(custom(m => { m.design.palette.text = 'black'; }), 'design.palette.text', undefined, validateCustomMail);
   rejects(custom(m => { m.blocks[0].extra = 1; }), 'blocks[0].extra', undefined, validateCustomMail);
   rejects(custom(m => { m.preheader = 'a\nb'; }), 'preheader', 'Förtext får bara vara en rad.', validateCustomMail);
+});
+
+const site = (extra = {}) => ({ schemaVersion: 1, pages: [], cards: [], runtime: {}, theme: { fontFamily: 'system' }, resources: { social: '/social/omar-yusuf.png' }, sharedContent: {}, ...extra });
+
+test('delta saves carry email, and null removes it', () => {
+  const email = structuredClone(DEFAULT_EMAIL);
+  assert.deepEqual(projectChanges(site(), site()), {});
+  assert.deepEqual(projectChanges(site(), site({ email })), { email });
+  assert.deepEqual(projectChanges(site({ email }), site()), { email: null });
+  assert.deepEqual(validateProjectChanges({ email: null }), { email: null });
+  assert.deepEqual(validateProjectChanges({ email }), { email });
+  for (const value of [[], 'x', 1]) assert.throws(() => validateProjectChanges({ email: value }), TypeError);
+  const removed = applyProjectChanges(site({ email }), { email: null });
+  assert.equal(Object.hasOwn(removed, 'email'), false);
+  const added = applyProjectChanges(site(), { email });
+  assert.deepEqual(added.email, email);
+  assert.notEqual(added.email, email);
+  assert.equal(Object.hasOwn(applyProjectChanges(site(), { theme: { fontFamily: 'x' } }), 'email'), false);
+});
+
+test('a 409 merge keeps email whole and absent when no side has it', () => {
+  const email = structuredClone(DEFAULT_EMAIL), other = edited(value => { value.sender.name = 'Studion'; });
+  assert.equal(Object.hasOwn(mergeProjects(site(), site(), site()).project, 'email'), false);
+  assert.deepEqual(mergeProjects(site(), site({ email }), site()).project.email, email);
+  assert.deepEqual(mergeProjects(site({ email }), site({ email }), site({ email: other })).project.email, other);
+  assert.equal(Object.hasOwn(mergeProjects(site({ email }), site(), site({ email })).project, 'email'), false);
+  const conflict = mergeProjects(site({ email }), site(), site({ email: other }));
+  assert.deepEqual(conflict.conflicts, ['email']);
+  assert.equal(Object.hasOwn(conflict.project, 'email'), false);
+});
+
+test('mail images are resource references and follow a replaced file', () => {
+  const email = edited(value => { Object.assign(value.templates.receipt.blocks[2], { src: MEDIA, alt: 'Egen bild' }); });
+  const references = resourceReferences(site({ email }));
+  assert.equal(references.get(MEDIA), 1);
+  assert.equal(references.has('/emailStatic'), false);
+  assert.equal(references.has('/emailAnimated'), false);
+  const next = '/media/00000000-0000-4000-8000-000000000002.png';
+  const { project, replacements } = replaceResource(site({ email }), { mime: 'image/png', src: MEDIA }, { mime: 'image/png', src: next });
+  assert.equal(replacements, 1);
+  assert.equal(project.email.templates.receipt.blocks[2].src, next);
+  assert.equal(project.email.templates.receipt.blocks[2].msoSrc, 'emailStatic');
+  assert.equal(Object.hasOwn(replaceResource(site(), { mime: 'image/png', src: MEDIA }, { mime: 'image/png', src: next }).project, 'email'), false);
+});
+
+test('every revision stores a private @email row', () => {
+  const row = project => publicationChunks(project).flat().find(item => item.path === '@email');
+  assert.deepEqual(row(site()), { path: '@email', html: 'null', css: '', meta: {} });
+  assert.equal(row(site({ email: DEFAULT_EMAIL })).html, JSON.stringify(DEFAULT_EMAIL));
 });
