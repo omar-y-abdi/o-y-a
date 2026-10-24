@@ -31,6 +31,18 @@ try{
   await setRatio(1);r=(await state(page)).render;
   assert.ok(Math.abs(r.width/1000-1)<.05,JSON.stringify(r));
  });
+ await check('smooth render buffer follows a real DPR change that fires no resize event',async()=>{
+  await page.evaluate(()=>{delete window.devicePixelRatio;window.__stopResize=e=>e.stopImmediatePropagation();window.addEventListener('resize',window.__stopResize,true);}); // proves the dppx listener, not the resize listener, does the work
+  const cdp=await context.newCDPSession(page);
+  const density=async factor=>{await cdp.send('Emulation.setDeviceMetricsOverride',{width:1000,height:700,deviceScaleFactor:factor,mobile:false});await page.waitForTimeout(300);return (await state(page)).render;};
+  try{
+   let r=await density(2);assert.ok(Math.abs(r.width/1000-2)<.05&&r.width*r.height<=5200000,JSON.stringify(r));
+   r=await density(1);assert.ok(Math.abs(r.width/1000-1)<.05,JSON.stringify(r));
+  }finally{
+   await page.evaluate(()=>window.removeEventListener('resize',window.__stopResize,true));
+   await cdp.send('Emulation.clearDeviceMetricsOverride');await page.setViewportSize({width:1000,height:700});
+  }
+ });
  await check('large viewports respect the pixel budget of each quality',async()=>{
   await page.setViewportSize({width:3840,height:2160});await page.waitForTimeout(200);
   const smooth=await state(page);assert.equal(smooth.settings.quality,'smooth','desktop default is smooth');assert.ok(smooth.render.width*smooth.render.height<=5200000,JSON.stringify(smooth.render));

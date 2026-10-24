@@ -80,6 +80,8 @@ async function boot(){
     view.draw(game,mode,0,performance.now()/1000);
     ready=true;ui.ready();lastFrame=menuSince=performance.now();wake();
     window.addEventListener('resize',()=>{input.clear();view.resize();wake();});
+    // Moving the window between a 1x and a 2x display changes devicePixelRatio without a resize event.
+    const watchDensity=()=>matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change',()=>{view.resize();wake();watchDensity();},{once:true});watchDensity();
     window.addEventListener('blur',pause);
     document.addEventListener('visibilitychange',()=>{
       if(document.hidden){pause();sound.pause();if(raf)cancelAnimationFrame(raf);raf=0;}
