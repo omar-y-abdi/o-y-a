@@ -18,9 +18,10 @@ after(async () => {
 });
 
 // node:http preserves encoded wire bytes and redirects, unlike fetch().
+// Match the former HTTPConnection/close harness: a fresh connection per call.
 function fetchHttp(path, { method = 'GET', headers = {}, body, fixture = runtime } = {}) {
   return new Promise((resolve, reject) => {
-    const req = request(new URL(path, fixture.url), { method, headers }, response => {
+    const req = request(new URL(path, fixture.url), { method, headers, agent: false }, response => {
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
       response.once('error', reject);
@@ -114,6 +115,10 @@ test('published sitemap and text discovery resources stay available', async () =
 });
 
 test('Markdown negotiation retains HTML, HEAD, Vary and raw gzip responses', async () => {
+  const customMarkdown = new Map([
+    ['/ake/', '# Åke kör axel\n\nless gooo\n\n## Din nästa idé.\n\nGe den lite plats.\n\n## En tanke.\n\nOch en till.\n'],
+    ['/ekfr/', '# Här börjar något.\n\nDubbelklicka för att skriva din berättelse.\n'],
+  ]);
   for (const path of [...routes, '/404.html']) {
     const status = path === '/404.html' ? 404 : 200;
     const response = await fetchHttp(path, { headers: { Accept: 'text/markdown' } });
@@ -121,7 +126,8 @@ test('Markdown negotiation retains HTML, HEAD, Vary and raw gzip responses', asy
     assert.match(response.headers.get('content-type'), /^text\/markdown/);
     assert.match(response.headers.get('vary'), /accept/i);
     assert.match(response.body.toString(), /^# /);
-    assert.ok(response.body.length >= 100, path);
+    if (customMarkdown.has(path)) assert.equal(response.body.toString(), customMarkdown.get(path), path);
+    else assert.ok(response.body.length >= 100, path);
     assert.doesNotMatch(response.body.toString(), /<main|<script/);
     const head = await fetchHttp(path, { method: 'HEAD', headers: { Accept: 'text/markdown' } });
     assert.equal(head.status, status);
@@ -181,12 +187,17 @@ test('aliases, JSON errors, OpenAPI and machine discovery match the public API',
   for (const text of ['## N', '/developers/', '/openapi.json']) assert.ok(discovery.body.includes(text));
 });
 
-test('home transfers as real gzip within the existing document budget', async () => {
+test('home transfers as real gzip within the phase-2 Worker document budget', async () => {
   const response = await fetchHttp('/', { headers: { 'Accept-Encoding': 'gzip' } });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-encoding'), 'gzip');
-  assert.match(gunzipSync(response.body).toString(), /Omar/);
-  assert.ok(response.body.length < 9000, `${response.body.length} gzip bytes`);
+  const html = gunzipSync(response.body).toString();
+  assert.match(html, /Omar/);
+  const runtimeCopy = html.match(/<script type="application\/json" id="cms-runtime">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(runtimeCopy, 'Published home must embed its runtime copy');
+  assert.deepEqual(JSON.parse(runtimeCopy), project.runtime);
+  // Published HTML 9,428 B + at most 2,443 B embedded copy = 11,871 B, rounded up.
+  assert.ok(response.body.length < 12000, `${response.body.length} gzip bytes`);
 });
 
 test('private paths, traversal and source maps are never served', async () => {
@@ -197,7 +208,7 @@ test('private paths, traversal and source maps are never served', async () => {
   }
 });
 
-test('real Analytics Engine binding accepts consent and rejects denial and cross-origin ingest', async () => {
+test('HTTP analytics availability and consent gates match the configured binding', async () => {
   for (const [fixture, enabled] of [[runtime, false], [analytics, true]]) {
     const response = await fetchHttp('/api/config', { fixture });
     assert.equal(response.status, 200);
