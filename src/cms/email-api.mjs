@@ -150,7 +150,8 @@ async function attachmentFiles(env, list = [], nowMs) {
       if (!RESOURCE_TYPES.includes(row.mime)) throw reject('Filtypen kan inte skickas som bilaga.', 'attachments');
       files.push({ ...item, ...row });
     } else {
-      const row = await env.CMS_DB.prepare('SELECT name, mime, bytes, expires_at FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND expires_at > ?').bind(item.id, iso(nowMs)).first();
+      // An immediate link expires with its upload row, so keep an hour of margin for Resend's fetch.
+      const row = await env.CMS_DB.prepare('SELECT name, mime, bytes, expires_at FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND expires_at > ?').bind(item.id, iso(nowMs + 3600000)).first();
       if (!row) throw reject('Bilagan har gått ut. Ladda upp den igen.', 'attachments');
       files.push({ ...item, ...row });
     }

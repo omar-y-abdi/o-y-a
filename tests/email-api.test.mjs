@@ -185,12 +185,14 @@ test('attachment size and type checked before send', async () => {
   const full = await addFile(31457280, future), extra = await addFile(1, future);
   const expired = await addFile(10, iso(START - 1000));
   const used = await addFile(10, future, { sentAt: iso(START) });
+  const soon = await addFile(10, iso(START + 1800000));
   for (const [attachments, message] of [
     [[{ kind: 'upload', id: full }, { kind: 'upload', id: extra }], 'Bilagorna blir för stora för ett mejl (högst 40 MB efter kodning).'],
     [[{ kind: 'resource', id: avif }], 'Filtypen kan inte skickas som bilaga.'],
     [[{ kind: 'resource', id: unpublished }], 'Filen är inte publicerad än. Bifoga den från datorn i stället.'],
     [[{ kind: 'upload', id: expired }], 'Bilagan har gått ut. Ladda upp den igen.'],
     [[{ kind: 'upload', id: used }], 'Bilagan har gått ut. Ladda upp den igen.'],
+    [[{ kind: 'upload', id: soon }], 'Bilagan har gått ut. Ladda upp den igen.'],
     [Array.from({ length: 11 }, () => ({ kind: 'upload', id: full })), 'Högst 10 bilagor per mejl.'],
   ]) {
     const response = await run(post('/admin/api/mail/send', compose({ attachments })), env(), p.fetch);
