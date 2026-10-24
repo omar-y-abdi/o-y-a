@@ -95,12 +95,12 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
       const textHistory = (event.metaKey || event.ctrlKey) && ['z', 'y'].includes(event.key.toLowerCase());
       if (!event.isComposing && event.target.isContentEditable && (['Backspace', 'Delete'].includes(event.key) || textHistory)) event.stopPropagation();
     }, true);
+    // Safari: delete a fully selected block through the editing command so native undo keeps it.
     if (navigator.vendor === 'Apple Computer, Inc.') doc.addEventListener('keydown', event => {
       if (!['Backspace', 'Delete'].includes(event.key) || event.isComposing) return;
       const editable = event.target.closest?.('[contenteditable=true]'), selection = doc.getSelection();
       if (!editable || !selection || selection.isCollapsed || selection.toString() !== editable.innerText) return;
-      event.preventDefault(); event.stopPropagation(); editable.textContent = ''; selection.collapse(editable, 0);
-      editable.dispatchEvent(new doc.defaultView.Event('input', { bubbles: true }));
+      event.preventDefault(); event.stopPropagation(); doc.execCommand('delete');
     }, true);
     const fontStyle = doc.createElement('style');
     fontStyle.textContent = assetFontCss(assets);

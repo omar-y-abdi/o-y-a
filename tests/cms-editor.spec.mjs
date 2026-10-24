@@ -240,5 +240,7 @@ test('Backspace and Delete remove a fully selected text block', async ({ page })
     });
     await page.keyboard.press(key);
     await expect.poll(() => canvas.locator('#t').evaluate(el => el.textContent.trim()), { message: `text left after ${key}` }).toBe('');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect.poll(() => canvas.locator('#t').evaluate(el => el.textContent.trim()), { message: `text after undo of ${key}` }).toBe('Hela texten');
   }
 });
