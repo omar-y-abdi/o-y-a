@@ -222,8 +222,46 @@ test('A12 shapes inside the managed SVG are selectable, the root stays fixed and
   expect(await fill('#dot')).toBe('#00ff00');
 
   await select(page, '#grp');
-  await dragCorner(page, 60, 60);
-  expect(await page.evaluate(() => window.__ed.getWrapper().find('#grp')[0].getAttributes().transform), `g transform; ${lastDrag}`).toMatch(/scale\(/);
+  const transform = () => page.evaluate(() => window.__ed.getWrapper().find('#grp')[0].getAttributes().transform ?? '');
+  const before = await transform();
+  // A12b: one drag is one undo step, one undo restores the pre-drag transform, and the group's rule gets no width/height.
+  expect(await dragCorner(page, 60, 60), `undo entries; ${lastDrag}`).toBe(1);
+  expect(await transform(), `g transform; ${lastDrag}`).toMatch(/scale\(/);
+  const style = await page.evaluate(() => window.__ed.getWrapper().find('#grp')[0].getStyle());
+  expect(Object.keys(style).filter(name => ['width', 'height'].includes(name)), `g style ${JSON.stringify(style)}`).toEqual([]);
+  await page.evaluate(() => { window.__ed.UndoManager.undo(); });
+  expect(await transform(), 'g transform after one undo').toBe(before);
+});
+
+// A4: the default RTE action bar. Link and Wrap hand their text to insertHTML as plain text, so each action gets its own paragraph.
+const RTE_ACTIONS = [['Bold', /<b>/], ['Italic', /<i>/], ['Underline', /<u>/], ['Strike-through', /<strike>/], ['Link', /<a\b[^>]*href=""/], ['Wrap for style', /<span\b/]];
+test('A4 all six RTE actions save, a link with an address saves and an empty link is found and selected', async ({ page }) => {
+  await openStudio(page, { html: RTE_ACTIONS.map((_, index) => `<p id="r${index}">Text ${index}</p>`).join('') });
+  const canvas = page.frameLocator('iframe.gjs-frame');
+  for (const [index, [title]] of RTE_ACTIONS.entries()) {
+    await canvas.locator(`#r${index}`).click();
+    await expect.poll(() => page.evaluate(() => window.__ed.getSelected()?.get('tagName')), { message: `selected tagName after clicking #r${index}` }).toBe('p');
+    await canvas.locator(`#r${index}`).dblclick();
+    await expect(canvas.locator(`#r${index}`), `RTE enabled for ${title}`).toHaveAttribute('contenteditable', 'true');
+    await canvas.locator(`#r${index}`).evaluate(el => {
+      const doc = el.ownerDocument, selection = doc.getSelection(), range = doc.createRange();
+      el.focus(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range);
+    });
+    await page.locator(`.gjs-rte-action[title="${title}"]`).click();
+  }
+  // The link action disables the RTE and selects the new anchor, as the inspector then shows #element-href.
+  const open = () => page.evaluate(() => window.__ed.getWrapper().find("a[href='']").length);
+  expect(await open(), 'anchors without an address').toBe(1);
+  const saved = await page.evaluate(() => window.__studio.snapshot(true));
+  for (const [title, pattern] of RTE_ACTIONS) expect(saved.html, title).toMatch(pattern);
+  expect(() => validateHtml(saved.html), 'an empty link must not be publishable').toThrow('Länken har en otillåten adress.');
+  await page.evaluate(() => { const link = window.__ed.getWrapper().find("a[href='']")[0]; window.__ed.select(link); });
+  expect(await page.evaluate(() => window.__ed.getSelected()?.get('tagName')), 'the empty link is selected').toBe('a');
+  await page.evaluate(() => { window.__ed.getSelected().addAttributes({ href: '/om/' }); });
+  expect(await open(), 'anchors without an address after typing /om/').toBe(0);
+  const fixed = await page.evaluate(() => window.__studio.snapshot(true));
+  expect(() => validateHtml(fixed.html)).not.toThrow();
+  expect(fixed.html).toContain('href="/om/"');
 });
 
 test('Backspace and Delete remove a fully selected text block', async ({ page }) => {

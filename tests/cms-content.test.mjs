@@ -98,3 +98,7 @@ test('A8: social and mail are reserved from the one shared list and the 422 name
   for (const path of ['/social/x/', '/mail/x/']) assert.throws(() => validatePagePath(path), { status: 422, message: new RegExp(`Adressen ${path} är reserverad`) });
   assert.equal(validatePagePath('/socialt/'), '/socialt/');
 });
+
+test('A4: validateHtml accepts <strike> from the strike-through action', () => {
+  assert.match(validateHtml('<p>En <strike>struken</strike> text</p>'), /<strike>struken<\/strike>/);
+});

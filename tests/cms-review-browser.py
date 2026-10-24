@@ -375,8 +375,27 @@ with sync_playwright() as pw:
             expect(page.locator('#save-status')).to_contain_text('Alla ändringar sparade')
         finally: ctx.close()
 
+    def empty_link_blocks_save():
+        # A4: a link without an address stops Save with the node selected and focus in #element-href; with /om/ Save is 200.
+        ctx = context()
+        try:
+            page = admin(ctx); calls = []
+            page.route('**/admin/api/save', lambda route: (calls.append(1), route.continue_()))
+            node = Q.frame(page).locator('main p').first
+            node.scroll_into_view_if_needed(); node.click(); node.dblclick()
+            node.evaluate("""el => { const doc = el.ownerDocument, selection = doc.getSelection(), range = doc.createRange(); el.focus(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range); }""")
+            page.locator('.gjs-rte-action[title="Link"]').click()
+            page.locator('[data-action=save]').click()
+            expect(page.locator('#studio-toast')).to_contain_text('Länken saknar adress.')
+            expect(page.locator('#element-href')).to_be_focused()
+            assert not calls, 'Save must not reach the server with an empty link'
+            page.locator('#element-href').fill('/om/'); page.locator('#element-href').press('Tab')
+            save(page)
+            assert len(calls) == 1
+        finally: ctx.close()
+
     cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('rapid-inline-save-diagnostic',rapid_inline_save_diagnostic),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
-    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays)]
+    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save)]
     selected=os.environ.get('CMS_REVIEW_CASE')
     for name,run in cases:
         if not selected or selected in name: report.run(name,run)
