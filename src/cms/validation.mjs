@@ -124,8 +124,8 @@ function setKey(node, key) {
   if (existing) existing.value = key; else node.attrs.push({ name: 'data-cms-node', value: key });
 }
 const textOf = node => { let text = ''; traverse(node, child => { if (child.nodeName === '#text') text += child.value; }); return text.replace(/\s+/g, ' ').trim(); };
-// Codex b1d #3: what assistive technology announces besides the text, on a consent button and every descendant.
-const announces = a => a.name.startsWith('aria-') || ['title', 'role', 'hidden', 'alt'].includes(a.name);
+// Codex b1d #3: what announces or lets the visitor reach a consent button besides its text, on the button and every descendant.
+const announces = a => a.name.startsWith('aria-') || ['title', 'role', 'hidden', 'alt', 'inert', 'tabindex'].includes(a.name);
 const announced = (node, path = '') => [...(node.attrs ?? []).filter(announces).map(a => `${path}:${a.name}=${a.value}`), ...(node.childNodes ?? []).filter(child => child.tagName).flatMap((child, index) => announced(child, `${path}>${index}${child.tagName}`))];
 const accessibleName = node => JSON.stringify(announced(node).sort());
 // A label names the button it wraps, or the one its for attribute points at.
