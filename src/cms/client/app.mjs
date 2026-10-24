@@ -4,6 +4,7 @@ import { Backups } from './backups.mjs';
 import { Draft } from './draft.mjs';
 import { mergeProjects } from './merge.mjs';
 import { runtimeView } from './runtime.mjs';
+import { mountEmail, refreshEmail, showEmailError, isEmailField } from './email.mjs';
 import { $, $$, escape, toast, dialog, confirmAction, field } from './dom.mjs';
 import { createEditor } from './editor.mjs';
 import { pageInspector, componentInspector, componentColorInspector, themeInspector } from './inspector.mjs';
@@ -42,6 +43,8 @@ function status() {
   $('[data-action=edit]').classList.toggle('is-active', !locked);
   $('[data-action=lock]').classList.toggle('is-active', locked);
   $('.right-panel').inert = locked || device === 'compare';
+  $('.studio-shell').classList.toggle('studio-shell--email', current.type === 'email');
+  $('[data-special=email]').setAttribute('aria-current', current.type === 'email' ? 'page' : 'false');
 }
 
 function remember() {
@@ -255,6 +258,7 @@ function specialBase(type) {
     wins: ['Små vinster', 'Välj en vinst för att redigera text, kategori och hela dess visuella design.'],
     history: ['Tidigare versioner', 'Granska utan att ändra utkastet. Återställ läser in en version; Save publicerar den.'],
     runtime: ['Funktionstexter', 'Ändra svaren som webbplatsen visar. Behåll dynamiska värden inom klamrar.'],
+    email: ['Mejl', 'Redigera mejlens text och utseende, skicka mejl och följ utskicken.'],
     asset: ['Filens uppgifter', 'Bild, typsnitt och användning'],
   };
   $('#selection-name').textContent = guides[type][0]; $('#selection-type').textContent = 'Portfolio Studio';
@@ -275,6 +279,10 @@ async function showSpecial(type) {
   if (type === 'runtime') {
     $('#canvas-label').textContent = 'Lekarnas texter';
     runtimeView(draft.project.runtime);
+  }
+  if (type === 'email') {
+    $('#canvas-label').textContent = 'Mejl';
+    mountEmail($('#special-stage'), { project: () => draft.project, change, assets: () => assets, back: () => openPage(lastPage) });
   }
   renderSidebar();
 }
@@ -465,6 +473,7 @@ async function save() {
     savingDraft.rejectSave(error);
     saveError = error.message ?? '';
     showError(error);
+    routeEmailError(error);
   } finally { await backups.persist(); saving = false; status(); }
 }
 
@@ -477,6 +486,13 @@ function showError(error) {
   if (error.status === 409) dialog(`<span class="dialog-eyebrow">TVÅ FLIKAR. ETT MEDVETET VAL.</span><h2>En nyare version finns.</h2><p>Ditt utkast har bevarats. Inga ändringar skrevs över. Exportera en reservkopia, granska historiken eller behåll utkastet och fortsätt arbeta.</p><div class="dialog-buttons"><button type="button" class="small-button" data-action="export-draft">Exportera utkast</button><button type="button" class="small-button" data-action="history">Granska historik</button><button type="button" class="small-button primary" data-action="reconcile">Sammanför utkasten</button><button type="button" class="small-button" data-action="close-dialog">Stäng</button></div>`);
   if (error.status === 401 || error.status === 403) dialog(`<span class="dialog-eyebrow">UTKASTET FINNS KVAR</span><h2>Kontakten behöver förnyas.</h2><p>${escape(error.message)} Logga in i en ny flik om sessionen har gått ut, återvänd hit och försök spara igen.</p><div class="dialog-buttons"><button type="button" class="small-button" data-action="export-draft">Exportera utkast</button><a class="small-button primary" href="/admin/" target="_blank" rel="noopener noreferrer">Logga in igen ↗</a><button type="button" class="small-button" data-action="close-dialog">Stäng</button></div>`);
   if (error.status === 0) dialog(`<span class="dialog-eyebrow">UTKASTET FINNS KVAR</span><h2>Anslutningen bröts.</h2><p>${escape(error.message)}</p><div class="dialog-buttons"><button type="button" class="small-button" data-action="export-draft">Exportera utkast</button><button type="button" class="small-button" data-action="close-dialog">Stäng</button></div>`);
+}
+
+// A rejected mail setting is shown on its own field in the Mejl view, which opens if needed.
+function routeEmailError(error) {
+  const field = error.status === 422 ? error.details?.field : undefined;
+  if (!isEmailField(field) || current.type === 'svg') return;
+  Promise.resolve(current.type === 'email' ? null : showSpecial('email')).then(() => showEmailError(field, error.message)).catch(showError);
 }
 
 async function reconcile() {
@@ -628,7 +644,7 @@ async function perform(action) {
   if (action === 'history' || action === 'restore') { $('#studio-dialog').close(); if (action === 'restore' && reviewVersion !== null) return restore(reviewVersion); return showSpecial('history'); }
   if (action === 'edit') return editView();
   if (action === 'lock') { if (locked) return editView(); if (!active) openPage(lastPage); locked = true; status(); return preview(); }
-  if (action === 'undo' || action === 'redo') { const view = active ? { ...captureEditorView(active.editor, { device, zoom, tab: inspectorTab }), themeMode, current: { ...current } } : null; active?.flush(); if (draft[action]()) { pendingViewRestore = view; const previous = { ...current }; clearEditor(); if (previous.type === 'win') openWin(previous.id); else openPage(lastPage); status(); remember(); } return; }
+  if (action === 'undo' || action === 'redo') { const view = active ? { ...captureEditorView(active.editor, { device, zoom, tab: inspectorTab }), themeMode, current: { ...current } } : null; active?.flush(); if (draft[action]()) { if (current.type === 'email') { refreshEmail(); status(); remember(); return; } pendingViewRestore = view; const previous = { ...current }; clearEditor(); if (previous.type === 'win') openWin(previous.id); else openPage(lastPage); status(); remember(); } return; }
   if (action === 'collapse-left' || action === 'expand-left') { document.body.classList.toggle('is-left-collapsed', action === 'collapse-left'); return fit(); }
   if (action === 'toggle-pages') { document.body.classList.remove('show-properties'); document.body.classList.toggle('show-pages'); return; }
   if (action === 'toggle-properties') { document.body.classList.remove('show-pages'); document.body.classList.toggle('show-properties'); return; }

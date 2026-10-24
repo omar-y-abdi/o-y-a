@@ -7,7 +7,7 @@ export class ApiError extends Error {
   get definitive() { return this.status >= 400 && this.status < 500 && this.status !== 408; }
 }
 
-async function send(url, { headers, ...init }, failure) {
+export async function send(url, { headers, ...init }, failure) {
   let response;
   try {
     response = await fetch(url, { ...init, credentials: 'same-origin', redirect: 'error', headers: { ...headers, 'X-Requested-With': 'XMLHttpRequest' } });
