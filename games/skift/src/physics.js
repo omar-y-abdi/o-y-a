@@ -1,6 +1,8 @@
 import * as CANNON from 'cannon-es';
 import {DECK} from './levels.js';
 
+/** Collision groups: actors only collide with walls and the opposing side; enemies pass through each other. */
+export const GROUP={enemy:1,player:2,wall:4};
 /** cannon-es supplies broadphase, contact resolution and fixed-step integration. */
 export class Physics {
   constructor(level) {
@@ -17,11 +19,11 @@ export class Physics {
     this.from=new CANNON.Vec3();this.to=new CANNON.Vec3();this.rayResult=new CANNON.RaycastResult();
   }
   box(x,z,w,d) {
-    const body=new CANNON.Body({mass:0,shape:new CANNON.Box(new CANNON.Vec3(w/2,2,d/2)),position:new CANNON.Vec3(x,0,z),collisionFilterGroup:4});
+    const body=new CANNON.Body({mass:0,shape:new CANNON.Box(new CANNON.Vec3(w/2,2,d/2)),position:new CANNON.Vec3(x,0,z),collisionFilterGroup:GROUP.wall});
     this.world.addBody(body);this.walls.push(body);return body;
   }
-  actor(x,z,radius=.5) {
-    const body=new CANNON.Body({mass:1,shape:new CANNON.Sphere(radius),position:new CANNON.Vec3(x,.6,z),fixedRotation:true,linearDamping:0,collisionFilterGroup:1,collisionFilterMask:4,allowSleep:false});
+  actor(x,z,radius=.5,group=GROUP.enemy,mask=GROUP.wall|GROUP.player) {
+    const body=new CANNON.Body({mass:1,shape:new CANNON.Sphere(radius),position:new CANNON.Vec3(x,.6,z),fixedRotation:true,linearDamping:0,collisionFilterGroup:group,collisionFilterMask:mask,allowSleep:false});
     body.linearFactor.set(1,0,1);body.angularFactor.set(0,0,0);this.world.addBody(body);return body;
   }
   step(dt) { this.world.step(1/60,Math.min(Math.max(dt,0),.05),3); }

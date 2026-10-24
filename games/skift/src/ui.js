@@ -31,6 +31,7 @@ export class UI {
   ready(){this.isReady=true;this.nodes['start-button'].disabled=false;document.getElementById('load-status').textContent=this.t('ready');this.translate();}
   mode(mode){const menu=mode==='menu';this.nodes['title-screen'].hidden=!menu;this.nodes['game-screen'].hidden=menu;document.body.dataset.mode=mode;}
   announce(text){document.getElementById('announcer').textContent=text;}
+  wp(game,view){const target=game.objective(),point=view.project(target.x,target.z,1.4),n=this.nodes;n.waypoint.style.left=`${Math.round(Math.max(25,Math.min(view.width-25,point.x)))}px`;n.waypoint.style.top=`${Math.round(Math.max(170,Math.min(view.height-145,point.y)))}px`;}
   toast(text){const e=document.getElementById('toast');e.textContent=text;e.hidden=false;clearTimeout(this.toastTimer);this.toastTimer=setTimeout(()=>{e.hidden=true;},5000);}
   close(){if(this.modal.open)this.modal.close();this.kind=null;}
   open(kind,game=this.game,message='') {
@@ -79,9 +80,7 @@ export class UI {
       n[`${key}-ready`].textContent=wait>0?`${wait.toFixed(1)}s`:this.t('available');
     }
     n.combo.hidden=s.combo<2;n['combo-number'].textContent=`×${(1+(s.combo-1)*.2).toFixed(1)}`;
-    const target=game.objective(),point=view.project(target.x,target.z,1.4);
-    n.waypoint.style.left=`${Math.max(25,Math.min(view.width-25,point.x))}px`;
-    n.waypoint.style.top=`${Math.max(170,Math.min(view.height-145,point.y))}px`;
+    const target=game.objective();
     n['waypoint-label'].textContent=target.kind==='cell'?`${target.id+1}`:target.kind==='boss'?'!':'→';
     n['boss-hud'].hidden=!game.bossState?.active||s.bossDefeated;
     if(game.bossState){n['boss-health'].style.width=`${game.bossState.hp/game.bossState.maxHp*100}%`;n['boss-state'].textContent=game.bossState.vulnerable>0?(this.settings.language==='sv'?'KÄRNAN ÄR ÖPPEN':'CORE EXPOSED'):'';}

@@ -22,7 +22,7 @@ function frame(now){
   const dt=Math.min(.05,Math.max(0,(now-lastFrame)/1000));lastFrame=now;const begin=performance.now();
   if(mode==='play'){game.step(dt,input.read());perf.steps++;}
   view.draw(game,mode,mode==='play'||mode==='menu'?dt:0,now/1000);
-  if(mode!=='menu'&&now-lastHUD>90){ui.hud(game,view);lastHUD=now;}
+  if(mode!=='menu'){ui.wp(game,view);if(now-lastHUD>90){ui.hud(game,view);lastHUD=now;}}
   const cost=performance.now()-begin;perf.frames++;perf.maxCost=Math.max(perf.maxCost,cost);perf.cost.push(cost);if(perf.cost.length>600)perf.cost.shift();
   if(mode==='play'||(mode==='menu'&&now-menuSince<10000))wake();
 }
@@ -77,7 +77,7 @@ async function boot(){
     game=new Game(view,sound,onGameEvent);input=new Input(view.renderer.domElement,pause);
     await view.renderer.compileAsync(view.scene,view.camera);
     view.draw(game,mode,0,performance.now()/1000);
-    ready=true;ui.ready();lastFrame=performance.now();wake();
+    ready=true;ui.ready();lastFrame=menuSince=performance.now();wake();
     window.addEventListener('resize',()=>{input.clear();view.resize();wake();});
     window.addEventListener('blur',pause);
     document.addEventListener('visibilitychange',()=>{

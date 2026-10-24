@@ -1,7 +1,8 @@
-import {Physics} from './physics.js';
+import {Physics,GROUP} from './physics.js';
 import {LEVELS} from './levels.js';
 import {createRun,tick,dash,pulse,hurt,award,collect,finishSector,nextSector,upgrade} from './rules.js';
 import {PALETTE} from './art.js';
+const PLAYER_RADIUS=.52;
 const length=(x,z)=>Math.hypot(x,z);
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
@@ -16,7 +17,7 @@ export class Game {
   }
   load() {
     this.level=LEVELS[this.state.sector];this.physics=new Physics(this.level);this.view.load(this.level);
-    this.player=this.physics.actor(...this.level.start,.52);this.facing=Math.PI;this.moving=false;this.dashVector={x:0,z:-1};
+    this.player=this.physics.actor(...this.level.start,PLAYER_RADIUS,GROUP.player,GROUP.wall|GROUP.enemy);this.facing=Math.PI;this.moving=false;this.dashVector={x:0,z:-1};
     this.scrap=new Set();this.bullets=[];this.hitDash=new Set();this.elapsed=0;
     this.enemies=this.level.enemies.map((def,i)=>{
       const e={...def,body:this.physics.actor(def.x,def.z,def.type==='charger'?.62:.48),hp:def.type==='charger'?5:3,
@@ -76,10 +77,11 @@ export class Game {
     this.moving=mag>.1||s.dashing>0;
     const p=this.player.position;
     for(const e of this.enemies)this.stepEnemy(e,p,dt);
+    this.player.collisionFilterMask=s.dashing>0?GROUP.wall:GROUP.wall|GROUP.enemy;
     this.physics.step(dt);
     for(const e of this.enemies){if(e.dead)continue;const d=distance(p,e.body.position);
       if(s.dashing>0&&d<1.65&&!this.hitDash.has(e)){this.hitDash.add(e);this.strike(e,3);}
-      else if(d<.98&&e.stunned<=0)this.hit();
+      else if(d<PLAYER_RADIUS+e.body.shapes[0].radius+.12&&e.stunned<=0)this.hit();
     }
     for(let i=0;i<this.level.cells.length;i++){
       const [x,z]=this.level.cells[i];
