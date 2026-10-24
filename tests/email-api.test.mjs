@@ -102,7 +102,9 @@ test('email row is never public', async () => {
   email.shell.tagline = marker;
   const saved = await runtime.mf.dispatchFetch(origin + '/admin/api/save', { method: 'POST', headers, body: JSON.stringify({ project: { ...state.project, email }, baseVersion: state.version, requestId: crypto.randomUUID() }) });
   assert.equal(saved.status, 200, await saved.clone().text());
-  for (const path of ['/data/email.json', '/data/@email.json']) assert.equal((await runtime.mf.dispatchFetch(origin + path)).status, 404, path);
+  assert.equal((await runtime.mf.dispatchFetch(origin + '/data/email.json')).status, 404);
+  // The asset layer redirects `@` to `%40`, which the Worker refuses as non-canonical.
+  assert.equal((await runtime.mf.dispatchFetch(origin + '/data/@email.json')).status, 400);
   for (const path of ['/@email', '/@email/', '/data/email.json', '/data/@email.json', '/', '/kontakt/', '/data/cards.json', '/sitemap.xml']) {
     const response = await runtime.mf.dispatchFetch(origin + path, { redirect: 'manual' });
     if (path.includes('email')) assert.notEqual(response.status, 200, path);
@@ -270,7 +272,8 @@ test('expired uploads are cleaned at the next upload or send', async () => {
   clock = scheduled + 1800 * 1000;
   assert.equal((await serveMailFile(new Request(file.path), env(), () => clock)).status, 200);
   const immediate = await (await upload()).json();
-  const now = provider();
+  // A second send needs its own Resend id: resend_id is UNIQUE.
+  const now = provider(() => Response.json({ id: 'immediate-1' }));
   assert.equal((await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id: immediate.id }] })), env(), now.fetch)).status, 200);
   assert.ok(now.calls[0].body.attachments[0].path.includes(`/${Math.floor(Date.parse(immediate.expiresAt) / 1000)}/`));
   const immediateRow = await runtime.db.prepare('SELECT sent_at, expires_at FROM cms_mail_files WHERE id = ?').bind(immediate.id).first();
