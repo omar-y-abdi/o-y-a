@@ -55,14 +55,15 @@ css.walk(stylesheet, { visit: 'Rule', enter(rule, item, list) {
 const stylesheetOutput = css.generate(stylesheet);
 const copyModule = `// Landing copy uses textContent only. Modal HTML stays code-owned.\nexport const skiftCopy = ${JSON.stringify(landingCopy, null, 2)};\n`;
 const document = parse(indexSource, { scriptingEnabled: false });
-const body = document.childNodes.find(node => node.tagName === 'html')?.childNodes.find(node => node.tagName === 'body');
-if (!body) throw new Error('Release index.html has no body.');
+const body = document.childNodes.find(node => node.tagName === 'html').childNodes.find(node => node.tagName === 'body');
+let hasTitleScreen = false;
 walk(body, node => {
   node.childNodes = node.childNodes?.filter(child => !['script', 'header'].includes(child.tagName));
   if (node.tagName === 'main') node.tagName = 'section';
   const id = node.attrs?.find(attr => attr.name === 'id')?.value;
   if (id) node.attrs.push({ name: 'data-skift-part', value: id });
   if (id === 'title-screen') {
+    hasTitleScreen = true;
     node.attrs.push({ name: 'data-skift-root', value: '' });
     const nav = parseFragment('<nav class="skift-tools" data-skift-menu aria-label="Spelmeny"><button data-action="how" data-t="how">Så spelar du</button><button data-action="settings" data-t="settings">Inställningar</button></nav>').childNodes[0];
     nav.parentNode = node; node.childNodes.unshift(nav);
@@ -72,6 +73,8 @@ walk(body, node => {
     heading.parentNode = node; node.childNodes.push(heading);
   }
 });
+// parse5 synthesizes html, head and body for an empty document, so only the marker proves this is the game page.
+if (!hasTitleScreen) throw new Error('Release index.html has no #title-screen element.');
 const html = serialize(body).replaceAll('\u2014', '-').replace(/[\t ]+$/gm, '');
 const templateModule = `// Imported by scripts/import-skift.mjs; gameplay hooks belong to SKIFT.\nexport const skift = () => ${JSON.stringify(html)};\n`;
 const releaseOutput = JSON.stringify({ version, upstreamBundleSha256: createHash('sha256').update(original).digest('hex'), bundleSha256: createHash('sha256').update(code).digest('hex'), adapters: ['same-origin audio URLs for CMS previews', 'game menu selector isolated from portfolio navigation', 'CMS landing text via textContent', 'portfolio shell owns header and brand styles', 'loading Help and Settings remain dismissible'] }, null, 2) + '\n';

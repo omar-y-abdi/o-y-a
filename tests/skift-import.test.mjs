@@ -13,7 +13,7 @@ const appJs = 'class U{t(e){return S[this.settings.language][e]||e}}function f(a
 const indexHtml = '<!doctype html><html><body><header>x</header><main id="title-screen"><p>hi</p></main><dialog id="modal"></dialog><script>1</script></body></html>';
 
 /** A minimal but valid standalone release, with optional files left out or replaced. */
-async function release(root, { omit = [], packageJson = '{"name":"skift","version":"1.0.0","type":"module"}' } = {}) {
+async function release(root, { omit = [], packageJson = '{"name":"skift","version":"1.0.0","type":"module"}', index = indexHtml } = {}) {
   const dist = join(root, 'dist/play/skift');
   const files = {
     'package.json': packageJson,
@@ -23,7 +23,7 @@ async function release(root, { omit = [], packageJson = '{"name":"skift","versio
     'dist/play/skift/assets/app.js.LEGAL.txt': 'legal\n',
     'dist/play/skift/THIRD-PARTY-LICENSES.txt': 'licenses\n',
     'dist/play/skift/audio/tone.txt': 'tone\n',
-    'dist/play/skift/index.html': indexHtml,
+    'dist/play/skift/index.html': index,
   };
   for (const [name, text] of Object.entries(files)) {
     if (omit.includes(name)) continue;
@@ -63,6 +63,21 @@ test('a release without index.html changes zero files', async () => {
     assert.match(result.stderr, /index\.html/);
     assert.deepEqual(await readdir(cwd), []);
   });
+});
+
+test('an index.html without the game page changes zero files', async () => {
+  const pages = ['', '<!doctype html><html><head><title>x</title></head></html>', '<!doctype html><html><body><main id="other"></main></body></html>'];
+  for (const index of pages) {
+    await scratch(async base => {
+      const rel = join(base, 'release'), cwd = join(base, 'cwd');
+      await release(rel, { index });
+      await mkdir(cwd);
+      const result = run(rel, cwd);
+      assert.notEqual(result.status, 0, index);
+      assert.match(result.stderr, /index\.html has no #title-screen/, index);
+      assert.deepEqual(await readdir(cwd), [], index);
+    });
+  }
 });
 
 test('invalid package metadata changes zero files', async () => {
