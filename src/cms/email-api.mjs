@@ -4,7 +4,7 @@ import { resolveResources } from './resources.mjs';
 import { validateCustomMail, validateEmailSettings } from './email-validate.mjs';
 import { contactReady } from '../server/contact.mjs';
 import { masterReady, readContactSettings, SECRET_NAMES, signFileLink, verifyFileLink, writeContactSecrets } from '../server/contact-secrets.mjs';
-import { DEFAULT_EMAIL, isEmailAddress, renderCustom, renderEmail, senderAddress } from '../server/email-render.mjs';
+import { isEmailAddress, renderCustom, renderEmail } from '../server/email-render.mjs';
 
 // The owner's mail desk. Only POST /emails, GET /emails/{id} and
 // POST /emails/{id}/cancel are called. Every check runs before the provider
@@ -197,7 +197,6 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   if (files.some(file => file.kind === 'upload') && !masterReady(env)) throw new HttpError(503, 'Huvudnyckeln saknas.');
   const project = await head();
   const rendered = renderCustom(mail, project.email, { resources: await resolveResources(env.CMS_DB, project), origin: url.origin });
-  const from = senderAddress(project.email ?? DEFAULT_EMAIL);
   const limited = await rateLimited(env, identity);
   if (limited) return limited;
   await cleanup(env, now);
@@ -211,7 +210,7 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   })));
   const scheduledAt = scheduledMs === null ? null : iso(scheduledMs);
   const id = sentId(await resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: `mail/${body.requestId}`, body: {
-    from, to: lists.to, ...(lists.cc.length ? { cc: lists.cc } : {}), ...(lists.bcc.length ? { bcc: lists.bcc } : {}),
+    from: rendered.from, to: lists.to, ...(lists.cc.length ? { cc: lists.cc } : {}), ...(lists.bcc.length ? { bcc: lists.bcc } : {}),
     subject: rendered.subject, html: rendered.html, text: rendered.text,
     ...(scheduledAt ? { scheduled_at: scheduledAt } : {}), ...(attachments.length ? { attachments } : {}),
   } }));
@@ -220,7 +219,7 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
     ...sentStatements(env.CMS_DB, { id, kind: 'custom', recipients: lists, subject: rendered.subject, attachments: files.length, createdAt: iso(nowMs), scheduledAt, actor: identity.email }),
     ...(uploads.length ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ?, expires_at = COALESCE(?, expires_at) WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), scheduledExp === null ? null : iso(scheduledExp * 1000), JSON.stringify(uploads))] : []),
   ]);
-  return json({ id, scheduledAt, from });
+  return json({ id, scheduledAt, from: rendered.from });
 }
 
 async function sentList(env) {
