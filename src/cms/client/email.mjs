@@ -1,6 +1,6 @@
-import { escape, toast } from './dom.mjs';
-import { api } from './api.mjs';
-import { DEFAULT_EMAIL, FONTS, SENDING_DOMAIN, renderCustom, renderEmail, resolveSlots } from '../../server/email-render.mjs';
+import { $, escape, toast, dialog, confirmAction, dateLabel } from './dom.mjs';
+import { api, send } from './api.mjs';
+import { DEFAULT_EMAIL, FONTS, SENDING_DOMAIN, isEmailAddress, renderCustom, renderEmail, resolveSlots, senderAddress } from '../../server/email-render.mjs';
 import { resourceSlots } from '../../content/resources.mjs';
 
 // The owner's mail desk. Plain DOM, one module. Template edits go through the
@@ -10,7 +10,10 @@ import { resourceSlots } from '../../content/resources.mjs';
 const SAMPLE = { name: 'Mira Test', email: 'mira@example.org', message: 'En fråga från provmejlet.' };
 const EMAIL_PATH = /^(templates|sender|shell)\./;
 const KINDS = { receipt: 'Kvitto till besökaren', notification: 'Avisering till dig' };
-const TABS = [['receipt', KINDS.receipt], ['notification', KINDS.notification]];
+const TABS = [['receipt', KINDS.receipt], ['notification', KINDS.notification], ['compose', 'Skriv mejl']];
+const LISTS = [['to', 'Till'], ['cc', 'Kopia'], ['bcc', 'Dold kopia']];
+const MAX_RECIPIENTS = 50, MAX_ATTACHMENTS = 10, MAX_UPLOAD = 31457280, MAX_ENCODED = 41943040;
+const RESOURCE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const INVALID = Symbol('invalid');
 const MAX_BLOCKS = 40;
 const COLORS = [['background', 'Bakgrund'], ['card', 'Kort'], ['band', 'Band'], ['bandText', 'Bandtext'], ['text', 'Text'], ['secondary', 'Sekundär'], ['accent', 'Accent'], ['border', 'Kant'], ['button', 'Knapp'], ['buttonText', 'Knapptext']];
@@ -36,7 +39,8 @@ const TYPES = {
 };
 
 const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false } };
-let ctx, root, observer, previewTimer;
+// Skriv mejl lives only here: never part of the project, never saved by Save.
+let ctx, root, observer, previewTimer, compose = null;
 
 export const isEmailField = path => typeof path === 'string' && EMAIL_PATH.test(path);
 
@@ -46,8 +50,10 @@ const getPath = (object, path) => keys(path).reduce((node, key) => node?.[key], 
 const setPath = (object, path, value) => { const parts = keys(path), last = parts.pop(); parts.reduce((node, key) => node[key], object)[last] = value; };
 const panel = () => root.querySelector('[data-email-panel]');
 const mounted = () => Boolean(root?.isConnected);
-const target = () => emailOf(ctx.project()).templates[state.tab];
-const basePath = () => `templates.${state.tab}.`;
+const composing = () => compose ??= newCompose();
+// The template-shaped object being edited: a draft template, or the compose state.
+const target = () => state.tab === 'compose' ? composing() : emailOf(ctx.project()).templates[state.tab];
+const basePath = () => state.tab === 'compose' ? '' : `templates.${state.tab}.`;
 const withPath = (scope, path) => [...scope.querySelectorAll('[data-email-path]')].find(node => node.dataset.emailPath === path);
 const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const newId = blocks => { let id; do { id = Array.from(crypto.getRandomValues(new Uint8Array(8)), n => ID_CHARS[n % 36]).join(''); } while (blocks.some(block => block.id === id)); return id; };
@@ -60,8 +66,8 @@ function update(edit, group) {
   edit(next);
   if (JSON.stringify(next) !== JSON.stringify(before)) ctx.change({ ...project, email: next }, group);
 }
-// Structural edit of the open template.
-const mutate = (change, group = '') => update(email => change(email.templates[state.tab]), group);
+// Structural edit of the open template, or of the compose state.
+const mutate = (change, group = '') => state.tab === 'compose' ? change(composing()) : update(email => change(email.templates[state.tab]), group);
 
 // An image that uses a resource slot may take the slot's own alt text (null);
 // an uploaded image needs text of its own.
@@ -74,7 +80,16 @@ function fixAlt(object, path) {
   else if (!slots && block.alt === null) block.alt = '';
 }
 function commit(path, value) {
-  update(email => { setPath(email, path, value); fixAlt(email, path); }, `email-${path}`);
+  const apply = object => { setPath(object, path, value); fixAlt(object, path); };
+  if (EMAIL_PATH.test(path)) update(apply, `email-${path}`); else apply(composing());
+}
+
+// A starting point for Skriv mejl: the receipt's look, a band heading and a card text.
+function newCompose() {
+  const blocks = [];
+  blocks.push({ id: newId(blocks), type: 'heading', section: 'band', ...TYPES.heading.make('band'), level: 1, text: 'Hej!' });
+  blocks.push({ id: newId(blocks), type: 'text', section: 'card', ...TYPES.text.make('card'), text: 'Skriv ditt meddelande här.' });
+  return { to: [], cc: [], bcc: [], subject: '', preheader: '', blocks, design: structuredClone(emailOf(ctx.project()).templates.receipt.design), scheduledAt: '', attachments: [], requestId: null, fingerprint: '' };
 }
 
 const attrs = (path, type) => `data-email-path="${escape(path)}"${type ? ` data-email-type="${type}"` : ''}`;
@@ -139,7 +154,7 @@ function designHtml(kind, template, base) {
     : STYLED.has(block.type) ? group(`Valt block · ${TYPES[block.type].name}`, styleFields(block, rel => `${base}blocks[${picked}].${rel}`))
     : '<p class="email-hint">Det valda blocket har inga textinställningar.</p>';
   const spacing = [['Sida, över och under', 'page.y', d.page.y], ['Sida, sidor', 'page.x', d.page.x], ['Band, över', 'bandPadding.top', d.bandPadding.top], ['Band, sidor', 'bandPadding.x', d.bandPadding.x], ['Band, under', 'bandPadding.bottom', d.bandPadding.bottom], ['Kort, över', 'cardPadding.top', d.cardPadding.top], ['Kort, sidor', 'cardPadding.x', d.cardPadding.x], ['Kort, under', 'cardPadding.bottom', d.cardPadding.bottom]];
-  return `<details class="email-design" data-email-details="design"${state.open.design ? ' open' : ''}><summary>Aktivera design</summary><div class="email-design-body">${blockGroup}${group('Design', num('Bredd', dp + 'width', d.width, 480, 720) + num('Hörnradie', dp + 'radius', d.radius, 0, 32) + num('Knappens hörnradie', dp + 'buttonRadius', d.buttonRadius, 0, 24) + field('Typsnitt', dp + 'font', selectInput(dp + 'font', d.font, FONTS.map(font => [font, font.split(',')[0]]))))}${group('Luft', spacing.map(([label, rel, value]) => num(label, dp + rel, value, 0, 64)).join(''))}${group('Palett', COLORS.map(([key, label]) => colorField(label, `${dp}palette.${key}`, d.palette[key])).join(''))}${group('Avsändare', field('Avsändarnamn', 'sender.name', textInput('sender.name', email.sender.name, 60)) + field('Avsändaradress', 'sender.local', `<span class="email-suffix"><input type="text" maxlength="64" spellcheck="false" value="${escape(email.sender.local)}" ${attrs('sender.local')}><span>@${SENDING_DOMAIN}</span></span>`, 'Gäller alla mejl härifrån.'))}${group('Sidhuvud och sidfot', field('Varumärke', 'shell.brand', textInput('shell.brand', email.shell.brand, 40)) + field('Sidfotens rad', 'shell.tagline', textInput('shell.tagline', email.shell.tagline, 200), 'Gäller alla mejl härifrån.'))}</div></details>`;
+  return `<details class="email-design" data-email-details="design"${state.open.design ? ' open' : ''}><summary>Aktivera design</summary><div class="email-design-body">${blockGroup}${group('Design', num('Bredd', dp + 'width', d.width, 480, 720) + num('Hörnradie', dp + 'radius', d.radius, 0, 32) + num('Knappens hörnradie', dp + 'buttonRadius', d.buttonRadius, 0, 24) + field('Typsnitt', dp + 'font', selectInput(dp + 'font', d.font, FONTS.map(font => [font, font.split(',')[0]]))))}${group('Luft', spacing.map(([label, rel, value]) => num(label, dp + rel, value, 0, 64)).join(''))}${group('Palett', COLORS.map(([key, label]) => colorField(label, `${dp}palette.${key}`, d.palette[key])).join(''))}${kind === 'compose' ? '' : group('Avsändare', field('Avsändarnamn', 'sender.name', textInput('sender.name', email.sender.name, 60)) + field('Avsändaradress', 'sender.local', `<span class="email-suffix"><input type="text" maxlength="64" spellcheck="false" value="${escape(email.sender.local)}" ${attrs('sender.local')}><span>@${SENDING_DOMAIN}</span></span>`, 'Gäller alla mejl härifrån.')) + group('Sidhuvud och sidfot', field('Varumärke', 'shell.brand', textInput('shell.brand', email.shell.brand, 40)) + field('Sidfotens rad', 'shell.tagline', textInput('shell.tagline', email.shell.tagline, 200), 'Gäller alla mejl härifrån.'))}</div></details>`;
 }
 
 function templateHtml(kind) {
@@ -155,12 +170,155 @@ ${blocksSection(template, base, kind)}
 <div class="email-actions"><button type="button" class="small-button primary" data-email-test>Provmejl</button><span class="email-hint">Skickar mejlet med exempeluppgifter till din egen adress.</span></div>`;
 }
 
-const PANELS = { receipt: () => templateHtml('receipt'), notification: () => templateHtml('notification') };
-const PREVIEWED = new Set(['receipt', 'notification']);
+const PANELS = { receipt: () => templateHtml('receipt'), notification: () => templateHtml('notification'), compose: composeHtml };
+const PREVIEWED = new Set(['receipt', 'notification', 'compose']);
+
+const minLocal = () => { const soon = new Date(Date.now() + 120000); return new Date(soon.getTime() - soon.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+const encoded = bytes => 4 * Math.ceil(bytes / 3);
+const megabytes = bytes => (bytes / 1048576).toFixed(1).replace('.', ',');
+const recipientCount = mail => mail.to.length + mail.cc.length + mail.bcc.length;
+const chipItems = (name, mail) => mail[name].map(address => `<li class="email-chip"><span>${escape(address)}</span><button type="button" data-email-chip-remove="${name}" data-email-address="${escape(address)}" aria-label="Ta bort ${escape(address)}">✕</button></li>`).join('');
+const chipField = (name, label, mail) => `<div class="email-field" data-email-field="${name}"><span class="email-label" id="email-label-${name}">${label}</span><div class="email-chips"><ul class="email-chip-list" data-email-chip-list="${name}" aria-label="${label}, valda adresser">${chipItems(name, mail)}</ul><input type="text" inputmode="email" autocomplete="off" spellcheck="false" placeholder="namn@exempel.se" aria-labelledby="email-label-${name}" data-email-chip-input="${name}"></div></div>`;
+const attachmentState = file => file.status === 'uploading' ? 'Laddar upp…' : file.status === 'error' ? file.message : file.kind === 'resource' ? 'Från Resurser' : 'Uppladdad';
+const attachmentItems = mail => mail.attachments.map((file, index) => `<li class="email-attachment" data-email-attachment="${file.status}"><span class="email-attachment-name">${escape(file.name)}</span><small>${megabytes(file.bytes)} MB · ${escape(attachmentState(file))}</small><button type="button" data-email-attachment-remove="${index}" aria-label="Ta bort ${escape(file.name)}"${file.status === 'uploading' ? ' disabled' : ''}>✕</button></li>`).join('') || '<li class="email-hint">Inga bilagor.</li>';
+function attachmentTotal(mail) {
+  const files = mail.attachments.filter(file => file.status !== 'error'), bytes = files.reduce((sum, file) => sum + encoded(file.bytes), 0);
+  return `${files.length} av högst ${MAX_ATTACHMENTS} bilagor · ${megabytes(bytes)} MB av 40 MB efter kodning${bytes > MAX_ENCODED ? '. Över gränsen.' : '.'} Filer från datorn kan bara följa med mejl som skickas inom 50 minuter.`;
+}
+
+function composeHtml() {
+  const mail = composing(), email = emailOf(ctx.project());
+  return `<h2 class="email-panel-title">Skriv mejl</h2>
+<p class="email-hint">Från: ${escape(senderAddress(email))}. Avsändaren ändras under Kvitto eller Avisering. Utkastet finns bara här och sparas inte med webbplatsen.</p>
+${LISTS.map(([name, label]) => chipField(name, label, mail)).join('')}
+<p class="email-hint" data-email-count>${recipientCount(mail)}/${MAX_RECIPIENTS} mottagare</p>
+${designHtml('compose', mail, '')}
+${field('Ämne', 'subject', textInput('subject', mail.subject, 200))}
+${field('Förtext', 'preheader', textInput('preheader', mail.preheader, 200), 'Den lilla raden som visas efter ämnet i inkorgen.')}
+${blocksSection(mail, '', 'compose')}
+<section class="email-attachments" data-email-field="attachments" aria-label="Bilagor"><h3>Bilagor</h3><div class="email-actions"><button type="button" class="small-button" data-email-pick-resource>Från Resurser</button></div><div class="email-field"><label class="inspector-field"><span>Från datorn</span><input type="file" multiple data-email-file></label></div><ul class="email-attachment-list" data-email-attachment-list>${attachmentItems(mail)}</ul><p class="email-hint" data-email-attachment-total>${attachmentTotal(mail)}</p></section>
+${field('Schemalägg', 'scheduledAt', `<input type="datetime-local" min="${minLocal()}" value="${escape(mail.scheduledAt)}" ${attrs('scheduledAt')}>`, 'Lämna tomt för att skicka direkt. Ett schemalagt mejl kan avbrytas under Skickade tills det skickas.')}
+<div class="email-actions"><button type="button" class="small-button primary" data-email-send>${mail.scheduledAt ? 'Schemalägg' : 'Skicka'}</button></div>`;
+}
+
+function renderChips() {
+  const mail = composing();
+  for (const [name] of LISTS) root.querySelector(`[data-email-chip-list="${name}"]`).innerHTML = chipItems(name, mail);
+  root.querySelector('[data-email-count]').textContent = `${recipientCount(mail)}/${MAX_RECIPIENTS} mottagare`;
+}
+function renderAttachments() {
+  if (!mounted() || state.tab !== 'compose') return;
+  const mail = composing();
+  root.querySelector('[data-email-attachment-list]').innerHTML = attachmentItems(mail);
+  root.querySelector('[data-email-attachment-total]').textContent = attachmentTotal(mail);
+}
+
+// An address, or the reason it cannot be added.
+function addAddress(name, token) {
+  const mail = composing(), address = token.trim(), all = [...mail.to, ...mail.cc, ...mail.bcc];
+  if (!isEmailAddress(address)) return `Ogiltig adress: ${address.slice(0, 80)}.`;
+  if (all.some(other => other.toLowerCase() === address.toLowerCase())) return `${address} finns redan bland mottagarna.`;
+  if (all.length >= MAX_RECIPIENTS) return 'Högst 50 mottagare sammanlagt (till, kopia och dold kopia).';
+  mail[name].push(address);
+  return null;
+}
+
+// Moves the typed addresses into chips. While typing only finished ones (followed
+// by a separator) count; on Enter, comma, blur and send everything does. A
+// refused address stays in the input with its reason.
+function commitAddresses(name, all) {
+  const input = root.querySelector(`[data-email-chip-input="${name}"]`);
+  const tokens = input.value.split(/[\s,;]+/).filter(Boolean);
+  const take = all || /[\s,;]$/.test(input.value) ? tokens : tokens.slice(0, -1), rest = tokens.slice(take.length);
+  let failure = null;
+  for (const [index, token] of take.entries()) {
+    failure = addAddress(name, token);
+    if (failure) { rest.unshift(...take.slice(index)); break; }
+  }
+  input.value = rest.join(', ');
+  renderChips();
+  if (failure) markField(name, failure, false);
+  return failure;
+}
+
+function removeAddress(name, address) {
+  const mail = composing();
+  mail[name] = mail[name].filter(other => other !== address);
+  renderChips();
+  root.querySelector(`[data-email-chip-input="${name}"]`).focus();
+}
+
+function pickResource() {
+  const mail = composing();
+  const images = ctx.assets().filter(asset => !asset.builtin && asset.publishedAt && (asset.state ?? 'active') === 'active' && RESOURCE_MIMES.includes(asset.mime));
+  dialog(`<span class="dialog-eyebrow">BILAGA FRÅN RESURSER</span><h2>Välj en bild.</h2><p>Bara publicerade bilder kan bifogas. En bild blir publicerad när den används på en sparad sida.</p>${images.length ? `<div class="asset-grid">${images.map(asset => `<button type="button" class="asset-card" data-email-resource="${escape(asset.id)}"${mail.attachments.some(file => file.id === asset.id) ? ' disabled' : ''}><div class="asset-image"><img src="${escape(asset.src)}" alt="${escape(asset.alt ?? '')}"></div><div class="asset-card-meta"><strong>${escape(asset.name)}</strong></div></button>`).join('')}</div>` : '<p>Det finns inga publicerade bilder än.</p>'}<div class="dialog-buttons"><button type="button" class="small-button" data-action="close-dialog">Stäng</button></div>`);
+  for (const button of $('#dialog-content').querySelectorAll('[data-email-resource]')) button.addEventListener('click', () => {
+    const asset = images.find(item => item.id === button.dataset.emailResource);
+    mail.attachments.push({ kind: 'resource', id: asset.id, name: asset.name, bytes: asset.bytes ?? 0, status: 'ready', message: '' });
+    $('#studio-dialog').close();
+    renderAttachments();
+  });
+}
+
+// Each file is uploaded on its own (E8); a failure marks that file only.
+async function uploadFiles(files) {
+  const mail = composing(), queue = [];
+  for (const file of files) {
+    const entry = { kind: 'upload', id: null, name: file.name, bytes: file.size, status: 'uploading', message: '' };
+    const refusal = file.size > MAX_UPLOAD ? 'Bilagan får vara högst 30 MB.' : mail.attachments.filter(other => other.status !== 'error').length >= MAX_ATTACHMENTS ? 'Högst 10 bilagor per mejl.' : '';
+    if (refusal) Object.assign(entry, { status: 'error', message: refusal }); else queue.push([file, entry]);
+    mail.attachments.push(entry);
+  }
+  renderAttachments();
+  for (const [file, entry] of queue) {
+    try {
+      const result = await send('/admin/api/mail/attachment', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-CMS-Request': '1', 'X-CMS-Filename': encodeURIComponent(file.name) }, body: file }, 'Filen kunde inte laddas upp.');
+      Object.assign(entry, { id: result.id, bytes: result.size, status: 'ready' });
+    } catch (error) { Object.assign(entry, { status: 'error', message: error.message }); }
+    renderAttachments();
+  }
+}
+
+async function removeAttachment(index) {
+  const mail = composing(), file = mail.attachments[index];
+  if (!file || file.status === 'uploading') return;
+  if (file.kind === 'upload' && file.id) {
+    try { await api('mail/attachment-remove', { id: file.id }); }
+    catch (error) { if (error.status !== 404) throw error; }
+  }
+  mail.attachments.splice(mail.attachments.indexOf(file), 1);
+  renderAttachments();
+}
+
+// A new requestId per send; a retry of the same content (after a 503 or a lost
+// connection) reuses it, so Resend never sends the mail twice.
+async function sendMail(button) {
+  const mail = composing();
+  for (const [name] of LISTS) if (commitAddresses(name, true)) return;
+  const files = mail.attachments.filter(file => file.status === 'ready');
+  if (mail.attachments.some(file => file.status === 'uploading')) return markField('attachments', 'Vänta tills alla bilagor har laddats upp.');
+  if (!mail.to.length) return markField('to', 'Lägg till minst en mottagare.');
+  if (!mail.subject.trim()) return markField('subject', 'Ämne saknas eller är för lång (högst 200 tecken).');
+  if (files.reduce((sum, file) => sum + encoded(file.bytes), 0) > MAX_ENCODED) return markField('attachments', 'Bilagorna blir för stora för ett mejl (högst 40 MB efter kodning).');
+  const time = mail.scheduledAt ? new Date(mail.scheduledAt) : null;
+  if (time && Number.isNaN(time.getTime())) return markField('scheduledAt', 'Tiden är ogiltig.');
+  const scheduledAt = time?.toISOString() ?? null, count = recipientCount(mail);
+  if (!await confirmAction({ title: scheduledAt ? 'Schemalägg mejlet?' : 'Skicka mejlet?', message: `Mejlet "${mail.subject}" skickas till ${count} mottagare${scheduledAt ? ` ${dateLabel(scheduledAt)}` : ' direkt'}.`, action: scheduledAt ? 'Schemalägg' : 'Skicka' })) return;
+  const body = { to: mail.to, cc: mail.cc, bcc: mail.bcc, subject: mail.subject, preheader: mail.preheader, blocks: mail.blocks, design: mail.design, scheduledAt, attachments: files.map(file => ({ kind: file.kind, id: file.id })) };
+  const fingerprint = JSON.stringify(body);
+  if (mail.fingerprint !== fingerprint) { mail.requestId = crypto.randomUUID(); mail.fingerprint = fingerprint; }
+  await run(button, async () => {
+    const result = await api('mail/send', { requestId: mail.requestId, ...body });
+    compose = null;
+    toast(result.scheduledAt ? `Mejlet är schemalagt ${dateLabel(result.scheduledAt)}.` : 'Mejlet är skickat.');
+    if (mounted() && state.tab === 'compose') renderPanel();
+  });
+}
 
 function previewMail() {
-  const project = ctx.project();
-  return renderEmail(emailOf(project), state.tab, { resources: resolveSlots(project.resources, ctx.assets()), origin: location.origin, visitor: SAMPLE });
+  const project = ctx.project(), options = { resources: resolveSlots(project.resources, ctx.assets()), origin: location.origin };
+  if (state.tab === 'compose') { const { subject, preheader, blocks, design } = composing(); return renderCustom({ subject, preheader, blocks, design }, emailOf(project), options); }
+  return renderEmail(emailOf(project), state.tab, { ...options, visitor: SAMPLE });
 }
 
 // The frame is a fixed logical size, scaled down to the pane (as app.mjs preview() does).
@@ -187,7 +345,7 @@ function renderPreview() {
   try { mail = previewMail(); }
   catch (error) { failure.textContent = `Förhandsvisningen kunde inte skapas: ${error.message}`; failure.hidden = false; return; }
   failure.hidden = true;
-  pane.querySelector('[data-email-preview-note]').textContent = 'Exempeluppgifter · samma mall som utskicket';
+  pane.querySelector('[data-email-preview-note]').textContent = state.tab === 'compose' ? 'Så här ser mejlet ut hos mottagaren' : 'Exempeluppgifter · samma mall som utskicket';
   pane.querySelector('[data-email-preview-subject]').textContent = mail.subject || '—';
   pane.querySelector('[data-email-preview-from]').textContent = mail.from;
   pane.querySelector('[data-email-preview-frame]').srcdoc = mail.html;
@@ -229,7 +387,7 @@ function findField(path) {
 }
 
 // Shows the server's message next to the field that carries `path`.
-function markField(path, message) {
+function markField(path, message, focus = true) {
   for (const old of root.querySelectorAll('[data-email-error]')) old.remove();
   for (const old of root.querySelectorAll('[aria-invalid]')) old.removeAttribute('aria-invalid');
   const note = document.createElement('p');
@@ -243,6 +401,7 @@ function markField(path, message) {
   const control = hit.matches('input,select,textarea') ? hit : wrap.querySelector('input,select,textarea');
   wrap.append(note);
   control?.setAttribute('aria-invalid', 'true');
+  if (!focus) return;
   wrap.scrollIntoView({ block: 'center' });
   control?.focus({ preventScroll: true });
 }
@@ -288,6 +447,9 @@ function readField(element) {
 function onField(event) {
   const element = event.target;
   if (element.dataset?.emailAdd !== undefined) { if (element.value) addBlock(element.dataset.emailAdd, element.value); return; }
+  const chips = element.dataset?.emailChipInput;
+  if (chips) { root.querySelector(`[data-email-field="${chips}"] [data-email-error]`)?.remove(); commitAddresses(chips, event.type === 'change'); return; }
+  if (element.dataset?.emailFile !== undefined) { const files = [...element.files]; element.value = ''; if (files.length) uploadFiles(files).catch(report); return; }
   const path = element.dataset?.emailPath;
   if (!path) return;
   const value = readField(element);
@@ -299,6 +461,7 @@ function onField(event) {
   if (pair) for (const other of pair.querySelectorAll('input')) if (other !== element) other.value = value;
   const index = /blocks\[(\d+)\]/.exec(path)?.[1], block = index === undefined ? undefined : target().blocks[index];
   if (block) { const label = root.querySelector(`[data-email-block="${block.id}"] .email-block-text`); if (label) label.textContent = summary(block); }
+  if (path === 'scheduledAt') root.querySelector('[data-email-send]').textContent = value ? 'Schemalägg' : 'Skicka';
   if (element.dataset.emailType === 'rule') return renderPanel(scope => withPath(scope, path));
   schedulePreview();
 }
@@ -379,6 +542,10 @@ function onClick(event) {
   if ('emailRemove' in button.dataset) return removeBlock(id);
   if ('emailTextBuild' in button.dataset) return buildText();
   if ('emailTest' in button.dataset) return sendTest(button);
+  if (button.dataset.emailChipRemove) return removeAddress(button.dataset.emailChipRemove, button.dataset.emailAddress);
+  if ('emailPickResource' in button.dataset) return pickResource();
+  if (button.dataset.emailAttachmentRemove !== undefined) return removeAttachment(Number(button.dataset.emailAttachmentRemove)).catch(report);
+  if ('emailSend' in button.dataset) return sendMail(button);
   if (button.dataset.emailDevice) {
     state.device = button.dataset.emailDevice;
     for (const other of root.querySelectorAll('[data-email-device]')) other.setAttribute('aria-pressed', String(other === button));
@@ -394,6 +561,8 @@ function onToggle(event) {
 
 // Arrow keys move between tabs (vertical and horizontal layouts both work).
 function onKeydown(event) {
+  const chips = event.target.dataset?.emailChipInput;
+  if (chips && (event.key === 'Enter' || event.key === ',')) { event.preventDefault(); commitAddresses(chips, true); return; }
   const tab = event.target.closest?.('[data-email-tab]');
   if (!tab) return;
   const tabs = [...root.querySelectorAll('[data-email-tab]')], at = tabs.indexOf(tab);

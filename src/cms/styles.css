@@ -106,3 +106,18 @@
 .email-suffix{display:flex;align-items:center;gap:6px}
 .email-suffix span{font-size:11px;white-space:nowrap;color:var(--studio-muted)}
 .email-suffix input{flex:1;min-width:0}
+.email-label{display:block;font-size:11px;color:var(--studio-muted);margin-bottom:7px}
+.email-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;border:1px solid var(--studio-line);border-radius:5px;padding:6px 8px;min-height:40px;background:var(--studio-paper)}
+.email-chip-list{display:contents;list-style:none;margin:0;padding:0}
+.email-chip{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--studio-line);border-radius:999px;padding:0 0 0 10px;font-size:12px;max-width:100%;background:color-mix(in srgb,var(--studio-blue) 8%,var(--studio-paper))}
+.email-chip span{overflow-wrap:anywhere}
+.email-chip button{width:32px;height:32px;font-size:12px}
+.email-chips input{flex:1;min-width:140px;border:0;background:transparent;font-size:12px;min-height:32px;padding:0 4px}
+.email-attachments h3{font-size:14px;margin:18px 0 8px}
+.email-attachment-list{list-style:none;margin:0 0 6px;padding:0;display:flex;flex-direction:column;gap:6px}
+.email-attachment{display:flex;align-items:center;gap:10px;border:1px solid var(--studio-line);border-radius:6px;padding:0 0 0 10px;font-size:12px;min-width:0}
+.email-attachment-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.email-attachment small{flex:none;max-width:50%;color:var(--studio-muted);font-size:11px}
+.email-attachment[data-email-attachment=error] small{color:var(--studio-ink);font-weight:700}
+.email-attachment button{width:44px;height:44px;flex:none}
+.email-attachment button:disabled{opacity:.35}
