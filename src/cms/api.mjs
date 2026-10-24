@@ -2,6 +2,7 @@ import { authenticateAdmin } from './auth.mjs';
 import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, completeManagedSvg, finalizeManagedSvg, managedSvgOperation, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, prepareManagedSvg, stageManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateManagedSvg, validatePackageResources, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
+import { migrateKeys } from './validation.mjs';
 import { normalizeStoredProject } from './shared-content.mjs';
 import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
@@ -111,7 +112,9 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     if (url.pathname === '/admin/api/recover') {
       const body = await readJson(request, 16 * 1024 * 1024);
-      const project = validateProject(body.project, seed, null, { origins: [url.origin], publication: false });
+      // Old drafts carry positional keys: map them via their stored base revision.
+      const stored = Number.isSafeInteger(body.baseVersion) && body.baseVersion > 0 ? await readSite(env.CMS_DB, body.baseVersion) : null;
+      const project = validateProject(migrateKeys(body.project, stored?.project), seed, null, { origins: [url.origin], publication: false });
       const warnings = [];
       try { publicationChunks(validateProject(structuredClone(project), seed, null, { origins: [url.origin] })); }
       catch (error) { if (![422, 413].includes(error.status)) throw error; warnings.push(error.message); }
@@ -126,7 +129,8 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const allowed = new Set(['baseVersion', 'requestId', legacy ? 'project' : 'changes']);
         if ((!legacy && !delta) || Object.keys(pending).some(key => !allowed.has(key)) || delta && body.baseVersion !== undefined && pending.baseVersion !== body.baseVersion) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
         if (legacy) {
-          validateProject(structuredClone(pending.project), seed, null, { origins: [url.origin], publication: false });
+          const pendingBase = pending.baseVersion > 0 ? await readSite(env.CMS_DB, pending.baseVersion) : null;
+          validateProject(migrateKeys(structuredClone(pending.project), pendingBase?.project), seed, null, { origins: [url.origin], publication: false });
           pendingSave = { project: pending.project, baseVersion: pending.baseVersion, requestId: pending.requestId };
         } else {
           if (pending.baseVersion === 0) throw new HttpError(422, 'Första reservutkastet kräver hela webbplatsen.');
@@ -139,7 +143,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
           let candidate;
           try { candidate = applyProjectChanges(base, changes); }
           catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
-          validateProject(candidate, seed, base, { origins: [url.origin], publication: false });
+          validateProject(migrateKeys(candidate, saved.project), seed, base, { origins: [url.origin], publication: false });
           pendingSave = pending;
         }
       }
@@ -197,14 +201,15 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         let candidate;
         try { candidate = applyProjectChanges(baseline, changes); }
         catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
-        const project = validateProject(candidate, seed, baseline, { origins: [url.origin] });
+        // After the replay check, so a replayed pendingSave keeps its payload hash.
+        const project = validateProject(migrateKeys(candidate, stored?.project), seed, baseline, { origins: [url.origin] });
         const references = resourceReferences(project);
         await validateReferencedMedia(env, project, references);
         return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references }));
       }
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      const project = validateProject(body.project, seed, baseline, { origins: [url.origin] });
+      const project = validateProject(migrateKeys(body.project, stored?.project), seed, baseline, { origins: [url.origin] });
       const references = resourceReferences(project);
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));
