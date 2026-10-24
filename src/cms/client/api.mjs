@@ -14,7 +14,11 @@ async function send(url, { headers, ...init }, failure) {
   } catch { throw new ApiError('Anslutningen bröts. Försök spara igen; samma version sparas inte två gånger.'); }
   let result;
   try { result = await response.json(); }
-  catch { throw new ApiError([401, 403].includes(response.status) ? 'Inloggningen har gått ut. Ditt utkast finns kvar.' : 'Svaret kunde inte bekräftas. Ditt utkast finns kvar.', response.status); }
+  catch {
+    // A 2xx whose body broke leaves the outcome unknown: same as a lost connection.
+    if (response.ok) throw new ApiError('Anslutningen bröts. Försök spara igen; samma version sparas inte två gånger.');
+    throw new ApiError([401, 403].includes(response.status) ? 'Inloggningen har gått ut. Ditt utkast finns kvar.' : 'Svaret kunde inte bekräftas. Ditt utkast finns kvar.', response.status);
+  }
   if (!response.ok) throw new ApiError(result.error ?? failure, response.status, result.details);
   return result;
 }

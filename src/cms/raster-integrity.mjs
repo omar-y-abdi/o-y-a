@@ -77,8 +77,8 @@ export function cleanRaster(bytes, info) {
         if (at + 4 > end) invalid();
         next = at + 2 + view.getUint16(at + 2);
         if (next > end) invalid();
-        // Entropy-coded data after SOS runs to the next marker that is not stuffing (FF00) or a restart (FFD0-D7).
-        if (marker === 0xda) while (next < end && !(bytes[next] === 0xff && bytes[next + 1] !== 0 && !(bytes[next + 1] >= 0xd0 && bytes[next + 1] <= 0xd7))) next++;
+        // Entropy-coded data after SOS runs to the next marker that is not stuffing (FF00), fill (FFFF) or a restart (FFD0-D7).
+        if (marker === 0xda) while (next < end && !(bytes[next] === 0xff && bytes[next + 1] !== 0 && bytes[next + 1] !== 0xff && !(bytes[next + 1] >= 0xd0 && bytes[next + 1] <= 0xd7))) next++;
       }
       if (marker === 0xe1 || marker === 0xed) {
         const found = marker === 0xe1 && !orientation ? exifOrientation(bytes.subarray(at + 4, next)) : 0;

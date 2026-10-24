@@ -55,3 +55,13 @@ test('A10: upload() maps a failed fetch and a non-JSON Access response like the 
     });
   }
 });
+
+test('A10: a 2xx whose body is not JSON is an unknown outcome, status 0 with the retry text', async () => {
+  const retry = 'Anslutningen bröts. Försök spara igen; samma version sparas inte två gånger.';
+  await withFetch(() => new Response('<html>', { status: 200 }), async () => {
+    await assert.rejects(api('save', {}), error => error.status === 0 && error.message === retry);
+  });
+  await withFetch(() => new Response('<html>', { status: 201 }), async () => {
+    await assert.rejects(upload(new File([new Uint8Array(12)], 'a.png'), crypto.randomUUID()), error => error.status === 0 && error.message === retry);
+  });
+});

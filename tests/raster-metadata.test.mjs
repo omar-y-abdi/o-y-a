@@ -2,6 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { crc32 } from 'node:zlib';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
+import { cleanRaster } from '../src/cms/raster-integrity.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 
 // Fixtures are built from the generated 16x16 fixtures plus bytes made here; no binary files.
@@ -99,4 +100,12 @@ test('A13: PNG eXIf, tEXt, iTXt and zTXt chunks are dropped, other chunks stay',
   const withMetadata = Buffer.concat([base.subarray(0, 33), ...metadata, base.subarray(33)]);
   const { stored } = await upload(withMetadata);
   assert.deepEqual(stored, base);
+});
+
+test('A13: fill bytes before a restart marker or before EOI do not end the scan early', () => {
+  const sos = jpegSegment(0xda, Buffer.from([0, 0]));
+  for (const scan of [[0xaa, 0xff, 0xff, 0xd0, 0xbb, 0xff, 0xd9], [0xaa, 0xbb, 0xff, 0xff, 0xd9]]) {
+    const input = Buffer.concat([Buffer.from([0xff, 0xd8]), sos, Buffer.from(scan)]);
+    assert.deepEqual(Buffer.from(cleanRaster(input, { mime: 'image/jpeg' })), Buffer.concat([input.subarray(0, 2), sos, Buffer.from(scan)]));
+  }
 });
