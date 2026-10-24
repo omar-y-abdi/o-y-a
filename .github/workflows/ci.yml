@@ -32,6 +32,8 @@ jobs:
         run: npm run test:cms
       - name: Legacy footer CMS edit and reload regression
         run: npm run test:cms:footer
+      - name: Editor resize, paste and SVG regressions
+        run: npx playwright test tests/cms-editor.spec.mjs --project=chromium
       - name: Retain browser evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -53,6 +55,7 @@ jobs:
             output/logs/footer-*.log
             output/visual/footer/**/*.png
             output/card-export/card-export-report.json
+            output/playwright/artifacts/**
           retention-days: 14
 
   editor-compatibility:
@@ -76,10 +79,12 @@ jobs:
       - run: npm ci
       - run: python -m pip install -r requirements-test.txt
       - run: python -m playwright install --with-deps ${{ matrix.browser }}
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run build
       - run: npm run test:cms:modules
       - run: node scripts/test-cms-parallel.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
       - run: npm run test:cms:footer
+      - run: npx playwright test tests/cms-editor.spec.mjs --project=${{ matrix.browser }}
       - name: Retain compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -93,6 +98,7 @@ jobs:
             output/cms-modules/*.png
             output/logs/footer-*.log
             output/visual/footer/**/*.png
+            output/playwright/artifacts/**
           retention-days: 14
 
   # Manual only. Needs repository secrets CLOUDFLARE_D1_READ_TOKEN (D1 read)
