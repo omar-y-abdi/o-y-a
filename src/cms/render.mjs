@@ -4,6 +4,7 @@ import { themeCss, fontCss } from './theme.mjs';
 import { readPublicPage, readPublicData } from './store.mjs';
 import { canonicalPagePath } from './routes.mjs';
 import { routes } from '../content/site.mjs';
+import { normalizeFooterPage } from './footer.mjs';
 import { normalizeSkiftPage, isSkiftPath } from './skift.mjs';
 import { refreshDevelopersPage } from './shared-content.mjs';
 import { reportFailure } from './diagnostics.mjs';
@@ -86,7 +87,7 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   let normalized = page;
   // Read-time migrations must not take a published page offline. Serve the
   // stored page and report; Save and validation keep failing loudly.
-  try { normalized = normalizeSkiftPage(refreshDevelopersPage(page, seed.footerPage), definition); }
+  try { normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, seed.footerPage)), definition); }
   catch (error) { reportFailure(error, 'public'); }
   return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
 }

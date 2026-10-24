@@ -1,17 +1,22 @@
 import { parseFragment, serialize } from 'parse5';
 import { HttpError } from './http.mjs';
 import { attribute, elements } from './html-tree.mjs';
+import { hasSignatureKeys } from './validation.mjs';
 
 export const FOOTER_VERSION = 1;
 const LINK = '<a href="/developers/">För utvecklare</a>';
 // PR #10 migration. Signature keys do not shift, so only the link is added;
 // validateProject then checks the result against the current contracts.
-function normalizeFooterPage(page) {
+// Only pre-PR #10 pages qualify: unmarked and still positionally keyed. An
+// unmarked page with signature keys comes from a current build.
+export function normalizeFooterPage(page) {
   if (page.footerVersion !== undefined && page.footerVersion !== FOOTER_VERSION) throw new HttpError(422, 'Sidfotens version stöds inte.');
-  if (page.footerVersion === FOOTER_VERSION || typeof page.html !== 'string') return page;
+  if (page.footerVersion === FOOTER_VERSION || typeof page.html !== 'string' || hasSignatureKeys(page.html)) return page;
   const tree = parseFragment(page.html, { scriptingEnabled: true });
-  const nav = elements(tree).find(node => attribute(node, 'data-privacy-open') !== undefined)?.parentNode;
-  if (nav?.tagName !== 'nav' || elements(nav).some(node => node.tagName === 'a' && attribute(node, 'href') === '/developers/')) return { ...page, footerVersion: FOOTER_VERSION };
+  // Legal pages hold a first privacy button in div.legal-actions: use the one in the footer nav.
+  const footer = elements(tree).find(node => node.tagName === 'footer');
+  const nav = footer && elements(footer).find(node => attribute(node, 'data-privacy-open') !== undefined && node.parentNode?.tagName === 'nav')?.parentNode;
+  if (!nav || elements(nav).some(node => node.tagName === 'a' && attribute(node, 'href') === '/developers/')) return { ...page, footerVersion: FOOTER_VERSION };
   const link = parseFragment(LINK).childNodes[0];
   link.parentNode = nav;
   nav.childNodes.unshift(link);
