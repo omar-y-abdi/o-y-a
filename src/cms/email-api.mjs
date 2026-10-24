@@ -150,7 +150,7 @@ async function attachmentFiles(env, list = [], nowMs) {
       if (!RESOURCE_TYPES.includes(row.mime)) throw reject('Filtypen kan inte skickas som bilaga.', 'attachments');
       files.push({ ...item, ...row });
     } else {
-      const row = await env.CMS_DB.prepare('SELECT name, mime, bytes FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND expires_at > ?').bind(item.id, iso(nowMs)).first();
+      const row = await env.CMS_DB.prepare('SELECT name, mime, bytes, expires_at FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND expires_at > ?').bind(item.id, iso(nowMs)).first();
       if (!row) throw reject('Bilagan har gått ut. Ladda upp den igen.', 'attachments');
       files.push({ ...item, ...row });
     }
@@ -201,12 +201,13 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   const limited = await rateLimited(env, identity);
   if (limited) return limited;
   await cleanup(env, now);
-  // Resend fetches a `path` attachment at send time, so a link lives until an
-  // hour after the scheduled (or immediate) send.
-  const exp = Math.floor((scheduledMs ?? nowMs) / 1000) + 3600;
+  // Resend fetches a `path` attachment at send time. A scheduled link lives
+  // until an hour after the scheduled time. An immediate link expires with its
+  // upload row, so a retry (same Idempotency-Key) signs a byte-identical body.
+  const scheduledExp = scheduledMs === null ? null : Math.floor(scheduledMs / 1000) + 3600;
   const attachments = await Promise.all(files.map(async file => ({
     filename: file.name,
-    path: file.kind === 'upload' ? url.origin + await signFileLink(env, file.id, exp) : new URL('/media/' + file.object_key, url.origin).href,
+    path: file.kind === 'upload' ? url.origin + await signFileLink(env, file.id, scheduledExp ?? Math.floor(Date.parse(file.expires_at) / 1000)) : new URL('/media/' + file.object_key, url.origin).href,
   })));
   const scheduledAt = scheduledMs === null ? null : iso(scheduledMs);
   const id = sentId(await resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: `mail/${body.requestId}`, body: {
@@ -217,7 +218,7 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   const uploads = files.filter(file => file.kind === 'upload').map(file => file.id);
   await env.CMS_DB.batch([
     ...sentStatements(env.CMS_DB, { id, kind: 'custom', recipients: lists, subject: rendered.subject, attachments: files.length, createdAt: iso(nowMs), scheduledAt, actor: identity.email }),
-    ...(uploads.length ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ?, expires_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), iso(exp * 1000), JSON.stringify(uploads))] : []),
+    ...(uploads.length ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ?, expires_at = COALESCE(?, expires_at) WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), scheduledExp === null ? null : iso(scheduledExp * 1000), JSON.stringify(uploads))] : []),
   ]);
   return json({ id, scheduledAt, from });
 }

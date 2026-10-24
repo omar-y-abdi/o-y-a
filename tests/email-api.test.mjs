@@ -270,7 +270,28 @@ test('expired uploads are cleaned at the next upload or send', async () => {
   const immediate = await (await upload()).json();
   const now = provider();
   assert.equal((await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id: immediate.id }] })), env(), now.fetch)).status, 200);
-  assert.ok(now.calls[0].body.attachments[0].path.includes(`/${Math.floor(clock / 1000) + 3600}/`));
+  assert.ok(now.calls[0].body.attachments[0].path.includes(`/${Math.floor(Date.parse(immediate.expiresAt) / 1000)}/`));
+  const immediateRow = await runtime.db.prepare('SELECT sent_at, expires_at FROM cms_mail_files WHERE id = ?').bind(immediate.id).first();
+  assert.equal(immediateRow.sent_at, iso(clock));
+  assert.equal(immediateRow.expires_at, immediate.expiresAt);
+});
+
+test('an immediate send with an upload is retry-safe', async () => {
+  const { id } = await (await upload()).json();
+  const request = compose({ attachments: [{ kind: 'upload', id }] });
+  const calls = [];
+  const timeout = async (url, init) => { calls.push(init); throw new DOMException('timed out', 'TimeoutError'); };
+  const failed = await run(post('/admin/api/mail/send', request), env(), timeout);
+  assert.equal(failed.status, 503);
+  assert.equal(await sentCount(), 0);
+  clock = START + 5 * 60000;
+  const ok = async (url, init) => { calls.push(init); return Response.json({ id: 'resend-retry' }); };
+  assert.equal((await run(post('/admin/api/mail/send', request), env(), ok)).status, 200);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].body, calls[1].body);
+  assert.equal(calls[0].headers['Idempotency-Key'], calls[1].headers['Idempotency-Key']);
+  assert.equal(await sentCount(), 1);
+  assert.equal((await runtime.db.prepare('SELECT sent_at FROM cms_mail_files WHERE id = ?').bind(id).first()).sent_at, iso(clock));
 });
 
 test('schedule window enforced', async () => {
