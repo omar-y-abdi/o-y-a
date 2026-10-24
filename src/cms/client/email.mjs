@@ -185,7 +185,7 @@ const attachmentState = file => file.status === 'uploading' ? 'Laddar upp…' : 
 const attachmentItems = mail => mail.attachments.map((file, index) => `<li class="email-attachment" data-email-attachment="${file.status}"><span class="email-attachment-name">${escape(file.name)}</span><small>${megabytes(file.bytes)} MB · ${escape(attachmentState(file))}</small><button type="button" data-email-attachment-remove="${index}" aria-label="Ta bort ${escape(file.name)}"${file.status === 'uploading' ? ' disabled' : ''}>✕</button></li>`).join('') || '<li class="email-hint">Inga bilagor.</li>';
 function attachmentTotal(mail) {
   const files = mail.attachments.filter(file => file.status !== 'error'), bytes = files.reduce((sum, file) => sum + encoded(file.bytes), 0);
-  return `${files.length} av högst ${MAX_ATTACHMENTS} bilagor · ${megabytes(bytes)} MB av 40 MB efter kodning${bytes > MAX_ENCODED ? '. Över gränsen.' : '.'} Filer från datorn kan bara följa med mejl som skickas inom 50 minuter.`;
+  return `${files.length} av högst ${MAX_ATTACHMENTS} bilagor · ${megabytes(bytes)} MB av 40 MB efter kodning${bytes > MAX_ENCODED ? '. Över gränsen.' : '.'} En fil från datorn kan skickas inom ett dygn efter uppladdningen.`;
 }
 
 function composeHtml() {
