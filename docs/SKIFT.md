@@ -50,7 +50,7 @@ npm run check
 npx playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps
 ```
 
-The importer needs source `src/i18n.js` and built `dist/play/skift/`. It copies
+The importer needs source `src/i18n.js` and built `dist/play/skift/` in the supplied standalone project. Build that project before importing; this is not the portfolio's ignored `dist/`. It copies
 audio, bundled JavaScript, CSS and licenses; writes the page template to
 `src/templates/skift.mjs` and the landing copy defaults to
 `src/content/skift-copy.mjs`; and adapts same-origin audio URLs for CMS previews, an isolated game

@@ -1,8 +1,8 @@
 # Portfolio Studio
 
-## Logga in och välj miljö
+## Logga in
 
-Öppna `/login/`. Cloudflare skickar en kod till den enda tillåtna ägaradressen. Sessionen varar högst en timme. Profilknappen loggar ut. En utgången session raderar inte utkastet: logga in i en ny flik och försök Save igen. **Testmiljö** i sidhuvudet betyder att Save bara ändrar staging.
+Öppna `/login/`. Cloudflare skickar en kod till den enda tillåtna ägaradressen. Sessionen varar högst en timme. Profilknappen loggar ut. En utgången session raderar inte utkastet: logga in i en ny flik och försök Save igen. Den driftsatta studion publicerar till produktion. En förhandsversion från en gren använder också produktionens D1 och R2; den är ingen isolerad testmiljö.
 
 ## Arbetsytan
 

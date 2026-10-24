@@ -1,6 +1,6 @@
 # Portfolio and CMS verification
 
-This replaces the original ZIP delivery's rendered-document report. Current acceptance uses real HTTP navigation and the actual Cloudflare Worker runtime for CMS storage tests. Historical notes under `docs/revision/` describe the earlier delivery, not the current branch.
+Acceptance uses real HTTP navigation and the actual Cloudflare Worker runtime for CMS storage tests. Setup and manual checks are described in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md); release procedures are in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Reproduce
 
@@ -11,7 +11,7 @@ npm run check:fast &&
 CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
 ```
 
-This is the normal edit-feedback loop. It builds once, lints, runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. `npm run test:slow` runs the backup drill alone with one worker; `npm test` and the full sequence below still include it.
+This is the normal edit-feedback loop. It builds once, lints, runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. After a build, `npm run test:slow` runs the backup drill alone with one worker; `npm test` builds through `pretest` and includes that drill.
 
 Full local verification uses explicit commands instead of another runner chain:
 
@@ -27,7 +27,7 @@ npx wrangler deploy --dry-run --outdir artifacts/worker-build
 
 The public Playwright run has 330 cases. Its ten `@webgl` layout/game cases run in the `chromium-webgl` project with one worker after the ordinary `chromium` cases, so software rendering does not compete with another game world. Test deadlines, assertions and retry policies are unchanged. Focused game commands use `--project=chromium-webgl --no-deps` to avoid starting the HTTP-dependent public suites; the full quality gate always runs both projects and their dependency.
 
-`test:cms` prepares the real editor/public module fixtures once, runs their cases in isolated parallel browser processes, then runs the authenticated CMS navigation suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself is verified separately in remote staging.
+`test:cms` prepares the real editor/public module fixtures once, runs their cases in isolated parallel browser processes, then runs the authenticated CMS navigation suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself needs a separately authorized production check.
 
 Additional public regressions, with the public preview running:
 
@@ -38,7 +38,7 @@ BASE_URL=http://127.0.0.1:5273 npx playwright test tests/card-export.spec.mjs --
 
 Both navigate over real HTTP and load built modules. Contact cases intercept only the contact configuration, Turnstile script and contact API with explicit test responses; no real message is sent. `tests/card_export.py` retains the readiness/layout helpers imported by the CMS module suite; its standalone runner was removed. The exhaustive 240-card gate uses the Playwright command above and validates text/layout plus actual PNG output from the shared production renderer.
 
-The PR #2 completion commands, engine matrix and exact restricted-environment limitations are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). Run `node scripts/test-cms-compat.mjs` for targeted Firefox/WebKit acceptance.
+Setup, the engine matrix and verification limits are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). After a build, run `node scripts/test-cms-compat.mjs` for targeted Firefox/WebKit acceptance.
 
 Focused commands after a build remain available directly:
 
@@ -50,6 +50,34 @@ node scripts/test-cms-parallel.mjs
 ```
 
 With public and analytics preview servers running, `python tests/http_checks.py`, `python tests/browser.py --screenshots`, and `python tests/browser.py --render-only --screenshots` retain their standalone checks. The browser commands default to all sections, including pages; those sections were retained. `npx playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs tests/skift.spec.mjs` runs the same public spec selection as the quality browser runner.
+
+## Build prerequisites
+
+Neither `dist/` nor `.generated/` is tracked. Run commands from the repository root. `npm test` builds through `pretest`; `check` calls `npm test` after lint, while `check:fast` keeps its explicit build. `quality` calls `check` before starting servers. `dev`, `edge:check` and `deploy:cloudflare` also build first.
+
+The following entry points do not run the site build themselves. Run `npm run build` successfully before each independent invocation, and rebuild after source changes:
+
+| Entry point | Build dependency and additional prerequisite |
+| --- | --- |
+| `npm run preview`, `node scripts/serve.mjs`, `node scripts/cms-dev.mjs` | Built assets and the Worker's generated CMS seed. |
+| `npm run test:slow`, `npm run test:cms`, direct `node --test tests/*.test.mjs`, `scripts/run-node-tests.mjs` modes | Node suites read built pages/assets or import the generated seed directly or through `tests/helpers/cms-runtime.mjs` and `tests/helpers/pre-agent-footer.mjs`. |
+| `scripts/test-cms.mjs`, `test-cms-parallel.mjs`, `test-footer-cms.mjs`, `test-cms-compat.mjs` | Local Worker assets and generated seed; Python/browser setup from the README. |
+| `scripts/prepare-cms-modules.mjs`, `test-cms-modules.mjs`, `test-cms-modules-parallel.mjs` | Generated seed and asset URLs; fixture preparation is not a site build. |
+| Direct Playwright specs and `scripts/run-quality-browser.mjs` | Worker specs use built assets/seed; public HTTP specs also need the public/analytics preview servers. Playwright configuration does not build or start them. |
+| `tests/render_support.py` consumers: `tests/browser.py --render-only`, `tests/contrast.py`, `tests/machine_depth.py` | Built HTML, CSS and modules. HTTP modes of `tests/browser.py`, `tests/http_checks.py` and `tests/revision_browser.py` instead need preview servers started after the build. |
+| `node scripts/test-cms.mjs scripts/capture-cms.py` | Built local Worker and generated seed; the wrapper supplies the local identity. |
+| `scripts/artwork.py`, `scripts/mail-art.py` | Built home HTML (artwork also uses built CSS through `render_support.py`). Optional Python tooling needs Playwright/Chromium plus CairoSVG for artwork or Pillow for mail art. These tools overwrite committed artwork in `public/`; run only for an intended artwork change, then rebuild. |
+| `scripts/cms-check-release.mjs`, direct `scripts/cms-pull-release.mjs` | Generated seed matching the source being checked. The former takes a trusted local SQL file; the latter contacts D1 and belongs to the authorized release procedure. |
+
+`SKIP_CHECK=1 npm run quality` skips its build and checks: use it only after a successful `npm run check` on the same source. `scripts/build-cms.mjs` is an internal build stage, called after public output exists by `scripts/build.mjs`; it is not a standalone build command.
+
+Two tools read another project's output: `scripts/import-skift.mjs` needs a built standalone release as described in [SKIFT.md](SKIFT.md). The one-off `scripts/legacy-keys.mjs` needs the supplied `e5592bc` checkout built with that checkout's own source; a current build cannot replace that frozen input. Ordinary builds and verification do not regenerate the committed legacy map.
+
+CI's `verify` job builds through `quality` before the dry-run and browser steps. The `editor-compatibility` and `stored-revisions` jobs each have an explicit build before their consumers. No CI step needs a tracked copy of `dist/`.
+
+## Repository maintenance regression checks
+
+[tests/docs.test.mjs](../tests/docs.test.mjs) runs in the fast suite and checks npm build wiring, ignored/untracked `dist/`, the moved privacy document and relative links in the README and docs, including heading fragments.
 
 ## What is checked
 
@@ -64,7 +92,7 @@ With public and analytics preview servers running, `python tests/http_checks.py`
 | Difficult editor cases | Keyboard block insertion, inline-style preservation, memory style after hydration/reset, real R2 image selection, archival recovery, locked win preview, two-tab conflicts and local draft recovery |
 | Public browser | All routes and responsive widths, navigation, no-JS content, privacy choices, motion, four workshop stations and contact fixtures |
 
-The native public modules retain their original combined 14,000-byte gzip budget. The separate lazy win renderer/export bundle is capped at 8,000 gzip bytes; it loads only when needed. Editor JavaScript is isolated under `/admin/` with a 350,000-byte combined gzip cap. CSS and HTML budgets remain enforced in `tests/assets.test.mjs`. These are enforced transfer-size contracts, not latency or field Core Web Vitals.
+The native public modules retain their original combined 14,000-byte gzip budget. The separate lazy win renderer/export bundle is capped at 8,000 gzip bytes; it loads only when needed. Editor JavaScript is isolated under `/admin/` with a 375,000-byte combined gzip cap. CSS is capped at 17,000 gzip bytes for home/workshop and 14,000 for other routes; HTML and transfer budgets remain enforced in `tests/assets.test.mjs`. These are enforced transfer-size contracts, not latency or field Core Web Vitals.
 
 The public esbuild graph has separate hashed main and SKIFT bootstrap entries with shared copy state; the existing win renderer remains external and lazy. `tests/public-runtime.test.mjs` covers inert JSON escaping, preview precedence, missing-block fallback and failed copy loads. `tests/cms-store.test.mjs` checks one-query page/runtime reads and revision consistency; `tests/cms-api.test.mjs` checks the embedded data and retained API endpoint through the real Worker.
 
@@ -90,7 +118,7 @@ P2B_EVIDENCE_DIR=/tmp/p2b-after npx playwright test tests/public-evidence.spec.m
 node scripts/test-cms.mjs scripts/capture-cms.py
 ```
 
-Screenshots are review inputs, not an automatic assertion of visual correctness. The primary agent separately inspects images; the single Luna Max agent handles repetitive regression execution. No generated mockups are used as proof of implementation.
+Screenshots are review inputs and need visual inspection alongside automated assertions.
 
 - `output/visual/studio/`: main studio states and section captures.
 - `output/visual/cms/`: timestamped scenario evidence, including Shift+Enter.
@@ -101,8 +129,8 @@ Screenshots are review inputs, not an automatic assertion of visual correctness.
 
 The computed contrast audit checks text over simple solid backgrounds. It excludes disabled/decorative content and complex compositing; it is not a full WCAG certification. Admin readiness measurements include the harness's explicit stabilization waits, documented in the JSON, and must not be presented as pure network latency.
 
-## Remote staging and release boundary
+## Production release boundary
 
-Remote staging verifies the allowed owner's actual Cloudflare Access session, durable Save, public reload, media visibility and history restore. A successful Wrangler upload alone is insufficient. Staging has dedicated D1/R2 bindings and its own Access audience; production has not been deployed by this task.
+An authorized production check verifies the allowed owner's actual Cloudflare Access session, durable Save, public reload, media visibility and history restore. A successful Wrangler upload alone is insufficient. There is no separate staging Worker: branch previews use production D1/R2, while the automated suites use isolated local runtimes.
 
-The release instructions remain in [DEPLOYMENT.md](DEPLOYMENT.md). Production CMS bindings and Access policy are configured after merge. Neither mock contact responses nor a successful provider call prove email inbox delivery. No production mail, full accessibility certification or field-performance guarantee is claimed.
+Follow [DEPLOYMENT.md](DEPLOYMENT.md) and preserve the existing production bindings and Access policy. Neither mock contact responses nor a successful provider call prove email inbox delivery. Automated local checks do not establish production mail delivery, full accessibility certification or field performance.

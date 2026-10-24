@@ -1,8 +1,0 @@
-/*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com 'sha256-OcrT0guQ9HlWzIgIxCNoNhGxEyq1uBIoRszmUc8bCqI=' 'sha256-xgCZxm836EbndVwlA0sudlC20BjdsQajDzpbMxDOAIs=' 'sha256-ZTfgOINv9WtowbbdZ9dAm/5Tossbo+nwiJ/Oacl0wBU=' 'sha256-aWTePRi4zBUBfrXSNCuTZcewQpKjsVIYT1mAwvvq870=' 'sha256-m5LDT2B/BElzanoLEWm3u1ImLGdBd4ixqyiAZGsAnu4=' 'sha256-uJfC5TRG8ZSN8elQqfrNaqQZ/ksyigK9Ygz9yCuG8rM=' 'sha256-CxLiFPrz1HepUQReW6gvXuG8pnHyAwVjw4yUYQ8x/JY=' 'sha256-0ztixnoz4+wWS+VsrOUI9Tm6Mc992cjAEJaA0fesogs=' 'sha256-dKUXalxdiQwhfA+IHDzoXCQzHM/9Ikzl0KGbx0nZBjU=' 'sha256-J4c28pnekJmTc0i1bJXDP8U0WZcCvAuLRSJLJFH3z3Y=' 'sha256-XC2EV9msNtz8mWKKk4dHQ0Zjs3P96nV5IhS9bt1Y9LU=' 'sha256-R1MlvgB+hQztsSX90vwSM7EQNblYkY30GEaKB14uUj0=' 'sha256-OnmHXFEpoU/qACx3BpwWpfOqem+eVXnqGhqTH+xvTQ0=' 'sha256-R/Mv7kw5fUifq+1doS8bbG2wN1qg6ivQeW2x+3w6x8I='; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
-  X-Content-Type-Options: nosniff
-  Referrer-Policy: no-referrer
-  X-Frame-Options: DENY
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
-/assets/*
-  Cache-Control: public, max-age=31536000, immutable

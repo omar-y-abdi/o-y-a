@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-Publik förhandsvisning: `http://127.0.0.1:4173/`. Annan port: `node scripts/serve.mjs --port 5273`. Använd HTTP, inte direkt öppnade HTML-filer. Servern använder en Node-adapter för den riktiga Worker-handlern.
+Publik förhandsvisning: `http://127.0.0.1:4173/`. Annan port: `npm run build && node scripts/serve.mjs --port 5273`. Använd HTTP, inte direkt öppnade HTML-filer. Servern använder en Node-adapter för den riktiga Worker-handlern. `npm run preview` visar befintligt bygge; kör `npm run build` först.
 
 ```sh
 npm run build && node scripts/cms-dev.mjs
@@ -46,7 +46,7 @@ Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [
 | `migrations/` | CMS-databasens schema |
 | `tests/` | Node-, Worker-, lagrings- och browserkontroller |
 
-`dist/` är det spårade bygget. `.generated/` återskapas vid bygge. Redigera källfiler och bygg om. Hemligheter, testidentiteter och arbetsloggar ignoreras av Git.
+`dist/` och `.generated/` är ignorerade byggresultat som återskapas med `npm run build`. En ny klon innehåller inget bygge. Redigera källfiler och bygg om. Hemligheter, testidentiteter och arbetsloggar ignoreras av Git.
 
 ## Verifiering
 
@@ -70,6 +70,8 @@ npx wrangler deploy --dry-run --outdir artifacts/worker-build
 ```
 
 Det lägger till publik HTTP/browser-E2E, 240 parallella kortexporter, autentiserad CMS-browser-E2E, sidfotsregressionen, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser, riktade kommandon och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
+
+`npm test` bygger först via `pretest`. `npm run check` lintar och anropar sedan `npm test`, så bygget körs en gång. `check:fast` har kvar sitt eget bygge. Direkta testkommandon, `test:slow`, `test:cms` och manuella verktyg bygger inte automatiskt: kör `npm run build` först enligt [QA-guiden](docs/QA.md#build-prerequisites).
 
 ## Miljöer och kontakt
 

@@ -9,16 +9,25 @@ For the connected production repository, keep the Workers Builds commands aligne
 - Build command: none (the deploy command builds first)
 - Deploy command: `npm run deploy:cloudflare`
 
+`dist/` is ignored by Git. `wrangler.jsonc` uploads assets from `./dist`; it does not create that directory. `scripts/build.mjs` recreates it from source and `public/`, and `scripts/build-cms.mjs` writes `.generated/cms-seed.mjs`, which the Worker imports. Every deploy needs that build even when a local output directory already exists. Check the connected repository's dashboard commands before changing its build configuration.
+
 Do **not** use plain `npx wrangler deploy` as the production deploy command. `npm run deploy:cloudflare` runs four steps in order: build, release gate, migrations, deploy. It first builds the site. Then the read-only release gate (`scripts/cms-pull-release.mjs`) reads the head revision and every `cms_media` row with read-only SELECTs, checks them against the new code in local SQLite, and blocks the deploy on any incompatibility or unreadable D1. Then it applies every pending remote migration for the `CMS_DB` binding, and only publishes the Worker after the schema is current. This prevents a newly deployed CMS from querying columns or tables that have not yet been created in D1.
 
 The gate checks the head revision as it was when the gate ran. A studio save during the deploy, which takes about a minute, is not covered, so do not save while a deploy runs. The manual `stored-revisions` workflow in GitHub Actions checks every stored revision with `node scripts/cms-pull-release.mjs --all --allow=1-4,84-88`; the allowlist never covers the head revision. The workflow needs the repository secrets `CLOUDFLARE_D1_READ_TOKEN` (D1 read access) and `CLOUDFLARE_ACCOUNT_ID`.
 
 Production runs on the Cloudflare Workers Free plan (owner decision, 2026-10-24). Each request has a 10 ms CPU limit, so a request over budget can fail with 503. D1 allows 100,000 written rows per day, and one D1 database can hold at most 500 MB.
 
+Historical CPU evidence retained from the rapid-save handoff:
+
+- Worker tail recorded `/admin/api/state`, `/save` and `/recover` returning 503 with outcome `exceededCpu`, CPU time 10–12 ms and `Worker exceeded CPU time limit.`
+- The handoff reported earlier successful saves on the same production-shaped fixture at 410–503 ms CPU, with about 375 KB of project data, 14 pages and 240 cards. Those historical samples do not establish the current deployment's budget or behavior.
+- The observed 2–5 minute recovery interval was not established as a Cloudflare guarantee.
+
 If a Worker has already been deployed against an older D1 schema, recover the current deployment by applying the pending migrations and redeploying:
 
 ```sh
-npx wrangler d1 migrations apply CMS_DB --remote --config wrangler.jsonc
+npm run build &&
+npx wrangler d1 migrations apply CMS_DB --remote --config wrangler.jsonc &&
 npx wrangler deploy --config wrangler.jsonc
 ```
 
@@ -33,39 +42,27 @@ There is no staging Worker or staging config. The production D1 database keeps i
 
 Branches are not isolated: preview versions bind production D1 and R2.
 
-## Image validation prerequisite for this release
+## Image validation prerequisites
 
-Apply `0003_media_integrity.sql` to the correct database before deploying this Worker. Retain the `images: { binding: "CMS_IMAGES" }` configuration in both environments and verify that Images is available for the account. Do not deploy a worker expecting the new column against the old schema. Local test fixtures supply Images and apply migrations without contacting the account.
+Retain the `images: { binding: "CMS_IMAGES" }` configuration in `wrangler.jsonc` and verify that Images is available for the account. The migration chain includes `0003_media_integrity.sql`; the normal deploy applies pending migrations before publishing. Local test fixtures supply Images and apply migrations without contacting the account.
 
-Use **only `0003_media_integrity.sql`** from the unified package. The older alternative ZIP used `0003_media_validation.sql` for the identical column addition. Do not retain or run both. If either has already been applied to a deployed database, inspect its migration history and reconcile the filename with that history before deployment; do not execute the same column addition again or delete migration records blindly. For a clean WIP checkout, no source deletion is required.
+If an older installation used a different migration filename for the same column addition, inspect its migration history before any schema change. Do not execute that addition twice or delete migration records blindly.
 
-The Images binding decodes actual bytes rather than merely inspecting metadata. This introduces deployment transformation usage; review account billing/limits. Cloudflare currently documents AVIF input as Enterprise-only. An offline AVIF pass does not prove production entitlement. Test your actual supported formats and animation in staging; unsupported format/configuration failures never register an unchecked asset.
+The Images binding decodes actual bytes rather than merely inspecting metadata. Review the account's transformation usage, billing limits and supported formats. An offline codec test does not prove production entitlement or animation support; verify those through the authorized release procedure. Branch previews share production storage.
 
-See [Images binding](https://developers.cloudflare.com/images/optimization/binding/), [format limits](https://developers.cloudflare.com/images/get-started/limits/) and the [local verification guide](CMS-LOCAL-VERIFICATION.md). No Images subscription, remote migration or deployment was performed by the completion package.
+See [Images binding](https://developers.cloudflare.com/images/optimization/binding/), [format limits](https://developers.cloudflare.com/images/get-started/limits/) and the [local verification guide](CMS-LOCAL-VERIFICATION.md).
 
-## Prepare production after merge
+## Existing production configuration
 
 Retain the existing production Worker `omar-portfolio`, domain routes, ASSETS, contact configuration and `ANALYTICS_ENABLED: "false"`. Do not copy database IDs, bucket names or Access audience from other configs into production.
 
-1. Record the current Worker version and take a D1 export if production CMS data already exists. Inspect existing account resources before creating duplicates.
-2. Create a separate production D1 database and R2 Standard bucket, for example `omar-portfolio-cms`, with Wrangler. Add their actual returned identifiers to `wrangler.jsonc` as `CMS_DB` and `CMS_MEDIA`, using `migrations_dir: "migrations"`. R2 free allowances are not an unlimited billing cap; review account usage/notifications.
-3. Create an Access self-hosted application for `omaryusuf.se/admin` and descendants. Allow only the owner's exact email through the email one-time PIN identity provider, with a one-hour session. Enable HttpOnly, SameSite=Lax and the binding cookie. Use no bypass, everyone or wildcard-email policy. Test any more-specific application policies that could override it.
-4. Add `CMS_ACCESS_TEAM` as the exact HTTPS Access organization origin and `CMS_ACCESS_AUD` as that production application's audience. Leave `CMS_STAGE` and `PREVIEW_ORIGIN` unset. Store the same exact email as secret `CMS_ADMIN_EMAIL` on the production Worker:
+`CMS_DB` and `CMS_MEDIA` already identify the production resources, despite their historical names. Do not create replacement databases or buckets as a release step. Record the current Worker version and follow the production data runbook before any data change.
 
-   ```sh
-   npx wrangler secret put CMS_ADMIN_EMAIL --config wrangler.jsonc
-   ```
+Verify the Access application covers `omaryusuf.se/admin` and descendants and allows only the owner's exact email through the email one-time PIN identity provider, with a one-hour session. Keep HttpOnly, SameSite=Lax and the binding cookie; verify more-specific application policies too. Use no bypass, everyone or wildcard-email policy.
 
-5. Apply the schema to the production database, build and inspect the deployment before publishing:
+Keep `CMS_ACCESS_TEAM` as the exact HTTPS Access organization origin and `CMS_ACCESS_AUD` as the production application's audience. `CMS_ADMIN_EMAIL` is the same exact owner email, stored as a Worker secret. Leave `CMS_STAGE` and `PREVIEW_ORIGIN` unset in production. Without the required auth settings the admin route fails closed.
 
-   ```sh
-   npx wrangler d1 migrations apply CMS_DB --remote --config wrangler.jsonc
-   npm run check
-   npm run edge:check
-   npx wrangler deploy --config wrangler.jsonc
-   ```
-
-Bindings must be configured before deploying the CMS. Without auth settings the admin route fails closed; without a CMS database the public site continues to serve the built original. Merging the PR alone does not provision production or publish a CMS revision.
+Run the local release gates in [QA.md](QA.md). After authorization, publish through `npm run deploy:cloudflare`, including its build and compatibility gate. Every push to `main` also triggers that production deploy through Workers Builds; a commit must be releasable before it is pushed.
 
 ## Release verification
 
@@ -79,7 +76,7 @@ Run `node scripts/smoke-live.mjs` for public read-only checks after production d
 
 For content mistakes, History → Restore → Save appends a new revision. Published R2 objects remain available, so old references survive. Revert affects only unsaved draft content.
 
-Before application/schema changes, run the isolated backup drill (`node --test tests/cms-backup-drill.test.mjs`) and the read-only retained-revision checker (`node scripts/cms-check-release.mjs /path/to/trusted-d1-export.sql`). Use Node 24 or newer as required by the project; the checker imports SQL with the native SQLite parser so multiline content is preserved. The live read-only check is `node scripts/cms-pull-release.mjs`, the same release gate the deploy runs. Then export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
+Before application/schema changes, run `npm run build`, then the isolated backup drill (`node --test tests/cms-backup-drill.test.mjs`) and the read-only retained-revision checker (`node scripts/cms-check-release.mjs /path/to/trusted-d1-export.sql`). Use Node 24 or newer as required by the project; the checker imports SQL with the native SQLite parser so multiline content is preserved. The live read-only check also requires that build: `node scripts/cms-pull-release.mjs`, the same release gate the deploy runs. Then export D1 using Wrangler and retain the matching Worker version and R2 inventory. `wrangler d1 export <database> --remote --output <backup.sql>` creates a database backup; keep it private because revision records include owner identity and content. Use Cloudflare's retained Worker version or the previous verified commit for a code rollback. Restoring the Worker alone does not roll back database state. Avoid deleting R2 objects needed by any retained revision.
 
 Protected component contracts derive from the source templates. If functional source markup changes after the CMS has been used, migrate existing saved content deliberately and test its continued editability before production deployment. See [CMS-SECURITY.md](CMS-SECURITY.md).
 
