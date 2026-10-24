@@ -27,9 +27,13 @@ function record(value, path, keys) {
   return value;
 }
 function string(value, path, name, max, min, control) {
+  wellFormed(value, path);
   if (typeof value === 'string' && control.test(value)) fail(`${name} får bara vara en rad.`, path);
   if (typeof value !== 'string' || value.length < min || value.length > max) fail(`${name} saknas eller är för lång (högst ${max} tecken).`, path);
   return value;
+}
+function wellFormed(value, path) {
+  if (typeof value === 'string' && !value.isWellFormed()) fail('Fältet innehåller ogiltiga Unicode-tecken.', path);
 }
 const line = (value, path, name, max, min = 1) => string(value, path, name, max, min, /[\u0000-\u001f\u007f]/);
 // Multi-line fields keep LF; every other control character is refused.
@@ -50,6 +54,7 @@ function bool(value, path) {
   return value;
 }
 function href(value, path) {
+  wellFormed(value, path);
   let url;
   try { url = typeof value === 'string' && value.length <= 2000 ? new URL(value) : null; } catch { url = null; }
   if (!url || !(url.protocol === 'https:' && url.hostname || url.protocol === 'mailto:')) fail('Länken måste börja med https: eller mailto:.', path);
@@ -162,19 +167,29 @@ function template(value, path, kind) {
 }
 
 // Absent (or null, from a delta restoring an older revision) means DEFAULT_EMAIL.
-export function validateEmailSettings(input) {
+export function validateEmailIdentity(input) {
   if (input === undefined || input === null) return undefined;
-  const e = record(input, '', ['schemaVersion', 'sender', 'shell', 'templates']);
-  if (e.schemaVersion !== 1) fail(INVALID, 'schemaVersion');
-  const sender = record(e.sender, 'sender', ['name', 'local']), shell = record(e.shell, 'shell', ['brand', 'tagline']), templates = record(e.templates, 'templates', ['receipt', 'notification']);
+  const e = record(input, '', ['sender', 'shell']);
+  const sender = record(e.sender, 'sender', ['name', 'local']), shell = record(e.shell, 'shell', ['brand', 'tagline']);
   const name = line(sender.name, 'sender.name', 'Avsändarnamn', 60);
   if (!/^[\p{L}\p{N} .'-]{1,60}$/u.test(name)) fail('Avsändarnamnet får bara innehålla bokstäver, siffror, mellanslag, punkt, apostrof och bindestreck.', 'sender.name');
   const local = sender.local;
   if (typeof local !== 'string' || !/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/.test(local) || local.includes('..')) fail(`Avsändaradressen får bara innehålla a–z, 0–9, punkt, bindestreck och understreck före @${SENDING_DOMAIN}.`, 'sender.local');
   return {
-    schemaVersion: 1,
     sender: { name, local },
     shell: { brand: line(shell.brand, 'shell.brand', 'Varumärket', 40), tagline: line(shell.tagline, 'shell.tagline', 'Slogan', 200, 0) },
+  };
+}
+
+export function validateEmailSettings(input) {
+  if (input === undefined || input === null) return undefined;
+  const e = record(input, '', ['schemaVersion', 'sender', 'shell', 'templates']);
+  if (e.schemaVersion !== 1) fail(INVALID, 'schemaVersion');
+  const identity = validateEmailIdentity({ sender: e.sender, shell: e.shell });
+  const templates = record(e.templates, 'templates', ['receipt', 'notification']);
+  return {
+    schemaVersion: 1,
+    ...identity,
     templates: { receipt: template(templates.receipt, 'templates.receipt', 'receipt'), notification: template(templates.notification, 'templates.notification', 'notification') },
   };
 }

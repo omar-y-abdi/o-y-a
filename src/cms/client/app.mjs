@@ -291,8 +291,9 @@ async function showSpecial(type) {
     // The owner may have opened something else while the chunk loaded.
     if (current.type !== 'email') return;
     if (!view) {
-      $('#special-stage').innerHTML = '<div class="empty-state" role="alert">Mejlvyn kunde inte laddas. Kontrollera anslutningen och öppna Mejl igen.</div>';
-      throw new Error('Mejlvyn kunde inte laddas. Kontrollera anslutningen och försök igen.');
+      $('#special-stage').innerHTML = '<div class="empty-state" role="alert">Mejlvyn kunde inte laddas. Ladda om sidan och öppna Mejl igen.</div>';
+      renderSidebar();
+      throw new Error('Mejlvyn kunde inte laddas. Ladda om sidan och öppna Mejl igen.');
     }
     view.mountEmail($('#special-stage'), { project: () => draft.project, change, assets: () => assets, back: () => openPage(lastPage) });
   }

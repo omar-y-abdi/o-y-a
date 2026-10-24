@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
+import { DEFAULT_EMAIL } from '../src/server/email-render.mjs';
 
 // Unlike cms-editor.spec.mjs's bare editor, Mejl needs the real studio and API.
 // Share one local Worker/D1/R2 fixture; keep saves in order under fullyParallel.
@@ -170,6 +171,10 @@ test('Inställningar renders E1 states without exposing secret input values', as
     await expect(status).toHaveAttribute('data-email-setting-state', state);
     await expect(status).toContainText(text);
   }
+  const forwarding = page.locator('[data-email-setting="forwarding"] a');
+  await expect(forwarding).toHaveCount(1);
+  await expect(forwarding).toHaveAttribute('href', 'https://dash.cloudflare.com/');
+  await expect(forwarding).toHaveText('Öppna Cloudflare');
   await expect(page.locator('[data-email-banner="closed"]')).toContainText('Formuläret är stängt');
   await expect(page.locator('[data-email-save-settings]')).toBeDisabled();
   await expect(page.locator('[data-email-setting-input]')).toHaveCount(4);
@@ -178,4 +183,160 @@ test('Inställningar renders E1 states without exposing secret input values', as
   const passwords = page.locator('input[type="password"]');
   await expect(passwords).toHaveCount(2);
   for (let index = 0; index < await passwords.count(); index++) await expect(passwords.nth(index)).toHaveValue('');
+});
+
+async function fillCompose(page) {
+  await selectEmailTab(page, 'compose');
+  await page.locator('[data-email-chip-input="to"]').fill('ada@example.org');
+  await page.locator('[data-email-chip-input="to"]').press('Enter');
+  await page.locator('[data-email-path="subject"]').fill('Samma utskick');
+}
+async function confirmSend(page) {
+  await page.locator('[data-email-send]').click();
+  await page.locator('[data-confirm="yes"]').click();
+}
+
+test('uncertain compose freezes all fields and retries identical body despite other draft edits', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Compose behavior needs Chromium only.');
+  const calls = [];
+  await page.route('**/admin/api/mail/send', async route => {
+    calls.push(route.request().postData());
+    await route.fulfill({ status: calls.length === 1 ? 503 : 200, json: calls.length === 1 ? { error: 'Svaret är osäkert.' } : { id: 'retry-ok', scheduledAt: null } });
+  });
+  await openStudio(page, context);
+  await fillCompose(page);
+  await expect(page.locator('[data-email-panel="compose"]')).toContainText('Bilder från Resurser skickas som de är publicerade');
+  await expect(page.locator('[data-email-attachment-total]')).toContainText('inom 23 timmar');
+  await confirmSend(page);
+  const retry = page.getByRole('button', { name: 'Försök igen', exact: true });
+  await expect(retry).toBeVisible();
+  const controls = page.locator('[data-email-compose-fields] input, [data-email-compose-fields] textarea, [data-email-compose-fields] select, [data-email-compose-fields] button');
+  expect(await controls.count()).toBeGreaterThan(10);
+  for (let index = 0; index < await controls.count(); index++) await expect(controls.nth(index)).toBeDisabled();
+  await expect(page.locator('[data-email-panel="compose"] > .email-actions button:enabled')).toHaveText(['Försök igen', 'Kasta utkastet']);
+  // Programmatic input must not bypass the freeze either.
+  await page.locator('[data-email-path="subject"]').evaluate(node => { node.value = 'Ändrat efter felet'; node.dispatchEvent(new Event('input', { bubbles: true })); });
+  await selectEmailTab(page, 'receipt');
+  await page.locator('[data-email-details="design"] > summary').click();
+  await page.locator('[data-email-path="sender.name"]').fill('Ändrad avsändare');
+  await selectEmailTab(page, 'compose');
+  await expect(page.locator('[data-email-path="subject"]')).toHaveValue('Samma utskick');
+  await retry.click();
+  await expect(page.locator('[data-email-tab="sent"]')).toHaveAttribute('aria-selected', 'true');
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toBe(calls[0]);
+  const body = JSON.parse(calls[0]);
+  expect(Object.keys(body.identity)).toEqual(['sender', 'shell']);
+  expect(body).not.toHaveProperty('email');
+  expect(body).not.toHaveProperty('resources');
+});
+
+test('definitive validation and provider refusals unlock compose; expiry keeps it frozen until discard', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Compose behavior needs Chromium only.');
+  const replies = [{ status: 422, json: { error: 'Rätta ämnet.', details: { field: 'subject' } } }, { status: 502, json: { error: 'Nyckeln godtas inte.', details: { refused: true } } }, { status: 409, json: { error: 'Kontrollera mejlet i Resend: https://resend.com/emails', details: { uncertain: true } } }];
+  await page.route('**/admin/api/mail/send', route => route.fulfill(replies.shift()));
+  await openStudio(page, context);
+  await fillCompose(page);
+  for (let index = 0; index < 2; index++) {
+    await confirmSend(page);
+    await expect(page.locator('[data-email-path="subject"]')).toBeEnabled();
+    await page.locator('[data-email-path="subject"]').fill(`Rättat ämne ${index}`);
+  }
+  await confirmSend(page);
+  await expect(page.locator('[data-email-path="subject"]')).toBeDisabled();
+  await expect(page.locator('#studio-toast')).toContainText('https://resend.com/emails');
+  await page.getByRole('button', { name: 'Kasta utkastet', exact: true }).click();
+  await expect(page.locator('#studio-dialog')).toContainText('kan redan ha skickats');
+  await expect(page.locator('#studio-dialog')).toContainText('Skickade eller i Resend');
+  await page.locator('[data-confirm="no"]').click();
+  await expect(page.locator('[data-email-path="subject"]')).toBeDisabled();
+  await page.getByRole('button', { name: 'Kasta utkastet', exact: true }).click();
+  await page.locator('[data-confirm="yes"]').click();
+  await expect(page.locator('[data-email-path="subject"]')).toBeEnabled();
+  await expect(page.locator('[data-email-path="subject"]')).toHaveValue('');
+});
+
+test('test mail retains requestId per template until success or changed content', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Retry behavior needs Chromium only.');
+  const calls = [];
+  await page.route('**/admin/api/mail/test', async route => {
+    calls.push(route.request().postDataJSON());
+    await route.fulfill({ status: calls.length === 3 ? 200 : 503, json: calls.length === 3 ? { id: 'test-ok' } : { error: 'Svaret är osäkert.' } });
+  });
+  await openStudio(page, context);
+  const sendTest = async () => {
+    const button = page.locator('[data-email-test]');
+    const pending = page.waitForResponse('**/admin/api/mail/test');
+    await button.click();
+    await pending;
+    await expect(button).toBeEnabled();
+  };
+  await selectEmailTab(page, 'receipt');
+  await sendTest();
+  await selectEmailTab(page, 'notification');
+  await sendTest();
+  await selectEmailTab(page, 'receipt');
+  await sendTest(); // Successful receipt retry.
+  expect(calls[2]).toEqual(calls[0]);
+  expect(calls[1].requestId).not.toBe(calls[0].requestId);
+  await sendTest(); // New request after success.
+  expect(calls[3].requestId).not.toBe(calls[2].requestId);
+  await subjectField(page).fill('Ändrad mall');
+  await sendTest();
+  expect(calls[4].requestId).not.toBe(calls[3].requestId);
+  await sendTest();
+  expect(calls[5]).toEqual(calls[4]);
+});
+
+test('unconfirmed test rows show Resend link without custom compose retry instruction', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Sent-list behavior needs Chromium only.');
+  const item = { id: null, confirmed: false, to: ['ada@example.org'], cc: [], bcc: [], createdAt: '2026-10-24T10:00:00.000Z', scheduledAt: null, canceledAt: null, attachments: 0 };
+  await page.route('**/admin/api/mail/sent', route => route.fulfill({ json: { items: [{ ...item, kind: 'custom', subject: 'Eget mejl' }, { ...item, kind: 'test', subject: 'Provmejl' }] } }));
+  await openStudio(page, context);
+  await selectEmailTab(page, 'sent');
+  const rows = page.locator('[data-email-sent-table] tbody tr');
+  await expect(rows.nth(0)).toContainText('Tryck Skicka igen i samma flik');
+  await expect(rows.nth(1)).toContainText('Ej bekräftat. Provmejlet kan ha skickats.');
+  await expect(rows.nth(1)).not.toContainText('Tryck Skicka');
+  await expect(rows.nth(1).locator('a')).toHaveAttribute('href', 'https://resend.com/emails');
+});
+
+test('building text refuses more than 10000 characters and accepts exactly 10000', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Text editing needs Chromium only.');
+  await page.route('**/admin/api/state', async route => {
+    const response = await route.fetch(), state = await response.json(), email = structuredClone(DEFAULT_EMAIL);
+    const text = email.templates.receipt.blocks.find(block => block.type === 'text');
+    email.templates.receipt.blocks = Array.from({ length: 6 }, (_, index) => ({ ...structuredClone(text), id: `long000${index}`, section: index ? 'card' : 'band', text: '€'.repeat(2000) }));
+    state.project.email = email;
+    await route.fulfill({ response, json: state });
+  });
+  await openStudio(page, context);
+  await selectEmailTab(page, 'receipt');
+  await page.locator('[data-email-details="text"] > summary').click();
+  const text = page.locator('[data-email-path="templates.receipt.text"]'), before = await text.inputValue();
+  await page.locator('[data-email-text-build]').click();
+  await expect(page.locator('#studio-toast')).toContainText('10000 tecken');
+  await expect(page.locator('#studio-toast')).toHaveClass(/is-error/);
+  await expect(text).toHaveValue(before);
+  await page.locator('[data-email-section="card"] [data-email-remove]').last().click();
+  await page.locator('[data-email-section="band"] [data-email-select]').click();
+  await page.locator('[data-email-path="templates.receipt.blocks[0].text"]').fill('€'.repeat(1946));
+  await page.locator('[data-email-text-build]').click();
+  const expected = ['€'.repeat(1946), ...Array(4).fill('€'.repeat(2000))].join('\n\n') + '\n\nIntegritet: https://omaryusuf.se/integritet/';
+  expect(expected.length).toBe(10000);
+  await expect(text).toHaveValue(expected);
+});
+
+test('failed mail chunk tells owner to reload and clears stale sidebar selection', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Chunk-load recovery needs Chromium only.');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
+  await page.goto(runtime.url + '/admin/');
+  await expect(page.locator('#loading-state')).toBeHidden();
+  await expect(page.locator('[data-page-id="home"]')).toHaveClass(/is-selected/);
+  await page.route(/\/admin\/assets\/.*\.mjs$/, route => route.abort('failed'));
+  await page.locator('[data-special="email"]').click();
+  await expect(page.locator('#special-stage [role="alert"]')).toContainText('Ladda om sidan och öppna Mejl igen');
+  await expect(page.locator('[data-page-id="home"]')).not.toHaveClass(/is-selected/);
+  await expect(page.locator('#studio-toast')).toContainText('Ladda om sidan och öppna Mejl igen');
 });

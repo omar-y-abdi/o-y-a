@@ -80,7 +80,7 @@ beforeEach(async () => {
 test('owner-only, write-guarded, bounded', async () => {
   const call = (path, init = {}) => runtime.mf.dispatchFetch(origin + path, init);
   const auth = { 'Cf-Access-Jwt-Assertion': authorization, Origin: origin, 'X-CMS-Request': '1', 'Content-Type': 'application/json' };
-  const routes = [['GET', '/admin/api/contact'], ['POST', '/admin/api/contact', 8192], ['POST', '/admin/api/mail/test', 262144], ['POST', '/admin/api/mail/send', 262144], ['GET', '/admin/api/mail/sent'], ['GET', '/admin/api/mail/status?id=x'], ['POST', '/admin/api/mail/cancel', 1024], ['POST', '/admin/api/mail/attachment'], ['POST', '/admin/api/mail/attachment-remove', 1024]];
+  const routes = [['GET', '/admin/api/contact'], ['POST', '/admin/api/contact', 8192], ['POST', '/admin/api/mail/test', 1048576], ['POST', '/admin/api/mail/send', 1048576], ['GET', '/admin/api/mail/sent'], ['GET', '/admin/api/mail/status?id=x'], ['POST', '/admin/api/mail/cancel', 1024], ['POST', '/admin/api/mail/attachment'], ['POST', '/admin/api/mail/attachment-remove', 1024]];
   for (const [method, path, limit] of routes) {
     const anonymous = await call(path, { method, headers: { Origin: origin, 'X-CMS-Request': '1', 'Content-Type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) });
     assert.equal(anonymous.status, 401, path);
@@ -139,7 +139,7 @@ test('test mail maps provider errors and is rate-limited', async () => {
     assert.equal(JSON.parse(text).error, message);
     assert.ok(!text.includes(KEY));
   }
-  assert.equal(await sentCount(), 1);
+  assert.equal(await sentCount(), 3); // Success plus the ambiguous 500 and network failure.
   limiter.success = false;
   const blocked = provider();
   const limited = await run(post('/admin/api/mail/test', body()), env(), blocked.fetch);
@@ -285,7 +285,12 @@ test('an immediate send with an upload is retry-safe', async () => {
   const timeout = async (url, init) => { calls.push(init); throw new DOMException('timed out', 'TimeoutError'); };
   const failed = await run(post('/admin/api/mail/send', request), env(), timeout);
   assert.equal(failed.status, 503);
-  assert.equal(await sentCount(), 0);
+  assert.equal(await sentCount(), 1);
+  assert.equal((await requestRow('mail/' + request.requestId)).resend_id, null);
+  const listed = (await (await run(get('/admin/api/mail/sent'), env())).json()).items;
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].confirmed, false);
+  assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, 'mail/' + request.requestId);
   clock = START + 5 * 60000;
   const ok = async (url, init) => { calls.push(init); return Response.json({ id: 'resend-retry' }); };
   assert.equal((await run(post('/admin/api/mail/send', request), env(), ok)).status, 200);
@@ -326,15 +331,41 @@ test('sixth send in a minute is refused', async () => {
   assert.equal(p.calls.length, 0);
 });
 
-test('a failed provider send stores nothing', async () => {
-  const attachment = (await (await upload()).json()).id;
-  for (const [answer, message] of [[() => new Response('down', { status: 500 }), 'Resend svarar inte just nu. Försök igen; samma utskick skickas inte två gånger.'], [() => Response.json({}), 'Resend bekräftade inte utskicket.'], [() => Response.json({ id: '../evil' }), 'Resend bekräftade inte utskicket.']]) {
-    const response = await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id: attachment }] })), env(), provider(answer).fetch);
+test('ambiguous provider failures keep unconfirmed intents listed', async () => {
+  for (const answer of [() => { throw new DOMException('timeout', 'TimeoutError'); }, () => new Response('down', { status: 500 }), () => new Response('not json'), () => Response.json({}), () => Response.json({ id: '../evil' })]) {
+    const attachment = (await (await upload()).json()).id;
+    const request = compose({ attachments: [{ kind: 'upload', id: attachment }] });
+    const response = await run(post('/admin/api/mail/send', request), env(), provider(answer).fetch);
     assert.equal(response.status, 503);
-    assert.equal((await response.json()).error, message);
+    assert.equal((await requestRow('mail/' + request.requestId)).resend_id, null);
+    const row = await runtime.db.prepare('SELECT sent_at, claimed_by FROM cms_mail_files WHERE id = ?').bind(attachment).first();
+    assert.deepEqual(row, { sent_at: null, claimed_by: 'mail/' + request.requestId });
   }
+  const { items } = await (await run(get('/admin/api/mail/sent'), env())).json();
+  assert.equal(items.length, 5);
+  assert.ok(items.every(item => item.id === null && !item.confirmed));
+});
+
+test('Kantfall 29: definitive Resend refusals delete fresh intent and release uploads', async () => {
+  const attachment = (await (await upload()).json()).id;
+  for (const status of [400, 401, 403, 409, 422, 429]) {
+    const response = await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id: attachment }] })), env(), provider(() => Response.json({ message: 'refused' }, { status })).fetch);
+    assert.notEqual(response.status, 200);
+    assert.equal((await response.json()).details.refused, true);
+    assert.equal(await sentCount(), 0);
+    assert.deepEqual(await runtime.db.prepare('SELECT sent_at, claimed_by FROM cms_mail_files WHERE id = ?').bind(attachment).first(), { sent_at: null, claimed_by: null });
+  }
+  assert.equal((await run(post('/admin/api/mail/attachment-remove', { id: attachment }), env())).status, 200);
   assert.equal(await sentCount(), 0);
-  assert.equal((await runtime.db.prepare('SELECT sent_at FROM cms_mail_files WHERE id = ?').bind(attachment).first()).sent_at, null);
+});
+
+test('a refusal on a retry retains an older ambiguous intent and its claim', async () => {
+  const { id } = await (await upload()).json();
+  const request = compose({ attachments: [{ kind: 'upload', id }] });
+  assert.equal((await run(post('/admin/api/mail/send', request), env(), provider(() => new Response('down', { status: 500 })).fetch)).status, 503);
+  assert.equal((await run(post('/admin/api/mail/send', request), env(), provider(() => Response.json({ message: 'conflict' }, { status: 409 })).fetch)).status, 409);
+  assert.equal((await requestRow('mail/' + request.requestId)).resend_id, null);
+  assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, 'mail/' + request.requestId);
 });
 
 test('custom mail replies go to the site address', async () => {
@@ -488,34 +519,168 @@ test('an upload a confirmed send used cannot be removed', async () => {
   assert.ok(bucket.objects.has('mail-private/' + id));
 });
 
-test('a send renders the draft settings it was given', async () => {
+test('X5: custom mail validates only draft identity and never takes the head sender', async () => {
   const draft = structuredClone(DEFAULT_EMAIL);
   draft.sender = { name: 'Verkstaden', local: 'verkstad' };
   const p = provider();
-  const response = await run(post('/admin/api/mail/send', compose({ email: draft })), env(), p.fetch);
+  draft.shell.brand = 'Osparat varumärke';
+  draft.templates = null; // Irrelevant to renderCustom.
+  const response = await run(post('/admin/api/mail/send', compose({ identity: { sender: draft.sender, shell: draft.shell } })), env(), p.fetch);
   assert.equal(response.status, 200);
   assert.equal(p.calls[0].body.from, 'Verkstaden <verkstad@hej.omaryusuf.se>');
   assert.equal((await response.json()).from, p.calls[0].body.from);
+  assert.ok(p.calls[0].body.html.includes('Osparat varumärke'));
   const bad = structuredClone(DEFAULT_EMAIL);
   bad.sender.local = 'hej@evil.example';
   const refused = provider();
-  assert.equal((await run(post('/admin/api/mail/send', compose({ email: bad })), env(), refused.fetch)).status, 422);
+  assert.equal((await run(post('/admin/api/mail/send', compose({ identity: { sender: bad.sender, shell: bad.shell } })), env(), refused.fetch)).status, 422);
   assert.equal(refused.calls.length, 0);
   assert.equal(await sentCount(), 1);
   // A draft without settings is DEFAULT_EMAIL, as the studio previews it, even when the head has its own.
   const published = structuredClone(DEFAULT_EMAIL);
   published.sender = { name: 'Publicerad', local: 'publicerad' };
-  const fallback = provider();
-  assert.equal((await run(post('/admin/api/mail/send', compose({ email: null })), env(), fallback.fetch, { email: published })).status, 200);
+  const fallback = provider(() => Response.json({ id: 'fallback-default' }));
+  assert.equal((await run(post('/admin/api/mail/send', compose()), env(), fallback.fetch, { email: published })).status, 200);
   assert.equal(fallback.calls[0].body.from, 'Omar Yusuf <hej@hej.omaryusuf.se>');
 });
 
-test('a send with full templates in its draft settings is read whole', async () => {
+const largeBlocks = kind => {
   const text = DEFAULT_EMAIL.templates.receipt.blocks.find(block => block.type === 'text');
-  const fill = blocks => [...blocks, ...Array.from({ length: 40 - blocks.length }, (_, index) => ({ ...structuredClone(text), id: `fill${String(index).padStart(4, '0')}`, text: 'ö'.repeat(2000) }))];
+  const blocks = Array.from({ length: kind === 'notification' ? 39 : 40 }, (_, index) => ({ ...structuredClone(text), id: `fill${String(index).padStart(4, '0')}`, section: index ? 'card' : 'band', text: '€'.repeat(2000) }));
+  if (kind === 'notification') blocks.push(structuredClone(DEFAULT_EMAIL.templates.notification.blocks.find(block => block.type === 'visitor')));
+  return blocks;
+};
+
+test('E3 reads full three-byte templates and both 10000-character text versions', async () => {
   const email = structuredClone(DEFAULT_EMAIL);
-  email.templates.receipt.blocks = fill(email.templates.receipt.blocks);
-  const request = compose({ blocks: fill(content().blocks), email });
+  for (const kind of ['receipt', 'notification']) {
+    email.templates[kind].blocks = largeBlocks(kind);
+    email.templates[kind].text = '€'.repeat(10000);
+  }
+  const request = { requestId: crypto.randomUUID(), template: 'receipt', email };
+  assert.ok(new TextEncoder().encode(JSON.stringify(request)).byteLength > 256 * 1024);
+  assert.equal((await run(post('/admin/api/mail/test', request), env(), provider().fetch)).status, 200);
+  email.templates.notification.subject = '';
+  const p = provider();
+  assert.equal((await run(post('/admin/api/mail/test', { ...request, requestId: crypto.randomUUID() }), env(), p.fetch)).status, 422);
+  assert.equal(p.calls.length, 0); // E3 still validates both templates.
+});
+
+test('E4 reads 40 three-byte compose blocks with maximum recipients and headers', async () => {
+  const to = Array.from({ length: 50 }, (_, index) => `${String(index).padStart(64, 'a')}@${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`);
+  const request = compose({ to, subject: '€'.repeat(200), preheader: '€'.repeat(200), blocks: largeBlocks('custom'), identity: { sender: { name: 'N'.repeat(60), local: 'a'.repeat(64) }, shell: { brand: '€'.repeat(40), tagline: '€'.repeat(200) } } });
   assert.ok(new TextEncoder().encode(JSON.stringify(request)).byteLength > 256 * 1024);
   assert.equal((await run(post('/admin/api/mail/send', request), env(), provider().fetch)).status, 200);
+});
+
+test('a claimed upload cannot be removed or taken by a different request', async () => {
+  const { id } = await (await upload()).json();
+  const request = compose({ attachments: [{ kind: 'upload', id }] });
+  const p = provider(async () => {
+    assert.equal((await run(post('/admin/api/mail/attachment-remove', { id }), env())).status, 404);
+    assert.ok(bucket.objects.has('mail-private/' + id));
+    const other = provider();
+    assert.equal((await run(post('/admin/api/mail/send', compose({ attachments: request.attachments })), env(), other.fetch)).status, 422);
+    assert.equal(other.calls.length, 0);
+    return Response.json({ id: 'reserved' });
+  });
+  assert.equal((await run(post('/admin/api/mail/send', request), env(), p.fetch)).status, 200);
+  assert.ok(!bucket.deleted.includes('mail-private/' + id));
+});
+
+test('removal between eligibility and intent prevents sending and releases partial claims', async () => {
+  const ids = [(await (await upload()).json()).id, (await (await upload()).json()).id];
+  let first = true;
+  const db = { prepare: sql => runtime.db.prepare(sql), async batch(statements) {
+    if (first) {
+      first = false;
+      assert.equal((await run(post('/admin/api/mail/attachment-remove', { id: ids[1] }), env())).status, 200);
+    }
+    return runtime.db.batch(statements);
+  } };
+  const p = provider();
+  const response = await run(post('/admin/api/mail/send', compose({ attachments: ids.map(id => ({ kind: 'upload', id })) })), env({ CMS_DB: db }), p.fetch);
+  assert.equal(response.status, 422);
+  assert.match((await response.json()).error, /Bilagan.*tagits bort/);
+  assert.equal(p.calls.length, 0);
+  assert.equal(await sentCount(), 0);
+  assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(ids[0]).first()).claimed_by, null);
+});
+
+test('unconfirmed retries stop after 23 hours for E3 and E4', async () => {
+  for (const kind of ['test', 'send']) {
+    clock = START;
+    const request = kind === 'test' ? { requestId: crypto.randomUUID(), template: 'receipt', email: null } : compose();
+    const p = provider(() => { throw new DOMException('timeout', 'TimeoutError'); });
+    const send = () => run(post('/admin/api/mail/' + kind, request), env(), p.fetch);
+    assert.equal((await send()).status, 503);
+    clock = START + 23 * 3600000;
+    assert.equal((await send()).status, 503); // Boundary still within window.
+    clock += 1;
+    const expired = await send();
+    assert.equal(expired.status, 409);
+    const error = await expired.json();
+    assert.match(error.error, /https:\/\/resend.com\/emails/);
+    assert.equal(error.details.uncertain, true);
+    assert.equal(p.calls.length, 2);
+    assert.equal((await requestRow(`${kind === 'test' ? 'mail-test' : 'mail'}/${request.requestId}`)).resend_id, null);
+  }
+});
+
+test('young unconfirmed intents survive eviction and remain listed beyond latest 100', async () => {
+  const request = compose({ subject: 'Obekräftat äldre utskick' });
+  assert.equal((await run(post('/admin/api/mail/send', request), env(), provider(() => new Response('down', { status: 500 })).fetch)).status, 503);
+  const p = provider();
+  for (let index = 0; index < 101; index++) assert.equal((await run(post('/admin/api/mail/test', { requestId: crypto.randomUUID(), template: 'receipt', email: null }), env(), p.fetch)).status, 200);
+  const { items } = await (await run(get('/admin/api/mail/sent'), env())).json();
+  assert.equal(items.length, 101);
+  assert.ok(items.some(item => item.subject === request.subject && !item.confirmed));
+  assert.equal(await sentCount(), items.length);
+});
+
+test('cleanup relinquishes D1 rows before deleting R2 objects', async () => {
+  const old = await addFile(10, iso(START - 1));
+  const remove = bucket.delete;
+  bucket.delete = async keys => {
+    assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(old).first(), null);
+    await remove(keys);
+  };
+  assert.equal((await upload()).status, 201);
+  assert.ok(!bucket.objects.has('mail-private/' + old));
+});
+
+test('remove succeeds and reports private orphan when R2 deletion fails', async t => {
+  const { id } = await (await upload()).json();
+  const logs = [];
+  t.mock.method(console, 'error', entry => logs.push(JSON.parse(entry)));
+  bucket.delete = async () => { throw new Error('R2_ERROR: unavailable'); };
+  const removed = await run(post('/admin/api/mail/attachment-remove', { id }), env());
+  assert.equal(removed.status, 200);
+  assert.deepEqual(await removed.json(), { removed: true });
+  assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(id).first(), null);
+  assert.ok(bucket.objects.has('mail-private/' + id));
+  assert.ok(logs.some(entry => entry.event === 'cms_failure' && entry.operation === 'mail' && entry.code === 'storage-r2'));
+});
+
+test('failed cancel reconciles canceled status and records it once', async () => {
+  await addSent('stuck', iso(START + 3600000));
+  const p = provider(url => url.endsWith('/cancel') ? Response.json({ message: 'arbitrary failure' }, { status: 422 }) : Response.json({ id: 'stuck', last_event: 'canceled' }));
+  const response = await run(post('/admin/api/mail/cancel', { id: 'stuck' }), env(), p.fetch);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { id: 'stuck', canceledAt: iso(START) });
+  assert.deepEqual(p.calls.map(call => [call.url, call.init.method]), [['https://api.resend.com/emails/stuck/cancel', 'POST'], ['https://api.resend.com/emails/stuck', 'GET']]);
+  assert.equal((await runtime.db.prepare("SELECT canceled_at FROM cms_sent_mail WHERE resend_id = 'stuck'").first()).canceled_at, iso(START));
+  assert.equal((await run(post('/admin/api/mail/cancel', { id: 'stuck' }), env(), p.fetch)).status, 200);
+  assert.equal(p.calls.length, 2);
+});
+
+test('failed cancel never records canceled from error wording or a failed status check', async () => {
+  for (const answer of [() => Response.json({ last_event: 'scheduled' }), () => new Response('down', { status: 500 })]) {
+    const id = crypto.randomUUID();
+    await addSent(id, iso(START + 3600000));
+    const p = provider(url => url.endsWith('/cancel') ? Response.json({ message: 'already canceled' }, { status: 422 }) : answer());
+    assert.equal((await run(post('/admin/api/mail/cancel', { id }), env(), p.fetch)).status, 422);
+    assert.equal((await runtime.db.prepare('SELECT canceled_at FROM cms_sent_mail WHERE resend_id = ?').bind(id).first()).canceled_at, null);
+    assert.equal(p.calls.length, 2);
+  }
 });

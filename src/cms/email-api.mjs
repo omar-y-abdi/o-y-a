@@ -1,14 +1,14 @@
 import { reportFailure } from './diagnostics.mjs';
 import { HttpError, json, readJson, requireWriteRequest } from './http.mjs';
 import { resolveResources } from './resources.mjs';
-import { validateCustomMail, validateEmailSettings } from './email-validate.mjs';
+import { validateCustomMail, validateEmailIdentity, validateEmailSettings } from './email-validate.mjs';
 import { contactReady } from '../server/contact.mjs';
 import { masterReady, readContactSettings, SECRET_NAMES, signFileLink, verifyFileLink, writeContactSecrets } from '../server/contact-secrets.mjs';
-import { isEmailAddress, renderCustom, renderEmail } from '../server/email-render.mjs';
+import { DEFAULT_EMAIL, isEmailAddress, renderCustom, renderEmail } from '../server/email-render.mjs';
 
 // The owner's mail desk. Only POST /emails, GET /emails/{id} and
 // POST /emails/{id}/cancel are called. Every check runs before the provider
-// call, and a row is stored only after Resend confirms an id.
+// call. An intent is stored first; ambiguous answers leave it unconfirmed.
 export const SCHEDULE_MAX_DAYS = 30;
 const RESEND = 'https://api.resend.com/emails';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -45,14 +45,16 @@ async function resend(transport, key, path, { method = 'GET', body, idempotency,
   if (response.ok) return response.json().catch(() => { throw new HttpError(503, UNAVAILABLE); });
   const error = await response.json().catch(() => ({}));
   const status = response.status;
+  // Explicit provider refusal, independent of the CMS status/message mapping.
+  const refused = (status, message) => Object.assign(new HttpError(status, message, { refused: true }), { resendRefused: true });
   if (status === 401 && error?.name === 'restricted_api_key') {
     if (restrictedOk) return { restricted: true };
-    throw new HttpError(403, 'Nyckeln saknar behörighet för status och avbryt.');
+    throw refused(403, 'Nyckeln saknar behörighet för status och avbryt.');
   }
-  if (status === 401 || status === 403) throw new HttpError(502, 'Nyckeln godtas inte av Resend. Klistra in en ny i Inställningar.');
-  if (status === 400 || status === 422) throw new HttpError(422, `Resend: ${sanitise(error?.message, key)}`);
-  if (status === 409) throw new HttpError(409, 'Samma utskick skickades redan med annat innehåll. Ladda om fliken.');
-  if (status === 429) throw new HttpError(429, 'Resend begränsar takten. Vänta en minut.');
+  if (status === 401 || status === 403) throw refused(502, 'Nyckeln godtas inte av Resend. Klistra in en ny i Inställningar.');
+  if (status === 400 || status === 422) throw refused(422, `Resend: ${sanitise(error?.message, key)}`);
+  if (status === 409) throw refused(409, 'Samma utskick skickades redan med annat innehåll. Ladda om fliken.');
+  if (status === 429) throw refused(429, 'Resend begränsar takten. Vänta en minut.');
   throw new HttpError(503, UNAVAILABLE);
 }
 
@@ -65,26 +67,40 @@ function sentId(result) {
 // cms_sent_mail.request_id. The intent row is written before Resend is called
 // and confirmed (resend_id set) after it answers, so:
 // - a retry of a confirmed request returns the stored result without Resend;
-// - a retry of an unconfirmed one (Resend accepted, D1 finalize failed) calls
-//   Resend again with the same key, which replays, and then confirms.
+// - a retry of a young unconfirmed one calls Resend with the same key;
+// - after 23 hours an unconfirmed request requires manual checking in Resend.
 // Pending scheduled sends and young unconfirmed intents are never evicted.
 const PENDING = "(COALESCE(scheduled_at, '') > ?1 AND canceled_at IS NULL) OR (resend_id IS NULL AND created_at > ?2)";
-const sentByRequest = (env, requestId) => env.CMS_DB.prepare('SELECT resend_id, scheduled_at, sender FROM cms_sent_mail WHERE request_id = ?').bind(requestId).first();
+const sentByRequest = (env, requestId) => env.CMS_DB.prepare('SELECT resend_id, scheduled_at, sender, created_at FROM cms_sent_mail WHERE request_id = ?').bind(requestId).first();
 
-async function deliver(env, existing, intent, call, reserve = []) {
+function requireRetryWindow(existing, nowMs) {
+  if (existing && nowMs - Date.parse(existing.created_at) > 23 * 3600000) throw new HttpError(409, 'Utskicket är äldre än 23 timmar och kan redan ha skickats. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
+}
+
+const discardIntent = (db, requestId) => db.batch([
+  db.prepare('DELETE FROM cms_sent_mail WHERE request_id = ? AND resend_id IS NULL').bind(requestId),
+  db.prepare('UPDATE cms_mail_files SET claimed_by = NULL WHERE claimed_by = ? AND sent_at IS NULL').bind(requestId),
+]);
+
+async function deliver(env, existing, intent, call, reserve = [], uploadCount = 0) {
   const db = env.CMS_DB;
-  if (!existing) {
-    await db.batch([
-      db.prepare('INSERT INTO cms_sent_mail(request_id,kind,recipients,subject,sender,attachments,created_at,scheduled_at,actor) VALUES(?,?,?,?,?,?,?,?,?)')
-        .bind(intent.requestId, intent.kind, JSON.stringify(intent.recipients), intent.subject, intent.sender, intent.attachments, intent.createdAt, intent.scheduledAt, intent.actor),
+  if (!existing || reserve.length) {
+    const results = await db.batch([
+      ...(existing ? [] : [db.prepare('INSERT INTO cms_sent_mail(request_id,kind,recipients,subject,sender,attachments,created_at,scheduled_at,actor) VALUES(?,?,?,?,?,?,?,?,?)')
+        .bind(intent.requestId, intent.kind, JSON.stringify(intent.recipients), intent.subject, intent.sender, intent.attachments, intent.createdAt, intent.scheduledAt, intent.actor)]),
       ...reserve,
     ]);
+    if (uploadCount && results.at(-1)?.meta?.changes !== uploadCount) {
+      // An existing intent may stand for a send Resend accepted, so only a fresh one is discarded.
+      if (!existing) await discardIntent(db, intent.requestId);
+      throw reject('Bilagan har tagits bort eller används av ett annat utskick. Ladda upp den igen.', 'attachments');
+    }
   }
   try { return sentId(await call()); }
   catch (error) {
     // A fresh intent that Resend refused stores nothing (Kantfall 29). An older
     // intent may stand for an accepted send, so it stays for the next retry.
-    if (!existing) await db.prepare('DELETE FROM cms_sent_mail WHERE request_id = ? AND resend_id IS NULL').bind(intent.requestId).run().catch(cleanupError => reportFailure(cleanupError, 'mail'));
+    if (!existing && error.resendRefused) await discardIntent(db, intent.requestId).catch(cleanupError => reportFailure(cleanupError, 'mail'));
     throw error;
   }
 }
@@ -103,10 +119,9 @@ async function rateLimited(env, identity) {
 
 async function cleanup(env, now) {
   try {
-    const { results } = await env.CMS_DB.prepare('SELECT id, object_key FROM cms_mail_files WHERE expires_at < ? ORDER BY expires_at LIMIT 20').bind(iso(now())).all();
+    const { results } = await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id IN (SELECT id FROM cms_mail_files WHERE expires_at < ? ORDER BY expires_at LIMIT 20) RETURNING object_key').bind(iso(now())).all();
     if (!results.length) return;
     await env.CMS_MEDIA.delete(results.map(row => row.object_key));
-    await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(results.map(row => row.id))).run();
   } catch (error) { reportFailure(error, 'mail'); }
 }
 
@@ -164,7 +179,7 @@ function scheduleTime(value, nowMs) {
   return ms;
 }
 
-async function attachmentFiles(env, list = [], nowMs) {
+async function attachmentFiles(env, list = [], nowMs, requestId) {
   if (!Array.isArray(list)) throw reject(INVALID_SEND, 'attachments');
   if (list.length > 10) throw reject('Högst 10 bilagor per mejl.', 'attachments');
   const files = [];
@@ -177,7 +192,7 @@ async function attachmentFiles(env, list = [], nowMs) {
       files.push({ ...item, ...row });
     } else {
       // An immediate link expires with its upload row, so keep an hour of margin for Resend's fetch.
-      const row = await env.CMS_DB.prepare('SELECT name, mime, bytes, expires_at FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND expires_at > ?').bind(item.id, iso(nowMs + 3600000)).first();
+      const row = await env.CMS_DB.prepare('SELECT name, mime, bytes, expires_at FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?) AND expires_at > ?').bind(item.id, requestId, iso(nowMs + 3600000)).first();
       if (!row) throw reject('Bilagan har gått ut. Ladda upp den igen.', 'attachments');
       files.push({ ...item, ...row });
     }
@@ -194,9 +209,10 @@ async function saveSettings(request, env, { identity, now }) {
   return json(await settingsView(env));
 }
 
-// E3 and E4 carry the draft's mail settings. The largest body the validators
-// accept (40 blocks of 2000 three-byte characters in the mail and in both
-// templates, plus their text versions) is about 830 KB.
+// E3 carries full draft settings; E4 carries sender and shell only. Even the
+// conservative E3 text budget, 2 * 40 * 2000 * 3 + 2 * 10000 * 3 = 540000
+// bytes, leaves ample room for JSON/other fields under 1 MiB. Notification
+// actually needs one visitor block in place of a 2000-character text block.
 const MAIL_BODY_LIMIT = 1024 * 1024;
 
 async function testMail(request, env, { identity, url, head, transport, now }) {
@@ -206,6 +222,7 @@ async function testMail(request, env, { identity, url, head, transport, now }) {
   const requestId = `mail-test/${body.requestId}`;
   const existing = await sentByRequest(env, requestId);
   if (existing?.resend_id) return json({ id: existing.resend_id });
+  requireRetryWindow(existing, now());
   const draft = validateEmailSettings(body.email);
   const project = await head();
   const rendered = renderEmail(draft, body.template, { resources: await resolveResources(env.CMS_DB, project), origin: url.origin, visitor: SAMPLE });
@@ -230,13 +247,14 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   const existing = await sentByRequest(env, requestId);
   if (existing?.resend_id) return json({ id: existing.resend_id, scheduledAt: existing.scheduled_at, from: existing.sender });
   const nowMs = now();
+  requireRetryWindow(existing, nowMs);
   const lists = recipients(body);
   const mail = validateCustomMail({ subject: body.subject, preheader: body.preheader, blocks: body.blocks, design: body.design });
   // The studio's draft settings (sender, shell), so preview and delivery match;
   // null or absent means DEFAULT_EMAIL, as in the studio preview and the test mail.
-  const draft = validateEmailSettings(body.email);
+  const draft = { ...DEFAULT_EMAIL, ...validateEmailIdentity(body.identity) };
   const scheduledMs = scheduleTime(body.scheduledAt, nowMs);
-  const files = await attachmentFiles(env, body.attachments, nowMs);
+  const files = await attachmentFiles(env, body.attachments, nowMs, requestId);
   const values = await providerKey(env);
   if (files.some(file => file.kind === 'upload') && !masterReady(env)) throw new HttpError(503, 'Huvudnyckeln saknas.');
   const project = await head();
@@ -256,25 +274,25 @@ async function sendMail(request, env, { identity, url, head, transport, now }) {
   const uploads = JSON.stringify(files.filter(file => file.kind === 'upload').map(file => file.id));
   const uploadCount = files.filter(file => file.kind === 'upload').length;
   const intent = { requestId, kind: 'custom', recipients: lists, subject: rendered.subject, sender: rendered.from, attachments: files.length, createdAt: iso(nowMs), scheduledAt, actor: identity.email };
-  // A scheduled send keeps its files until an hour after delivery, extended
-  // with the intent so a failed finalize cannot let cleanup take them early.
-  const reserve = uploadCount && scheduledExp !== null ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET expires_at = MAX(expires_at, ?) WHERE id IN (SELECT value FROM json_each(?))').bind(iso(scheduledExp * 1000), uploads)] : [];
+  // Claim every upload atomically with the intent. A scheduled send also keeps
+  // its files until an hour after delivery, even if finalize fails.
+  const reserve = uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET claimed_by = ?, expires_at = MAX(expires_at, ?) WHERE id IN (SELECT value FROM json_each(?)) AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?) AND expires_at > ?').bind(requestId, iso((scheduledExp ?? 0) * 1000), uploads, requestId, iso(nowMs + 3600000))] : [];
   const id = await deliver(env, existing, intent, () => resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: requestId, body: {
     from: rendered.from, to: lists.to, ...(lists.cc.length ? { cc: lists.cc } : {}), ...(lists.bcc.length ? { bcc: lists.bcc } : {}),
     subject: rendered.subject, html: rendered.html, text: rendered.text,
     ...(scheduledAt ? { scheduled_at: scheduledAt } : {}), ...(attachments.length ? { attachments } : {}),
-  } }), reserve);
+  } }), reserve, uploadCount);
   const [, marked] = await finalize(env, requestId, id, nowMs, uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), uploads)] : []);
-  // Resend has the mail; a file removed mid-send is reported, never a failure.
+  // Resend has the mail; unexpected storage loss is reported, never resent.
   if (uploadCount && marked?.meta?.changes !== uploadCount) reportFailure(new Error('mail upload missing at finalize'), 'mail');
   return json({ id, scheduledAt, from: rendered.from });
 }
 
-// The newest 100 plus every pending scheduled send, newest first. An
-// unconfirmed intent is listed with id null; status and cancel need an id.
+// The newest 100 plus every pending scheduled send and young unconfirmed intent,
+// using the same predicate as eviction. Status and cancel need a confirmed id.
 async function sentList(env, { now }) {
   const nowMs = now();
-  const { results } = await env.CMS_DB.prepare(`SELECT resend_id, kind, recipients, subject, attachments, created_at, scheduled_at, canceled_at FROM cms_sent_mail WHERE id IN (SELECT id FROM cms_sent_mail ORDER BY id DESC LIMIT 100) OR (COALESCE(scheduled_at, '') > ?1 AND canceled_at IS NULL) ORDER BY id DESC`).bind(iso(nowMs)).all();
+  const { results } = await env.CMS_DB.prepare(`SELECT resend_id, kind, recipients, subject, attachments, created_at, scheduled_at, canceled_at FROM cms_sent_mail WHERE id IN (SELECT id FROM cms_sent_mail ORDER BY id DESC LIMIT 100) OR (${PENDING}) ORDER BY id DESC`).bind(iso(nowMs), iso(nowMs - 86400000)).all();
   return json({ items: results.map(row => {
     const { to, cc, bcc } = JSON.parse(row.recipients);
     return { id: row.resend_id, confirmed: row.resend_id !== null, kind: row.kind, to, cc, bcc, subject: row.subject, createdAt: row.created_at, scheduledAt: row.scheduled_at, canceledAt: row.canceled_at, attachments: row.attachments };
@@ -296,7 +314,14 @@ async function cancelMail(request, env, { transport, now }) {
   const row = await sentRow(env, id);
   if (row.canceled_at) return json({ id, canceledAt: row.canceled_at });
   if (!row.scheduled_at || Date.parse(row.scheduled_at) <= now()) throw new HttpError(409, 'Mejlet är redan på väg och kan inte stoppas.');
-  const result = await resend(transport, (await providerKey(env)).RESEND_API_KEY, `/${encodeURIComponent(id)}/cancel`, { method: 'POST', restrictedOk: true });
+  const key = (await providerKey(env)).RESEND_API_KEY;
+  let result;
+  try { result = await resend(transport, key, `/${encodeURIComponent(id)}/cancel`, { method: 'POST', restrictedOk: true }); }
+  catch (cancelError) {
+    try { result = await resend(transport, key, '/' + encodeURIComponent(id), { restrictedOk: true }); }
+    catch (statusError) { reportFailure(statusError, 'mail'); throw cancelError; }
+    if (result?.last_event !== 'canceled') throw cancelError;
+  }
   if (result.restricted) return json({ id, restricted: true });
   const canceledAt = iso(now());
   await env.CMS_DB.prepare('UPDATE cms_sent_mail SET canceled_at = ? WHERE resend_id = ?').bind(canceledAt, id).run();
@@ -333,11 +358,14 @@ async function uploadFile(request, env, { now }) {
 async function removeFile(request, env) {
   requireWriteRequest(request);
   const id = (await readJson(request, 1024))?.id;
-  // One statement claims the row, so a file a send has already marked is never
-  // removed, and R2 is touched only after D1 gave the row up.
-  const row = typeof id === 'string' && UUID.test(id) ? await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id = ? AND sent_at IS NULL RETURNING object_key').bind(id).first() : null;
+  // A claimed or consumed upload cannot be removed; R2 follows D1 ownership.
+  const row = typeof id === 'string' && UUID.test(id) ? await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND claimed_by IS NULL RETURNING object_key').bind(id).first() : null;
   if (!row) throw new HttpError(404, 'Bilagan finns inte.');
-  await env.CMS_MEDIA.delete(row.object_key);
+  // Residual: a failed R2 delete leaves an orphan in the private prefix after
+  // its D1 row is gone. Pass its key to reportFailure (which redacts exception
+  // details); the owner still gets a successful removal.
+  try { await env.CMS_MEDIA.delete(row.object_key); }
+  catch (error) { reportFailure(new Error(`R2 mail orphan: ${row.object_key}`, { cause: error }), 'mail'); }
   return json({ removed: true });
 }
 
@@ -351,7 +379,7 @@ const WRITES = {
 };
 
 // `head` returns the normalized published project (or the seed before the
-// first publish); sender, images and resources always come from it.
+// first publish). Images/resources come from it; sender/shell use the draft.
 export async function handleEmailAdmin(request, env, { identity, url, head, transport = fetch, now = Date.now }) {
   const read = request.method === 'GET' || request.method === 'HEAD';
   if (read && url.pathname === '/admin/api/contact') return json(await settingsView(env));
