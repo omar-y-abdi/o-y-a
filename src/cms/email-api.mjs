@@ -159,11 +159,11 @@ async function attachmentFiles(env, list = [], nowMs) {
   return files;
 }
 
-async function saveSettings(request, env, { identity }) {
+async function saveSettings(request, env, { identity, now }) {
   requireWriteRequest(request);
   const body = await readJson(request, 8 * 1024);
   if (!isRecord(body) || !isRecord(body.values)) throw reject('Inställningarna är ogiltiga.');
-  await writeContactSecrets(env, body.values, identity.email);
+  await writeContactSecrets(env, body.values, identity.email, now);
   return json(await settingsView(env));
 }
 

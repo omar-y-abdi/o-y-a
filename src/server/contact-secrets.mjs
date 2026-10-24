@@ -64,19 +64,19 @@ export async function readContactSettings(env) {
   return { values, states, updatedAt };
 }
 
-export async function writeContactSecrets(env, patch, actor) {
+export async function writeContactSecrets(env, patch, actor, now = Date.now) {
   if (!masterReady(env)) throw new HttpError(503, 'Huvudnyckeln saknas. Inget sparades.');
   const entries = Object.entries(patch);
   for (const [name, value] of entries) {
     const result = validateSecretValue(name, value);
     if (!result.ok) throw new HttpError(422, result.message, { field: name });
   }
-  const now = new Date().toISOString();
+  const updatedAt = new Date(now()).toISOString();
   const statements = await Promise.all(entries.map(async ([name, value]) => {
     if (value === '') return env.CMS_DB.prepare('DELETE FROM cms_contact_secrets WHERE name = ?').bind(name);
     const { iv, ciphertext } = await encryptSecret(env.CONTACT_HASH_SECRET, name, value);
     return env.CMS_DB.prepare('INSERT INTO cms_contact_secrets(name,iv,ciphertext,updated_at,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET iv=excluded.iv, ciphertext=excluded.ciphertext, updated_at=excluded.updated_at, updated_by=excluded.updated_by')
-      .bind(name, iv.buffer, ciphertext.buffer, now, actor);
+      .bind(name, iv.buffer, ciphertext.buffer, updatedAt, actor);
   }));
   if (statements.length) await env.CMS_DB.batch(statements);
 }
