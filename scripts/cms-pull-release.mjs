@@ -43,7 +43,7 @@ export function gateFailures(result, head, allow = new Set()) {
 
 function select(sql) {
   const run = spawnSync('npx', ['wrangler', 'd1', 'execute', 'CMS_DB', '--remote', '--json', '--command', sql], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 64 * 1024 * 1024 });
-  if (run.status !== 0) throw new Error(`wrangler exited ${run.status ?? run.error?.code}`);
+  if (run.status !== 0) throw new Error(`wrangler exited ${run.status ?? run.error?.code}: ${(run.stdout ?? '').slice(0, 500)}`);
   const [statement] = JSON.parse(run.stdout);
   if (!statement?.success || !Array.isArray(statement.results)) throw new Error('unexpected wrangler output');
   return statement.results;
