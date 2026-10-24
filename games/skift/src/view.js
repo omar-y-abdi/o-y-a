@@ -34,7 +34,7 @@ export class View {
     const key=`${this.width}x${this.height}:${this.settings.quality}`;
     if(key===this.sizeKey)return;this.sizeKey=key;
     const budget=this.settings.quality==='smooth'?1700000:1000000;
-    const ratio=Math.min(this.settings.quality==='smooth'?1.4:1,Math.sqrt(budget/(this.width*this.height)));
+    const ratio=Math.min(this.settings.quality==='smooth'?Math.min(devicePixelRatio||1,2):1,Math.sqrt(budget/(this.width*this.height)));
     this.renderer.setPixelRatio(ratio);this.renderer.setSize(this.width,this.height,false);
     this.setCamera(this.mode,this.mode==='menu',null,0); // refit the frustum; only the menu snaps its target
     if(this.world)this.renderer.render(this.scene,this.camera); // a resized canvas is blank until drawn
