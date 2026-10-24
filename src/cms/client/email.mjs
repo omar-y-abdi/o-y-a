@@ -342,6 +342,9 @@ const isFuture = item => Boolean(item.scheduledAt) && !item.canceledAt && Date.p
 function statusCell(item) {
   const status = state.status[item.id];
   if (item.canceledAt) return `Avbrutet ${dateLabel(item.canceledAt)}`;
+  // Resend may hold this mail although its id was never stored (E4 finalize failed),
+  // so status and Avbryt have nothing to ask about yet.
+  if (!item.confirmed) return '<span data-email-unconfirmed>Ej bekräftat. Mejlet kan ha skickats. Tryck Skicka igen i samma flik för att bekräfta det, eller kontrollera i <a href="https://resend.com/emails" target="_blank" rel="noopener">Resend</a>.</span>';
   if (status?.phase === 'loading') return '<span role="status">Hämtar status…</span>';
   if (status?.phase === 'restricted') return `<span data-email-restricted>Nyckeln saknar behörighet för status och avbryt. <a href="https://resend.com/emails/${escape(encodeURIComponent(item.id))}" target="_blank" rel="noopener">Se utskicket i Resend</a>.</span>`;
   const text = status?.phase === 'done' ? `<strong data-email-status-label>${escape(status.label)}</strong>` : status?.phase === 'error' ? `<span class="email-status-error" role="alert">${escape(status.message)}</span>` : '';
@@ -387,7 +390,7 @@ async function checkStatus(id, refocus = false) {
 }
 
 // A scheduled mail that has not left yet shows its status at once, so Avbryt is there when needed.
-function checkScheduled() { for (const item of state.sent ?? []) if (isFuture(item) && !state.status[item.id]) checkStatus(item.id); }
+function checkScheduled() { for (const item of state.sent ?? []) if (item.confirmed && isFuture(item) && !state.status[item.id]) checkStatus(item.id); }
 
 function loadSent() {
   if (state.sent) return checkScheduled();
