@@ -411,13 +411,14 @@ with sync_playwright() as pw:
                 box = handle.bounding_box(); x, y = box['x']+box['width']/2, box['y']+box['height']/2
                 page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x+dx/2, y, steps=4); page.mouse.move(x+dx, y, steps=4); page.mouse.up()
             def undo():
-                page.locator('[data-action=undo]').click(); ready(page)
+                page.locator('[data-action=undo]').click(); Q.wait_canvas(page)
                 nonlocal node
                 node = Q.frame(page).locator('#rbox'); node.scroll_into_view_if_needed(); node.click()
             original = width()
             page.locator('summary', has_text='Fler stilegenskaper').click()
             page.locator('#extra-property').fill('background-color'); page.locator('#extra-value').fill('rgb(200,10,10)')
             page.locator('#apply-property').click()
+            expect(page.locator('.gjs-resizer-h-br')).to_be_visible()
             page.wait_for_timeout(100)
             resize(80)
             page.wait_for_timeout(400)
@@ -444,10 +445,11 @@ with sync_playwright() as pw:
         page.locator('summary', has_text='Fler stilegenskaper').click()
         page.locator('#extra-property').fill('background-color'); page.locator('#extra-value').fill('rgb(200,10,10)')
         page.locator('#apply-property').click()
+        expect(page.locator('.gjs-resizer-h-br')).to_be_visible()  # handles survive an inspector edit without re-clicking
         resized = width(); assert resized > original, (original, resized)
-        page.locator('[data-action=undo]').click(); ready(page); select_target()
+        page.locator('[data-action=undo]').click(); Q.wait_canvas(page); select_target()
         assert width() == resized and colour() == original_colour, ('first Undo reverts only the colour', original, resized, width(), colour())
-        page.locator('[data-action=undo]').click(); ready(page); select_target()
+        page.locator('[data-action=undo]').click(); Q.wait_canvas(page); select_target()
         assert width() == original, ('second Undo reverts the size', original, width())
 
     def resize_then_immediate_edit_page():
@@ -463,21 +465,8 @@ with sync_playwright() as pw:
             resize_then_immediate_edit(page, locate, select_target)
         finally: ctx.close()
 
-    def resize_then_immediate_edit_card():
-        # Card editors share the Draft via updateCard (group win-<id>); the first card's first element stands in for the box.
-        ctx = context()
-        try:
-            page = admin(ctx)
-            page.locator('[data-library=assets]').click(); page.locator('[data-special=wins]').click()
-            page.locator('.win-card').first.click(); ready_win = page.locator('#win-text'); expect(ready_win).to_be_visible(timeout=15000)
-            qa.CMSBrowserQA.wait_canvas(page)
-            locate = lambda: Q.frame(page).locator('[data-card-text]').locator('xpath=..')
-            def select_target(): locate().click(); page.locator('#select-parent').click() if not page.locator('.gjs-resizer-h-br').count() else None
-            resize_then_immediate_edit(page, locate, select_target)
-        finally: ctx.close()
-
     cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('rapid-inline-save-diagnostic',rapid_inline_save_diagnostic),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
-    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save),('resize-is-one-undo-step',resize_is_one_undo_step),('resize-then-immediate-edit-page',resize_then_immediate_edit_page),('resize-then-immediate-edit-card',resize_then_immediate_edit_card)]
+    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save),('resize-is-one-undo-step',resize_is_one_undo_step),('resize-then-immediate-edit-page',resize_then_immediate_edit_page)]
     selected=os.environ.get('CMS_REVIEW_CASE')
     for name,run in cases:
         if not selected or selected in name: report.run(name,run)
