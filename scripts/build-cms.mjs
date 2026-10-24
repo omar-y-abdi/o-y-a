@@ -7,6 +7,8 @@ import { routes } from '../src/content/site.mjs';
 import { layout } from '../src/templates/layout.mjs';
 import { prepareFooterSource } from './prepare-footer-migration.mjs';
 import { validateProject, defaultTheme } from '../src/cms/project.mjs';
+// Current templates already hold the developer link: only unmarked (pre-PR #10) pages get it.
+import { FOOTER_VERSION } from '../src/cms/footer.mjs';
 import { adminPage, loginPage } from '../src/cms/templates.mjs';
 import { defaultCopy } from '../src/client/copy.mjs';
 import { skiftCopy } from '../src/content/skift-copy.mjs';
@@ -39,8 +41,8 @@ export async function buildCms({ styles, js }) {
   }
   const output = entry => '/' + Object.entries(bundle.metafile.outputs).find(([, value]) => value.entryPoint === entry)[0].replace(/^dist\//, '');
   const built = { styles, main: `/assets/${js.main}`, studio: output('src/cms/client/app.mjs'), preview: output('src/cms/client/preview.mjs'), css, vendorCss, loginCss };
-  const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...prepareFooterSource(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null })));
-  const blank = { id: 'blank', path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida | Omar Yusuf', description: 'En ny idé från Omar Yusuf.', template: 'custom', css: '', project: null, ...prepareFooterSource(layout({ path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida', description: 'En ny idé.', template: 'custom' }, '<section class="section-wrap" style="padding-block:80px;min-height:560px"><span class="eyebrow">EN NY IDÉ</span><h1>Här börjar något.</h1><p>Dubbelklicka för att skriva din berättelse.</p></section>', { css: styles.home, main: built.main })) };
+  const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...prepareFooterSource(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null, footerVersion: FOOTER_VERSION })));
+  const blank = { id: 'blank', path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida | Omar Yusuf', description: 'En ny idé från Omar Yusuf.', template: 'custom', css: '', project: null, footerVersion: FOOTER_VERSION, ...prepareFooterSource(layout({ path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida', description: 'En ny idé.', template: 'custom' }, '<section class="section-wrap" style="padding-block:80px;min-height:560px"><span class="eyebrow">EN NY IDÉ</span><h1>Här börjar något.</h1><p>Dubbelklicka för att skriva din berättelse.</p></section>', { css: styles.home, main: built.main })) };
   const assets = await Promise.all(Object.entries(resourceSlots).map(async ([slot, definition]) => {
     const { src, name, alt, mime, editableSrc } = definition;
     let bytes;

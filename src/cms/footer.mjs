@@ -6,7 +6,7 @@ export const FOOTER_VERSION = 1;
 const LINK = '<a href="/developers/">För utvecklare</a>';
 // PR #10 migration. Signature keys do not shift, so only the link is added;
 // validateProject then checks the result against the current contracts.
-export function normalizeFooterPage(page) {
+function normalizeFooterPage(page) {
   if (page.footerVersion !== undefined && page.footerVersion !== FOOTER_VERSION) throw new HttpError(422, 'Sidfotens version stöds inte.');
   if (page.footerVersion === FOOTER_VERSION || typeof page.html !== 'string') return page;
   const tree = parseFragment(page.html, { scriptingEnabled: true });

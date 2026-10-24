@@ -65,6 +65,17 @@ test('publication never inserts a second developer link after an intentional CMS
   assert.ok(!rendered.includes('href="/developers/"'), 'Public rendering must match authored HTML, not reinsert a hidden extra link.');
 });
 
+test('a new blank page keeps an owner-removed developer link removed on Save', () => {
+  // Built exactly as src/cms/client/app.mjs newPage builds it from seed.blank.
+  const content = seed.blank;
+  const created = { ...content, id: crypto.randomUUID(), path: '/utan-lank/', sourceId: content.sourceId ?? content.id, name: 'Utan länk', title: 'Utan länk | Omar Yusuf', description: 'Tankar, idéer och nyfikenhet från Omar Yusuf. Utan länk.', noindex: false };
+  delete created.contracts;
+  created.html = created.html.replace(/<a href="\/developers\/"[^>]*>För utvecklare<\/a>/, '');
+  assert.ok(!created.html.includes('href="/developers/"'));
+  const saved = validateProject({ ...structuredClone(initial), pages: [...structuredClone(initial.pages), created] }, seed);
+  assert.ok(!saved.pages.find(page => page.path === '/utan-lank/').html.includes('href="/developers/"'));
+});
+
 test('real old D1 revision can be read, edited, saved, reloaded, previewed and restored under current contracts', async () => {
   const version = await publishLegacy();
   const stateResponse = await request('state');
