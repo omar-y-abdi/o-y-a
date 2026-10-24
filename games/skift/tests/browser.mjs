@@ -22,7 +22,13 @@ try{
  await check('blur clears controls and pauses automatically',async()=>{await page.locator('#start-button').click();await page.keyboard.down('w');await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await page.keyboard.up('w');assert.equal((await state(page)).mode,'pause');await page.locator('#modal [data-action="resume"]').click();const a=await state(page);await page.waitForTimeout(250);const b=await state(page);assert.ok(Math.hypot(b.player.x-a.player.x,b.player.z-a.player.z)<.05);});
  await check('restarting releases per-sector GPU resources',async()=>{await page.keyboard.press('Escape');await page.locator('#modal [data-action="menu"]').click();await page.waitForTimeout(100);const first=(await state(page)).render;for(let i=0;i<5;i++){await page.locator('#new-button').click();await page.keyboard.press('Escape');await page.locator('#modal [data-action="menu"]').click();}await page.waitForTimeout(200);const last=(await state(page)).render;assert.ok(last.geometries<=first.geometries+2,JSON.stringify({first,last}));assert.ok(last.textures<=first.textures+1);results.push({name:'renderer resource counts',first,last});});
  await check('game makes no third-party network requests',async()=>{assert.deepEqual(requests.filter(u=>!u.startsWith('http://127.0.0.1:')&&!u.startsWith('data:')),[]);assert.deepEqual(errors,[]);});
- await check('large viewports respect the eco pixel budget',async()=>{await page.setViewportSize({width:3840,height:2160});await page.waitForTimeout(200);const r=(await state(page)).render;assert.ok(r.width*r.height<=1000000,JSON.stringify(r));});
+ await check('large viewports respect the pixel budget of each quality',async()=>{
+  await page.setViewportSize({width:3840,height:2160});await page.waitForTimeout(200);
+  const smooth=await state(page);assert.equal(smooth.settings.quality,'smooth','desktop default is smooth');assert.ok(smooth.render.width*smooth.render.height<=5200000,JSON.stringify(smooth.render));
+  await page.evaluate(()=>{const key='oy-skift-v1',save=JSON.parse(localStorage.getItem(key)||'{"version":1}');save.settings={...save.settings,quality:'eco',qualityChosen:true};localStorage.setItem(key,JSON.stringify(save));});
+  await page.reload();await page.waitForFunction(()=>window.__SKIFT__);await page.waitForTimeout(250);
+  const eco=await state(page);assert.equal(eco.settings.quality,'eco','an explicit eco choice is kept');assert.ok(eco.render.width*eco.render.height<=1000000,JSON.stringify(eco.render));
+ });
  await context.close();
  const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
  const phone=await mobile.newPage();phone.on('pageerror',e=>errors.push(String(e)));await ready(phone);

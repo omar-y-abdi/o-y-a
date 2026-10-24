@@ -8,6 +8,7 @@ try{
  const gpu=(await browserCDP.send('SystemInfo.getInfo')).gpu;
  for(const rate of [1,6]){
   const context=await browser.newContext({viewport:{width:1366,height:768}}),page=await context.newPage();
+  await context.addInitScript(()=>{localStorage.setItem('oy-skift-v1',JSON.stringify({version:1,settings:{quality:'eco',qualityChosen:true}}));}); // the frame budget below is the eco one
   const cdp=await context.newCDPSession(page);await cdp.send('Performance.enable');
   await cdp.send('Emulation.setCPUThrottlingRate',{rate});const began=performance.now();
   await page.goto(process.env.SKIFT_URL||'http://127.0.0.1:8787/play/skift/?qa=1');await page.waitForFunction(()=>window.__SKIFT__);

@@ -40,8 +40,11 @@ try {
   await page.waitForTimeout(400); assert.equal((await snapshot()).time, paused.time);
   checks.push('Pause stops gameplay time in the packaged build');
   await page.setViewportSize({ width: 3840, height: 2160 }); await page.waitForTimeout(200);
-  const render = (await snapshot()).render; assert.ok(render.width * render.height <= 1000000);
-  checks.push('Packaged build retains the 4K pixel-budget correction');
+  const smooth = await snapshot(); assert.equal(smooth.settings.quality, 'smooth'); assert.ok(smooth.render.width * smooth.render.height <= 5200000);
+  await page.evaluate(() => { const key = 'oy-skift-v1', save = JSON.parse(localStorage.getItem(key) || '{"version":1}'); save.settings = { ...save.settings, quality: 'eco', qualityChosen: true }; localStorage.setItem(key, JSON.stringify(save)); });
+  await page.reload(); await page.waitForFunction(() => window.__SKIFT__); await page.waitForTimeout(250);
+  const eco = await snapshot(); assert.equal(eco.settings.quality, 'eco'); assert.ok(eco.render.width * eco.render.height <= 1000000);
+  checks.push('Packaged build retains the 4K pixel-budget correction for smooth and eco');
   assert.deepEqual(errors, []); assert.deepEqual(responses, []);
   checks.push('No JavaScript errors or failed asset requests');
   const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
