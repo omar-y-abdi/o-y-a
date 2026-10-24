@@ -13,13 +13,13 @@ async function request(path, data) {
     response = await fetch(`/admin/api/${path}`, {
       method: data === undefined ? 'GET' : 'POST',
       credentials: 'same-origin', redirect: 'error',
-      headers: data === undefined ? {} : { 'Content-Type': 'application/json', 'X-CMS-Request': '1' },
+      headers: data === undefined ? { 'X-Requested-With': 'XMLHttpRequest' } : { 'Content-Type': 'application/json', 'X-CMS-Request': '1', 'X-Requested-With': 'XMLHttpRequest' },
       ...(data === undefined ? {} : { body: JSON.stringify(data) }),
     });
-  } catch { throw new ApiError('Kontakten bröts. Ditt utkast finns kvar. Kontrollera anslutningen eller logga in igen.'); }
+  } catch { throw new ApiError('Anslutningen bröts. Försök spara igen; samma version sparas inte två gånger.'); }
   let result;
   try { result = await response.json(); }
-  catch { throw new ApiError('Svaret kunde inte bekräftas. Ditt utkast finns kvar.', response.status); }
+  catch { throw new ApiError([401, 403].includes(response.status) ? 'Inloggningen har gått ut. Ditt utkast finns kvar.' : 'Svaret kunde inte bekräftas. Ditt utkast finns kvar.', response.status); }
   if (!response.ok) throw new ApiError(result.error ?? 'Åtgärden kunde inte slutföras.', response.status, result.details);
   return result;
 }
@@ -85,7 +85,7 @@ export async function api(path, data) {
 }
 
 export async function upload(file, id) {
-  const response = await fetch('/admin/api/upload', { method: 'POST', credentials: 'same-origin', redirect: 'error', headers: { 'Content-Type': 'application/octet-stream', 'X-CMS-Request': '1', 'X-CMS-Upload-Id': id, 'X-CMS-Filename': encodeURIComponent(file.name) }, body: file });
+  const response = await fetch('/admin/api/upload', { method: 'POST', credentials: 'same-origin', redirect: 'error', headers: { 'Content-Type': 'application/octet-stream', 'X-CMS-Request': '1', 'X-Requested-With': 'XMLHttpRequest', 'X-CMS-Upload-Id': id, 'X-CMS-Filename': encodeURIComponent(file.name) }, body: file });
   const result = await response.json();
   if (!response.ok) throw new ApiError(result.error ?? 'Filen kunde inte laddas upp.', response.status);
   return result;
