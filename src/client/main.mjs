@@ -4,7 +4,8 @@ import { loadCopy, t } from './copy.mjs';
 await loadCopy();
 
 // The 3D runtime is fetched only on its own page, including CMS previews.
-if (document.querySelector('[data-skift-root]')) import('/play/skift/assets/bootstrap.js').catch(error => console.error('SKIFT failed to load', error));
+// Not awaited, so a failed load cannot block the shell; the browser logs the error.
+if (document.querySelector('[data-skift-root]')) import('/play/skift/assets/bootstrap.js');
 
 document.documentElement.classList.add('js-ready');
 document.querySelectorAll('.js-only').forEach(element => { element.hidden = false; });
