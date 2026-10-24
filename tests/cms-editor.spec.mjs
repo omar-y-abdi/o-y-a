@@ -8,7 +8,10 @@ import { validateCss, validateHtml } from '../src/cms/validation.mjs';
 // product code exposing them. Same file runs in chromium, firefox and webkit.
 const ORIGIN = 'http://studio.test';
 const CANVAS_CSS = 'p{margin:0;height:40px}svg,img{display:block}';
-const SHELL = `<!doctype html><link rel="stylesheet" href="/grapes.css"><style>body{margin:0}#editor{width:1600px;height:1300px}</style>
+// GrapesJS writes an inline height:100% on #editor, overriding the px height
+// here. Without a height on html and body that resolves to 0: the canvas iframe
+// measured 0 px tall and real mouse events landed on #styles-panel instead.
+const SHELL = `<!doctype html><link rel="stylesheet" href="/grapes.css"><style>html,body{height:100%;margin:0}#editor{width:1600px;height:1300px}</style>
 <div id="editor"></div><div id="styles-panel"></div><div id="blocks-panel"></div><div id="layers-panel"></div><div id="traits-panel"></div><script src="/harness.js"></script>`;
 const PIC = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#369"/></svg>';
 let harness, gjsCss;
@@ -31,16 +34,14 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
       onReady: editor => {
         window.__ed = editor; window.__resizes = [];
         editor.on('component:resize', ({ type }) => window.__resizes.push(type));
-        // The studio's fit() always moves the canvas (app.mjs:128). That change
-        // restarts select-comp after 300 ms (grapes.mjs:31777-31781), which binds
-        // its click listeners to the current frame body (grapes.mjs:49518-49521).
-        // Without a restart they stay on the body seen when select-comp first ran.
-        editor.Canvas.getCanvasView().toolsWrapper.style.display = 'none';
+        // As the studio's fit() does (app.mjs:128).
         editor.Canvas.setCoords(0, 24);
         resolve();
       } });
   }), [html, css, bodyClass]);
-  await expect.poll(() => page.evaluate(() => window.__ed.Canvas.getCanvasView().toolsWrapper.style.display), { message: 'select-comp restart after setCoords' }).toBe('');
+  // A coords change hides the tools and restarts select-comp 300 ms later
+  // (grapes.mjs:31774-31781). Wait for that before any click or drag.
+  await expect.poll(() => page.evaluate(() => window.__ed.Canvas.getCanvasView().toolsWrapper.style.display), { message: 'tools shown again after setCoords' }).toBe('');
   await expect.poll(() => page.evaluate(() => window.__ed.Commands.isActive('select-comp'))).toBe(true);
 }
 const nextFrames = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -173,6 +174,9 @@ for (const [source, html] of [['Word', WORD], ['Google Docs', DOCS]]) {
   test(`A5 pasting ${source} gives plain text with <br> that passes validation`, async ({ page }) => {
     await openStudio(page, { html: '<div><p id="t">Före</p></div>' });
     const canvas = page.frameLocator('iframe.gjs-frame');
+    // A user selects the text, then double-clicks it.
+    await canvas.locator('#t').click();
+    await expect.poll(() => page.evaluate(() => window.__ed.getSelected()?.get('tagName')), { message: 'selected tagName after clicking #t' }).toBe('p');
     await canvas.locator('#t').dblclick();
     await expect(canvas.locator('#t'), 'RTE enabled by dblclick').toHaveAttribute('contenteditable', 'true');
     const result = await canvas.locator('#t').evaluate((el, [html]) => {
@@ -218,6 +222,8 @@ test('Backspace and Delete remove a fully selected text block', async ({ page })
   for (const key of ['Backspace', 'Delete']) {
     await openStudio(page, { html: '<div><p id="t">Hela texten</p></div>' });
     const canvas = page.frameLocator('iframe.gjs-frame');
+    await canvas.locator('#t').click();
+    await expect.poll(() => page.evaluate(() => window.__ed.getSelected()?.get('tagName')), { message: `selected tagName after clicking #t before ${key}` }).toBe('p');
     await canvas.locator('#t').dblclick();
     await expect(canvas.locator('#t'), `RTE enabled by dblclick before ${key}`).toHaveAttribute('contenteditable', 'true');
     await canvas.locator('#t').evaluate(el => {
