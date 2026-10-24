@@ -10,7 +10,7 @@ import { resourceSlots } from '../../content/resources.mjs';
 const SAMPLE = { name: 'Mira Test', email: 'mira@example.org', message: 'En fråga från provmejlet.' };
 const EMAIL_PATH = /^(templates|sender|shell)\./;
 const KINDS = { receipt: 'Kvitto till besökaren', notification: 'Avisering till dig' };
-const TABS = [['receipt', KINDS.receipt], ['notification', KINDS.notification], ['compose', 'Skriv mejl']];
+const TABS = [['receipt', KINDS.receipt], ['notification', KINDS.notification], ['compose', 'Skriv mejl'], ['sent', 'Skickade']];
 const LISTS = [['to', 'Till'], ['cc', 'Kopia'], ['bcc', 'Dold kopia']];
 const MAX_RECIPIENTS = 50, MAX_ATTACHMENTS = 10, MAX_UPLOAD = 31457280, MAX_ENCODED = 41943040;
 const RESOURCE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -38,9 +38,9 @@ const TYPES = {
   visitor: { name: 'Besökarens uppgifter', icon: '☺', make: () => ({ fromLabel: 'FRÅN', messageLabel: 'MEDDELANDE', emptyMessage: 'Inget meddelande. Bara en öppen dörr till ett samtal.', emptyMessageText: 'Inget meddelande lämnades.' }) },
 };
 
-const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false } };
+const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false }, sent: null, sentError: '', status: {} };
 // Skriv mejl lives only here: never part of the project, never saved by Save.
-let ctx, root, observer, previewTimer, compose = null;
+let ctx, root, observer, previewTimer, sentLoad = null, compose = null;
 
 export const isEmailField = path => typeof path === 'string' && EMAIL_PATH.test(path);
 
@@ -170,7 +170,9 @@ ${blocksSection(template, base, kind)}
 <div class="email-actions"><button type="button" class="small-button primary" data-email-test>Provmejl</button><span class="email-hint">Skickar mejlet med exempeluppgifter till din egen adress.</span></div>`;
 }
 
-const PANELS = { receipt: () => templateHtml('receipt'), notification: () => templateHtml('notification'), compose: composeHtml };
+const PANELS = { receipt: () => templateHtml('receipt'), notification: () => templateHtml('notification'), compose: composeHtml, sent: () => sentHtml() };
+const LOADERS = { sent: loadSent };
+const panelState = () => ({ sent: state.sentError ? 'error' : state.sent ? 'ready' : 'loading' })[state.tab] ?? 'ready';
 const PREVIEWED = new Set(['receipt', 'notification', 'compose']);
 
 const minLocal = () => { const soon = new Date(Date.now() + 120000); return new Date(soon.getTime() - soon.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
@@ -310,8 +312,86 @@ async function sendMail(button) {
   await run(button, async () => {
     const result = await api('mail/send', { requestId: mail.requestId, ...body });
     compose = null;
+    state.sent = null;
+    state.status = {};
     toast(result.scheduledAt ? `Mejlet är schemalagt ${dateLabel(result.scheduledAt)}.` : 'Mejlet är skickat.');
-    if (mounted() && state.tab === 'compose') renderPanel();
+    if (mounted() && state.tab === 'compose') { selectTab('sent'); root.querySelector('[data-email-tab=sent]').focus(); }
+  });
+}
+
+// Skickade: the owner's own sends (E5), their live status (E6) and cancel (E7).
+const KIND_LABEL = { custom: 'Mejl', test: 'Provmejl' };
+const isFuture = item => Boolean(item.scheduledAt) && !item.canceledAt && Date.parse(item.scheduledAt) > Date.now();
+
+function statusCell(item) {
+  const status = state.status[item.id];
+  if (item.canceledAt) return `Avbrutet ${dateLabel(item.canceledAt)}`;
+  if (status?.phase === 'loading') return '<span role="status">Hämtar status…</span>';
+  if (status?.phase === 'restricted') return `<span data-email-restricted>Nyckeln saknar behörighet för status och avbryt. <a href="https://resend.com/emails/${escape(encodeURIComponent(item.id))}" target="_blank" rel="noopener">Se utskicket i Resend</a>.</span>`;
+  const text = status?.phase === 'done' ? `<strong data-email-status-label>${escape(status.label)}</strong>` : status?.phase === 'error' ? `<span class="email-status-error" role="alert">${escape(status.message)}</span>` : '';
+  const cancelable = isFuture(item) && (status?.phase !== 'done' || status.status === 'scheduled');
+  return `${text} <button type="button" class="small-button" data-email-check>${status ? 'Uppdatera' : 'Kolla status'}</button>${cancelable ? ' <button type="button" class="small-button danger" data-email-cancel>Avbryt</button>' : ''}`;
+}
+
+function sentRow(item) {
+  const everyone = [...item.to, ...item.cc, ...item.bcc];
+  return `<tr data-email-sent-id="${escape(item.id)}"><td data-label="Tid"><time datetime="${escape(item.createdAt)}">${dateLabel(item.createdAt)}</time></td><td data-label="Slag">${escape(KIND_LABEL[item.kind] ?? item.kind)}</td><td data-label="Till" title="${escape(everyone.join(', '))}">${escape(everyone[0] ?? '—')}${everyone.length > 1 ? ` +${everyone.length - 1}` : ''}</td><td data-label="Ämne">${escape(item.subject)}</td><td data-label="Schemalagd">${item.scheduledAt ? dateLabel(item.scheduledAt) : '—'}</td><td data-label="Status" data-email-status>${statusCell(item)}</td></tr>`;
+}
+
+const sentBody = () => state.sentError ? `<p class="inline-error" role="alert">${escape(state.sentError)}</p>`
+  : !state.sent ? '<p class="email-hint" role="status">Hämtar utskicken…</p>'
+  : !state.sent.length ? '<p class="email-hint">Inga utskick än. Skickade mejl och provmejl visas här.</p>'
+  : `<div class="email-table-wrap"><table class="email-table" data-email-sent-table><thead><tr><th scope="col">Tid</th><th scope="col">Slag</th><th scope="col">Till</th><th scope="col">Ämne</th><th scope="col">Schemalagd</th><th scope="col">Status</th></tr></thead><tbody>${state.sent.map(sentRow).join('')}</tbody></table></div>`;
+
+const sentHtml = () => `<div class="email-panel-head"><h2 class="email-panel-title">Skickade</h2><button type="button" class="small-button" data-email-refresh>Uppdatera listan</button></div><div data-email-sent-body>${sentBody()}</div>`;
+
+function renderSentBody() {
+  const body = root.querySelector('[data-email-sent-body]');
+  if (!body || state.tab !== 'sent') return;
+  body.innerHTML = sentBody();
+  panel().dataset.emailState = panelState();
+}
+
+function renderStatus(id, refocus = false) {
+  const row = [...root.querySelectorAll('[data-email-sent-id]')].find(node => node.dataset.emailSentId === id), item = state.sent?.find(entry => entry.id === id);
+  if (!row || !item) return;
+  const cell = row.querySelector('[data-email-status]');
+  cell.innerHTML = statusCell(item);
+  if (refocus) cell.querySelector('button')?.focus();
+}
+
+async function checkStatus(id, refocus = false) {
+  state.status[id] = { phase: 'loading' };
+  renderStatus(id);
+  try {
+    const result = await api(`mail/status?id=${encodeURIComponent(id)}`);
+    state.status[id] = result.restricted ? { phase: 'restricted' } : { phase: 'done', status: result.status, label: result.label };
+  } catch (error) { state.status[id] = { phase: 'error', message: error.message ?? 'Statusen kunde inte hämtas.' }; }
+  renderStatus(id, refocus);
+}
+
+// A scheduled mail that has not left yet shows its status at once, so Avbryt is there when needed.
+function checkScheduled() { for (const item of state.sent ?? []) if (isFuture(item) && !state.status[item.id]) checkStatus(item.id); }
+
+function loadSent() {
+  if (state.sent) return checkScheduled();
+  sentLoad ??= api('mail/sent').then(
+    ({ items }) => { state.sent = items; state.sentError = ''; },
+    error => { state.sentError = error.message ?? 'Utskicken kunde inte hämtas.'; },
+  ).then(() => {
+    sentLoad = null;
+    if (mounted() && state.tab === 'sent') { renderSentBody(); checkScheduled(); }
+  });
+}
+
+async function cancelSend(id, button) {
+  const item = state.sent?.find(entry => entry.id === id);
+  if (!item || !await confirmAction({ title: 'Avbryt utskicket?', message: `Mejlet "${item.subject}" är schemalagt ${dateLabel(item.scheduledAt)}. Om du avbryter skickas det inte.`, action: 'Avbryt utskicket', danger: true })) return;
+  await run(button, async () => {
+    const result = await api('mail/cancel', { id });
+    if (result.restricted) state.status[id] = { phase: 'restricted' };
+    else { item.canceledAt = result.canceledAt; delete state.status[id]; toast('Utskicket är avbrutet.'); }
+    renderStatus(id, true);
   });
 }
 
@@ -369,7 +449,9 @@ function renderPanel(focus) {
   root.querySelector('.email-layout').dataset.emailLayout = previewed ? 'form' : 'wide';
   root.querySelector('[data-email-preview-pane]').hidden = !previewed;
   panel().innerHTML = PANELS[state.tab]();
+  panel().dataset.emailState = panelState();
   if (previewed) renderPreview();
+  LOADERS[state.tab]?.();
   if (stage) stage.scrollTop = top;
   focus?.(root)?.focus();
 }
@@ -546,6 +628,10 @@ function onClick(event) {
   if ('emailPickResource' in button.dataset) return pickResource();
   if (button.dataset.emailAttachmentRemove !== undefined) return removeAttachment(Number(button.dataset.emailAttachmentRemove)).catch(report);
   if ('emailSend' in button.dataset) return sendMail(button);
+  if ('emailRefresh' in button.dataset) { state.sent = null; state.sentError = ''; state.status = {}; renderSentBody(); return loadSent(); }
+  const sentId = button.closest('[data-email-sent-id]')?.dataset.emailSentId;
+  if ('emailCheck' in button.dataset) return checkStatus(sentId, true);
+  if ('emailCancel' in button.dataset) return cancelSend(sentId, button);
   if (button.dataset.emailDevice) {
     state.device = button.dataset.emailDevice;
     for (const other of root.querySelectorAll('[data-email-device]')) other.setAttribute('aria-pressed', String(other === button));

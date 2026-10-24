@@ -121,3 +121,18 @@
 .email-attachment[data-email-attachment=error] small{color:var(--studio-ink);font-weight:700}
 .email-attachment button{width:44px;height:44px;flex:none}
 .email-attachment button:disabled{opacity:.35}
+.email-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.email-panel-head .email-panel-title{margin:0}
+.email-table-wrap{max-width:100%;overflow-x:auto}
+.email-table{width:100%;border-collapse:collapse;font-size:12px}
+.email-table th{text-align:left;font-size:11px;letter-spacing:.6px;color:var(--studio-muted);font-weight:700;padding:8px 10px;border-bottom:1px solid var(--studio-line);white-space:nowrap}
+.email-table td{padding:10px;border-bottom:1px solid var(--studio-line);vertical-align:top;overflow-wrap:anywhere}
+.email-table [data-email-status] .small-button{margin:2px 4px 2px 0;min-height:36px}
+.email-status-error{display:block;margin-bottom:4px}
+@media(max-width:699px){
+  .email-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .email-table,.email-table tbody,.email-table tr,.email-table td{display:block;width:100%}
+  .email-table tr{border:1px solid var(--studio-line);border-radius:8px;padding:6px 10px;margin-bottom:10px}
+  .email-table td{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;border-bottom:0;padding:6px 0}
+  .email-table td::before{content:attr(data-label);font-size:11px;font-weight:700;color:var(--studio-muted)}
+}
