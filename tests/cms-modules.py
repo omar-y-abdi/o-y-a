@@ -471,7 +471,8 @@ with sync_playwright() as pw:
               const after=el.getBoundingClientRect();
               return {resize:{text:text.get('resizable'),link:link.get('resizable'),image:image.get('resizable'),button:button.get('resizable'),vector:vector.get('resizable'),group:Boolean(groupResize?.onStart&&groupResize?.updateTarget),shape:shape.get('resizable')},groupBounds:{before:{w:before.width,h:before.height},after:{w:after.width,h:after.height}},groupTransform:group.getAttributes().transform,toolbar:text.get('toolbar'),moved,sectors,normalProps};
             }""")
-            assert result['resize'] == {'text': True, 'link': True, 'image': True, 'button': False, 'vector': True, 'group': True, 'shape': False}, result
+            px = {'currentUnit': 0, 'unitWidth': 'px', 'unitHeight': 'px'}
+            assert result['resize'] == {'text': px, 'link': px, 'image': px, 'button': False, 'vector': px, 'group': True, 'shape': False}, result
             assert result['groupBounds']['before']['w'] > 0 and result['groupBounds']['before']['h'] > 0, result
             assert result['groupBounds']['after']['w'] > result['groupBounds']['before']['w'] * 1.4, result
             assert result['groupBounds']['after']['h'] > result['groupBounds']['before']['h'] * 1.15, result

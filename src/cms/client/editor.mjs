@@ -1,7 +1,7 @@
 import grapesjs from 'grapesjs';
 import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
-import { normalStyleSectors, applyStyleMode, configureVisualComponent } from './editor-policy.mjs';
+import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle } from './editor-policy.mjs';
 import { ensureComponentIdentity } from './view-state.mjs';
 
 export function createEditor({ page, cssPath, assets, onChange, onSelect, onReady, onAssetPick }) {
@@ -117,6 +117,10 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     if (disposed || loading) return;
     clearTimeout(timer);
     timer = setTimeout(flush, 250);
+  });
+  editor.on('component:resize:update', ({ component, style, updateStyle }) => {
+    const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
+    if (tag !== 'g') updateStyle(responsiveResizeStyle(style, tag));
   });
   editor.on('component:resize:end', ({ component }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();

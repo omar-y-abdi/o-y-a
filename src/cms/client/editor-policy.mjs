@@ -26,12 +26,25 @@ export const svgStyleSectors = [
 export function configureVisualComponent(component, { managedSvg = false } = {}) {
   const tag = String(component.get?.('tagName') ?? '').toLowerCase();
   component.set({
-    resizable: managedSvg && tag === 'svg' ? false : tag === 'g' ? svgGroupResizeOptions(component) : isResizableComponent(component),
+    resizable: managedSvg && tag === 'svg' ? false : tag === 'g' ? svgGroupResizeOptions(component) : isResizableComponent(component) && { currentUnit: 0, unitWidth: 'px', unitHeight: 'px' },
     // Canvas move can reparent/reorder. Structural movement belongs in Layers;
     // precise visual movement is exposed by the inspector nudge controls.
     toolbar: [],
   });
   return component;
+}
+
+// A drag writes px into the device's rule. Width caps at the container and
+// height becomes a floor over `auto`, so one drag never fixes the box on other
+// widths. `height: auto` also replaces a stored px height in the same rule.
+export function responsiveResizeStyle(style, tag) {
+  const next = { ...style };
+  if (next.width && next.width !== 'auto') next.width = `min(${next.width},100%)`;
+  if (next.height && next.height !== 'auto') {
+    if (tag !== 'img') next['min-height'] = next.height;
+    next.height = 'auto';
+  }
+  return next;
 }
 
 export function applyStyleMode(editor, mode = 'normal') {

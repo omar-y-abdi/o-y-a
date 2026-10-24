@@ -25,5 +25,9 @@ export default defineConfig({
     { name: 'chromium', grepInvert: /@webgl/ },
     // Software-rendered worlds share CI's CPU; finish other cases first.
     { name: 'chromium-webgl', grep: /@webgl/, workers: 1, dependencies: ['chromium'] },
+
+    // The studio editor must behave the same in every engine; other specs stay chromium-only.
+    { name: 'firefox', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'firefox', channel: undefined, launchOptions: {} } },
+    { name: 'webkit', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'webkit', channel: undefined, launchOptions: {} } },
   ],
 });
