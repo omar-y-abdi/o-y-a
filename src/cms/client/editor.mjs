@@ -23,6 +23,12 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
   labels.observe(blocksPanel, { childList: true, subtree: true });
   const blockKeys = event => { if (['Enter', ' '].includes(event.key) && event.target.matches('.gjs-block')) { event.preventDefault(); event.target.click(); } };
   blocksPanel.addEventListener('keydown', blockKeys);
+  // GrapesJS Resizer hides its handles on any pointerdown in the main document that is not a handle
+  // (grapes.mjs Resizer.handleMouseDown), so using the inspector would lose the handles of the still
+  // selected component. Keep inspector pointerdowns away from that document listener.
+  const rightPanel = inspector.closest('#right-panel') ?? inspector;
+  const keepResizer = event => event.stopPropagation();
+  rightPanel.addEventListener('pointerdown', keepResizer);
   const editor = grapesjs.init({
     container: '#editor', height: '100%', width: '100%',
     telemetry: false, cssIcons: '',
@@ -157,6 +163,6 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
       flush();
     });
   });
-  return { editor, flush, snapshot, setStyleMode, destroy() { flush(); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); editor.destroy(); } };
+  return { editor, flush, snapshot, setStyleMode, destroy() { flush(); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); rightPanel.removeEventListener('pointerdown', keepResizer); editor.destroy(); } };
 }
 import { remapClone } from './clone.mjs';
