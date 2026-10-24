@@ -45,9 +45,9 @@ function provider(answer = (url, calls) => Response.json({ id: `resend-${calls.l
   const calls = [];
   return { calls, fetch: async (url, init) => { calls.push({ url, init, body: init.body ? JSON.parse(init.body) : undefined }); return answer(url, calls); } };
 }
-const run = async (request, e, transport) => {
+const run = async (request, e, transport, project = {}) => {
   const url = new URL(request.url);
-  try { return await handleEmailAdmin(request, e, { identity, url, head: async () => ({}), transport: transport ?? provider().fetch, now: () => clock }); }
+  try { return await handleEmailAdmin(request, e, { identity, url, head: async () => project, transport: transport ?? provider().fetch, now: () => clock }); }
   catch (error) { return errorResponse(error, 'mail'); }
 };
 const post = (path, body, headers = {}) => new Request(origin + path, { method: 'POST', headers: { Origin: origin, 'X-CMS-Request': '1', 'Content-Type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
@@ -502,4 +502,10 @@ test('a send renders the draft settings it was given', async () => {
   assert.equal((await run(post('/admin/api/mail/send', compose({ email: bad })), env(), refused.fetch)).status, 422);
   assert.equal(refused.calls.length, 0);
   assert.equal(await sentCount(), 1);
+  // A draft without settings is DEFAULT_EMAIL, as the studio previews it, even when the head has its own.
+  const published = structuredClone(DEFAULT_EMAIL);
+  published.sender = { name: 'Publicerad', local: 'publicerad' };
+  const fallback = provider();
+  assert.equal((await run(post('/admin/api/mail/send', compose({ email: null })), env(), fallback.fetch, { email: published })).status, 200);
+  assert.equal(fallback.calls[0].body.from, 'Omar Yusuf <hej@hej.omaryusuf.se>');
 });
