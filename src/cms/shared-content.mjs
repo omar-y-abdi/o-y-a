@@ -63,7 +63,7 @@ export function refreshDevelopersPage(page,template){
   const {facts,...rest}=page;
   return {...rest,html:serialize(tree),footerVersion:FOOTER_VERSION};
 }
-function refreshDevelopers(input,seed){
+export function refreshDevelopers(input,seed){
   if(!input||!Array.isArray(input.pages)||!seed.footerPage)return input;
   const pages=input.pages.map(page=>refreshDevelopersPage(page,seed.footerPage));
   return pages.every((page,index)=>page===input.pages[index])?input:{...input,pages};

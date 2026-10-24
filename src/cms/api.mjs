@@ -3,7 +3,7 @@ import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetState
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject } from './project.mjs';
 import { migrateKeys } from './validation.mjs';
-import { normalizeStoredProject } from './shared-content.mjs';
+import { normalizeStoredProject, refreshDevelopers } from './shared-content.mjs';
 import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
@@ -14,6 +14,9 @@ const resourceIds = project => [...resourceReferences(project).keys()].filter(sr
 
 export async function handleAdmin(request, env, { seed, initial, built }) {
   const storedProject = project => normalizeStoredProject(project, seed, initial);
+  // Old tabs and drafts: refresh a stale /developers/ (A1a fingerprint on raw
+  // bytes) before positional keys are mapped through the stored base revision.
+  const fromClient = (project, base) => migrateKeys(refreshDevelopers(project, seed), base);
   try {
     const identity = await authenticateAdmin(request, env);
     const url = new URL(request.url);
@@ -114,7 +117,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const body = await readJson(request, 16 * 1024 * 1024);
       // Old drafts carry positional keys: map them via their stored base revision.
       const stored = Number.isSafeInteger(body.baseVersion) && body.baseVersion > 0 ? await readSite(env.CMS_DB, body.baseVersion) : null;
-      const project = validateProject(migrateKeys(body.project, stored?.project), seed, null, { origins: [url.origin], publication: false });
+      const project = validateProject(fromClient(body.project, stored?.project), seed, null, { origins: [url.origin], publication: false });
       const warnings = [];
       try { publicationChunks(validateProject(structuredClone(project), seed, null, { origins: [url.origin] })); }
       catch (error) { if (![422, 413].includes(error.status)) throw error; warnings.push(error.message); }
@@ -130,7 +133,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         if ((!legacy && !delta) || Object.keys(pending).some(key => !allowed.has(key)) || delta && body.baseVersion !== undefined && pending.baseVersion !== body.baseVersion) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
         if (legacy) {
           const pendingBase = pending.baseVersion > 0 ? await readSite(env.CMS_DB, pending.baseVersion) : null;
-          validateProject(migrateKeys(structuredClone(pending.project), pendingBase?.project), seed, null, { origins: [url.origin], publication: false });
+          validateProject(fromClient(structuredClone(pending.project), pendingBase?.project), seed, null, { origins: [url.origin], publication: false });
           pendingSave = { project: pending.project, baseVersion: pending.baseVersion, requestId: pending.requestId };
         } else {
           if (pending.baseVersion === 0) throw new HttpError(422, 'Första reservutkastet kräver hela webbplatsen.');
@@ -143,7 +146,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
           let candidate;
           try { candidate = applyProjectChanges(base, changes); }
           catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
-          validateProject(migrateKeys(candidate, saved.project), seed, base, { origins: [url.origin], publication: false });
+          validateProject(fromClient(candidate, saved.project), seed, base, { origins: [url.origin], publication: false });
           pendingSave = pending;
         }
       }
@@ -202,7 +205,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         try { candidate = applyProjectChanges(baseline, changes); }
         catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
         // After the replay check, so a replayed pendingSave keeps its payload hash.
-        const project = validateProject(migrateKeys(candidate, stored?.project), seed, baseline, { origins: [url.origin] });
+        const project = validateProject(fromClient(candidate, stored?.project), seed, baseline, { origins: [url.origin] });
         const references = resourceReferences(project);
         await validateReferencedMedia(env, project, references);
         return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references }));
@@ -212,7 +215,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       // A replayed full save finds its revision in publishSite, after validation:
       // map its positional keys through the revision it was based on.
       const base = (stored?.version ?? 0) === body.baseVersion ? stored : await readSite(env.CMS_DB, body.baseVersion);
-      const project = validateProject(migrateKeys(body.project, base?.project), seed, baseline, { origins: [url.origin] });
+      const project = validateProject(fromClient(body.project, base?.project), seed, baseline, { origins: [url.origin] });
       const references = resourceReferences(project);
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));

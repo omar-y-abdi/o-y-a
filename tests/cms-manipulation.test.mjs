@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseFragment, serialize } from 'parse5';
 import { initial, seed } from '../.generated/cms-seed.mjs';
-import { normalizeStoredProject } from '../src/cms/shared-content.mjs';
+import { normalizeStoredProject, refreshDevelopers } from '../src/cms/shared-content.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { migrateKeys, validateCss } from '../src/cms/validation.mjs';
 import { projectChanges, validateProjectChanges, applyProjectChanges } from '../src/cms/project-changes.mjs';
@@ -89,19 +89,20 @@ for (const [label, [path, change, expected]] of Object.entries(CASES)) {
 
 // An old tab or browser draft holds raw v185 HTML: positional keys only.
 const oldDraft = () => { const draft = structuredClone(v185); draft.pages[0].description = 'Ändrad i en gammal flik.'; return draft; };
+// The server path for client projects (api.mjs fromClient): A1a refresh, then key migration.
+const fromClient = project => migrateKeys(refreshDevelopers(project, seed), v185);
 const oldR1 = () => edit(oldDraft(), '/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); });
 
 test('A1b transition: an old tab saves through its base revision, and R1 still fails', () => {
-  assert.doesNotThrow(() => validateProject(migrateKeys(oldDraft(), v185), seed, base, opts));
-  assert.throws(() => validateProject(migrateKeys(oldR1(), v185), seed, base, opts), ATTRIBUTE);
+  assert.doesNotThrow(() => validateProject(fromClient(oldDraft()), seed, base, opts));
+  assert.throws(() => validateProject(fromClient(oldR1()), seed, base, opts), ATTRIBUTE);
   assert.throws(() => validateProject(oldDraft(), seed, base, opts), { status: 422 }, 'Without migration positional keys do not match');
 });
 
 test('A1b transition: an old draft recovers through its base revision, and R1 still fails', () => {
-  const recovered = validateProject(migrateKeys(oldDraft(), v185), seed, null, { ...opts, publication: false });
-  assert.throws(() => validateProject(migrateKeys(oldR1(), v185), seed, null, { ...opts, publication: false }), ATTRIBUTE);
-  // /developers/ is read from the current template (A1a), so the old draft's stale copy differs too.
-  const changed = projectChanges(base, recovered).pages.upsert.map(page => page.id).filter(id => id !== 'developers');
+  const recovered = validateProject(fromClient(oldDraft()), seed, null, { ...opts, publication: false });
+  assert.throws(() => validateProject(fromClient(oldR1()), seed, null, { ...opts, publication: false }), ATTRIBUTE);
+  const changed = projectChanges(base, recovered).pages.upsert.map(page => page.id);
   assert.deepEqual(changed, ['home']);
 });
 
@@ -156,6 +157,10 @@ test('A1b transition over the API: old Save, replay, delta and recover', async (
   const replayed = await replay.json();
   assert.equal(replayed.replayed, true);
   assert.equal(replayed.version, (await saved.json()).version);
+  // A1a: the old tab's stale /developers/ is replaced by the current template, not stored.
+  const keysAside = html => html.replace(/ data-cms-node="[^"]*"/g, '');
+  const storedDevelopers = (await readSite(runtime.db)).project.pages.find(page => page.id === 'developers');
+  assert.equal(keysAside(storedDevelopers.html), keysAside(seed.footerPage.html));
   // Recovery maps through the base revision the client names.
   const recovered = await admin('recover', { project: oldDraft(), pendingSave: null, baseVersion: version });
   assert.equal(recovered.status, 200, await recovered.clone().text());
