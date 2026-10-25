@@ -10,7 +10,6 @@ import { pageInspector, componentInspector, componentColorInspector, themeInspec
 import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign } from './library.mjs';
 import { renderThemeCss as themeCss, assetFontCss } from '../theme-core.mjs';
 import { applyWinAction, exportWinPackage, filterWins, planWinImport, WIN_BATCH_ACTIONS } from './win-bulk.mjs';
-import { applySharedContentClient, synchronizeSharedPageClient } from './shared-project.mjs';
 import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorView, restoreInspectorScroll } from './view-state.mjs';
 import { materializeManagedSvg } from './managed-svg-source.mjs';
 import { saveManagedSvgOperation } from './managed-svg-save.mjs';
@@ -21,7 +20,7 @@ const email = () => import('./email.mjs');
 // Same pattern as EMAIL_PATH in email.mjs, so a path can be tested without loading the chunk.
 const EMAIL_FIELD = /^(templates|sender|shell)\./;
 
-let draft, identity, definitions, blank, assets = [], built;
+let draft, identity, definitions, blank, assets = [], built, frameContracts = [];
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
 let library = 'pages', device = matchMedia('(max-width:760px)').matches ? 'mobile' : 'desktop', zoom = 100, locked = false, saving = false, themeMode = false;
 let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSelection = new Set(), history, reviewVersion = null, replacement = null, mediaState = 'active';
@@ -79,19 +78,16 @@ async function confirmManagedSvgNavigation() {
   return true;
 }
 
-const reapplyShared = project => Object.entries(project.sharedContent ?? {}).reduce((next, [key, value]) => applySharedContentClient(next, key, value), project);
 function change(project, group = '') { draft.change(project, group); status(); remember(); }
 function updatePage(id, values, group = `page-${id}`) {
+  const { frame, ...pageValues } = values;
   const previous = draft.project.pages.find(item => item.id === id);
   if (!previous) return;
-  const next = { ...previous, ...values };
-  if (JSON.stringify(previous) === JSON.stringify(next)) return;
-  let project = { ...draft.project, pages: draft.project.pages.map(item => item.id === id ? next : item) };
-  if (values.html !== undefined) {
-    const synchronized = synchronizeSharedPageClient(project, id, next);
-    if (JSON.stringify(synchronized.sharedContent) !== JSON.stringify(project.sharedContent)) group = 'shared-content';
-    project = synchronized;
-  }
+  const next = { ...previous, ...pageValues };
+  const frameChanged = frame && JSON.stringify(frame) !== JSON.stringify(draft.project.frame);
+  if (JSON.stringify(previous) === JSON.stringify(next) && !frameChanged) return;
+  const project = { ...draft.project, pages: draft.project.pages.map(item => item.id === id ? next : item), ...(frameChanged ? { frame } : {}) };
+  if (frameChanged) group = 'frame';
   change(project, group);
   if (values.name) renderSidebar();
 }
@@ -109,7 +105,7 @@ function renderSidebar() {
 function clearEditor() {
   previewSequence++;
   selected = null;
-  if (active) { const previous = active; active = null; previous.destroy(); }
+  if (active) { active.destroy(); active = null; }
   $('#styles-panel').replaceChildren();
   $('#traits-panel').replaceChildren();
   $('#layers-panel').replaceChildren();
@@ -210,10 +206,10 @@ function openPage(id, hash = '') {
   setInspectorTab(); renderSidebar();
   document.body.classList.remove('show-pages');
   const definition = definitions.find(entry => entry.id === item.id || entry.id === item.sourceId) ?? blank;
-  active = createEditor({ page: item, cssPath: built.styles[item.template] ?? built.styles.home, assets,
+  active = createEditor({ page: item, frame: draft.project.frame, cssPath: built.styles[item.template] ?? built.styles.home, assets, onError: showError,
     onChange: values => updatePage(item.id, values), onBoundary: () => draft.boundary(), onSelect: inspect, onAssetPick: pickImage,
     onReady: editor => {
-      for (const contract of definition?.contracts ?? []) {
+      for (const contract of [...frameContracts, ...(definition?.contracts ?? [])]) {
         const component = editor.getWrapper().find(`[data-cms-node="${contract.key}"]`)[0];
         for (let node = component; node; node = node.parent()) protectComponent(node);
         // Consent labels are part of their contract (owner decision 2026-10-24).
@@ -522,7 +518,7 @@ async function reconcile() {
   if (result.conflicts.length && !await confirmAction({ title: 'Välj dina ändringar vid konflikt?', message: `Båda flikarna har ändrat samma innehåll: ${result.conflicts.join(', ')}. Dina versioner av dessa delar behålls. Övriga ändringar sammanförs. Granska utkastet före Save.`, action: 'Behåll mina vid konflikt' })) return;
   if (saving) { toast(saveInProgress, true); return; }
   if (!unchangedSince(snapshot, version, owner)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); change(reapplyShared(result.project)); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
+  clearEditor(); draft = new Draft(state.project, state.version); change(result.project); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
   toast('Utkasten är sammanförda. Granska ändringarna och välj Save.');
 }
 
@@ -564,7 +560,7 @@ function newPage(source) {
     const content = source ?? blank;
     const created = { ...content, id, path, sourceId: content.sourceId ?? content.id, name, title: `${name} | Omar Yusuf`, description: `Tankar, idéer och nyfikenhet från Omar Yusuf. ${name}.`, noindex: false };
     delete created.contracts;
-    change(reapplyShared({ ...draft.project, pages: [...draft.project.pages, created] })); $('#studio-dialog').close(); openPage(id);
+    change({ ...draft.project, pages: [...draft.project.pages, created] }); $('#studio-dialog').close(); openPage(id);
   });
 }
 
@@ -767,22 +763,22 @@ new ResizeObserver(() => { if (active && !locked && device !== 'compare') fit();
 
 async function boot() {
   const state = await api('state');
-  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; mediaTotal = state.mediaTotal; built = state.built;
+  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; frameContracts = state.frameContracts ?? []; blank = state.blank; assets = state.assets; mediaTotal = state.mediaTotal; built = state.built;
   backups = new Backups(identity.email, {
     snapshot: backupSnapshot,
     flush: () => active?.flush(),
-    install: async ({ project, pendingSave, base, version, managedSvg }) => {
+    install: async ({ project, pendingSave, pendingProject, base, version, managedSvg }) => {
       if (saving) throw new Error(saveInProgress);
-      clearEditor(); svgDraft = null; draft = new Draft(base, version); draft.change(project); draft.restorePending(pendingSave);
+      clearEditor(); svgDraft = null; draft = new Draft(base, version); draft.change(project); draft.restorePending(pendingSave, pendingProject);
       if (managedSvg) await openSvgAsset(managedSvg.id, managedSvg); else openPage(lastPage);
       status();
     },
   });
   await backups.start();
   const legacy = legacyEditorDraft(state.project);
-  if (legacy) {
-    const original = { project: state.project, version: state.version, pendingSave: null };
-    draft.change(legacy);
+  if (legacy || state.legacyProject) {
+    const original = { project: state.legacyProject ?? state.project, version: state.version, pendingSave: null };
+    if (legacy) draft.change(legacy);
     $('#legacy-editor-note').hidden = false;
     $('#export-legacy-editor').onclick = () => backups.export(original);
   }

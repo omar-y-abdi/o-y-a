@@ -2,9 +2,7 @@ import { authenticateAdmin } from './auth.mjs';
 import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, completeManagedSvg, finalizeManagedSvg, managedSvgOperation, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, prepareManagedSvg, stageManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateManagedSvg, validatePackageResources, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject, validateProjectWithReferences } from './project.mjs';
-import { migrateKeys } from './validation.mjs';
-import { normalizeStoredProject, refreshDevelopers } from './shared-content.mjs';
-import LEGACY_KEYS from './legacy-keys.json' with { type: 'json' };
+import { normalizeStoredProject, normalizeClientProject, legacyClientProject, toLegacyProject } from './frame-converter.mjs';
 import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
@@ -13,10 +11,19 @@ import { SKIFT_PATH } from '../content/skift.mjs';
 import { handleEmailAdmin } from './email-api.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
+const legacyEditorSource = project => project && (project.pages?.some(page => page.project != null) || project.cards?.some(card => card.design?.project != null)) ? project : undefined;
+const legacyDelta = changes => Object.hasOwn(changes, 'sharedContent') || changes.pages?.upsert.some(page => typeof page.html === 'string' && !page.html.trimStart().startsWith('<main'));
+function deltaBase(stored, normalized, changes, seed) {
+  if (!legacyDelta(changes)) return normalized;
+  if (changes.frame) throw new HttpError(422, 'Sparningen blandar två format för sidramen. Läs in utkastet på nytt.');
+  if (stored.schemaVersion === 1) return stored;
+  const { frameVersion: _rollback, ...legacy } = toLegacyProject(normalized, seed);
+  return legacy;
+}
 // The one ingress for every project a client sends. Old tabs and drafts: A1a
 // refreshes a stale /developers/ first (fingerprint on raw bytes), then their
 // positional keys go through the frozen e5592bc map. Stored data uses rekeyHtml.
-export const normalizeClientProject = (project, seed) => migrateKeys(refreshDevelopers(project, seed), LEGACY_KEYS);
+export { normalizeClientProject } from './frame-converter.mjs';
 
 export async function handleAdmin(request, env, { seed, initial, built }) {
   const storedProject = project => normalizeStoredProject(project, seed, initial);
@@ -39,7 +46,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const selected = await assetSelection(env.CMS_DB, resourceIds(project), { fonts: true });
         const assets = [...new Map([...media.items, ...selected].map(asset => [asset.id, asset])).values()];
         const builtins = mergeBuiltinAssetStates(seed.assets, builtinStates);
-        return json({ version: state?.version ?? 0, project, identity, definitions: seed.pages, blank: seed.blank, built, assets: resourceCatalog({ ...seed, assets: builtins }, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' });
+        return json({ version: state?.version ?? 0, project, legacyProject: legacyEditorSource(state?.project), identity, definitions: seed.pages, frameContracts: seed.frame?.contracts ?? [], blank: seed.blank, built, assets: resourceCatalog({ ...seed, assets: builtins }, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' });
       }
       if (url.pathname === '/admin/api/history') {
         const cursor = Number(url.searchParams.get('before') ?? Number.MAX_SAFE_INTEGER);
@@ -51,7 +58,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         if (revision[1] === '0') return json({ version: 0, createdAt: null, project: initial });
         const state = await readSite(env.CMS_DB, Number(revision[1]));
         if (!state) throw new HttpError(404, 'Versionen finns inte.');
-        return json({ ...state, project: storedProject(state.project) });
+        return json({ ...state, project: storedProject(state.project), legacyProject: legacyEditorSource(state.project) });
       }
       if (url.pathname === '/admin/api/assets') {
         const state = url.searchParams.get('state');
@@ -72,6 +79,21 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       return json(await uploadAsset(env, { id: request.headers.get('X-CMS-Upload-Id') ?? '', name, alt, bytes: await readBytes(request, MAX_ASSET_BYTES) }), 201);
     }
     requireWriteRequest(request);
+    if (url.pathname === '/admin/api/migrate-frame') {
+      const body = await readJson(request, 4096);
+      if (!body || Object.keys(body).some(key => !['expectedVersion', 'expectedHash', 'projectHash', 'reverse', 'requestId'].includes(key)) || !Number.isSafeInteger(body.expectedVersion) || body.expectedVersion < 1 || typeof body.reverse !== 'boolean' || !/^[0-9a-f]{64}$/.test(body.expectedHash) || !/^[0-9a-f]{64}$/.test(body.projectHash) || !/^[0-9a-f-]{36}$/.test(body.requestId)) throw new HttpError(422, 'Migreringen saknar en giltig version, kontrollsumma eller identitet.');
+      const payloadHash = await digest(JSON.stringify({ expectedVersion: body.expectedVersion, expectedHash: body.expectedHash, projectHash: body.projectHash, reverse: body.reverse }));
+      const replay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
+      if (replay) return json(replay);
+      const stored = await readSite(env.CMS_DB);
+      if (!stored || stored.version !== body.expectedVersion || await digest(JSON.stringify(stored.project)) !== body.expectedHash) throw new HttpError(409, 'Huvudrevisionen ändrades. Migreringen skrev ingenting.');
+      if (stored.project.schemaVersion === (body.reverse ? 1 : 2)) throw new HttpError(409, 'Huvudrevisionen har redan det valda formatet.');
+      const candidate = body.reverse ? toLegacyProject(stored.project, seed) : storedProject(stored.project);
+      const { project, references } = validateProjectWithReferences(candidate, seed, undefined, { origins: [url.origin] });
+      if (await digest(JSON.stringify(project)) !== body.projectHash) throw new HttpError(409, 'Konverteraren skiljer sig från den repeterade versionen. Migreringen skrev ingenting.');
+      await validateReferencedMedia(env, project, references);
+      return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash }));
+    }
     if (url.pathname === '/admin/api/managed-svg') {
       const body = await readJson(request, 16 * 1024 * 1024);
       const source = seed.assets.find(asset => asset.id === body.id);
@@ -133,6 +155,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       // Recovery may replay an unresolved save only after the same security
       // validation. Keep its original payload, not a newly normalized attempt.
       let pendingSave = null;
+      let pendingProject = null;
       if (body.pendingSave) {
         const pending = body.pendingSave;
         if (!Number.isSafeInteger(pending.baseVersion) || pending.baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(pending.requestId)) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
@@ -141,7 +164,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const allowed = new Set(['baseVersion', 'requestId', legacy ? 'project' : 'changes']);
         if ((!legacy && !delta) || Object.keys(pending).some(key => !allowed.has(key)) || delta && body.baseVersion !== undefined && pending.baseVersion !== body.baseVersion) throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.');
         if (legacy) {
-          validateProject(fromClient(structuredClone(pending.project)), seed, baseline, { origins: [url.origin], publication: false });
+          pendingProject = validateProject(fromClient(structuredClone(pending.project)), seed, baseline, { origins: [url.origin], publication: false });
           pendingSave = { project: pending.project, baseVersion: pending.baseVersion, requestId: pending.requestId };
         } else {
           if (pending.baseVersion === 0) throw new HttpError(422, 'Första reservutkastet kräver hela webbplatsen.');
@@ -152,13 +175,13 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
           if (!saved) throw new HttpError(422, 'Reservutkastets ursprungsversion saknas.');
           const base = storedProject(saved.project);
           let candidate;
-          try { candidate = applyProjectChanges(base, changes); }
+          try { candidate = applyProjectChanges(deltaBase(saved.project, base, changes, seed), changes); }
           catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
-          validateProject(fromClient(candidate), seed, base, { origins: [url.origin], publication: false });
+          pendingProject = validateProject(fromClient(candidate), seed, base, { origins: [url.origin], publication: false });
           pendingSave = pending;
         }
       }
-      return json({ project, pendingSave, warnings });
+      return json({ project, pendingSave, pendingProject, warnings });
     }
     if (url.pathname === '/admin/api/validate' || url.pathname === '/admin/api/preview') {
       const body = await readJson(request, 8 * 1024 * 1024);
@@ -210,7 +233,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         }
         const baseline = stored ? storedProject(stored.project) : initial;
         let candidate;
-        try { candidate = applyProjectChanges(baseline, changes); }
+        try { candidate = applyProjectChanges(deltaBase(stored.project, baseline, changes, seed), changes); }
         catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
         // After the replay check, so a replayed pendingSave keeps its payload hash.
         const { project, references } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
@@ -219,9 +242,18 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       }
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      const { project, references } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
+      let source = body.project, payloadHash;
+      if (source?.schemaVersion === 1) {
+        // A pending full Save keeps its schema-1 canonical hash across the
+        // format change, including attempts committed by the preceding Worker.
+        source = validateProject(legacyClientProject(source, seed), seed, baseline, { origins: [url.origin] });
+        payloadHash = await digest(JSON.stringify(source));
+        const replay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
+        if (replay) return json(replay);
+      }
+      const { project, references } = validateProjectWithReferences(fromClient(source), seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project, references);
-      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));
+      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash }));
     }
     const asset = url.pathname.match(/^\/admin\/api\/assets\/([0-9a-f-]{36})$/);
     if (asset) return json(await updateAsset(env.CMS_DB, asset[1], await readJson(request, 4096)));

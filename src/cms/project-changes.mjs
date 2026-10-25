@@ -3,15 +3,19 @@ const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const validId = (id, kind) => typeof id === 'string' && (kind === 'page' ? /^[a-zA-Z0-9-]{1,80}$/ : /^[a-z0-9-]{1,80}$/).test(id);
 
 const fields = {
-  page: new Set(['id', 'path', 'sourceId', 'name', 'title', 'description', 'html', 'css', 'project', 'template', 'bodyClass', 'noindex', 'footerVersion']),
+  page: new Set(['id', 'path', 'sourceId', 'name', 'title', 'description', 'html', 'css', 'project', 'template', 'bodyClass', 'noindex', 'footerVersion', 'frameKeys']),
   card: new Set(['id', 'flavor', 'text', 'state', 'design']),
   design: new Set(['html', 'css', 'project']),
 };
 const hasOnly = (value, allowed) => Object.keys(value).every(key => allowed.has(key));
 
 export function validateProjectChanges(changes) {
-  if (!isRecord(changes) || !Object.keys(changes).length || !hasOnly(changes, new Set(['pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent', 'email']))) throw new TypeError('Invalid changes envelope.');
+  if (!isRecord(changes) || !Object.keys(changes).length || !hasOnly(changes, new Set(['pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent', 'email', 'frame']))) throw new TypeError('Invalid changes envelope.');
   const normalized = {};
+  if (Object.hasOwn(changes, 'frame')) {
+    if (!isRecord(changes.frame) || !hasOnly(changes.frame, new Set(['html', 'css'])) || typeof changes.frame.html !== 'string' || typeof changes.frame.css !== 'string') throw new TypeError('Invalid frame replacement.');
+    normalized.frame = changes.frame;
+  }
   for (const kind of ['pages', 'cards']) {
     if (!Object.hasOwn(changes, kind)) continue;
     const group = changes[kind], entity = kind === 'pages' ? 'page' : 'card';
@@ -70,7 +74,8 @@ export function applyProjectChanges(base, changes) {
   const project = structuredClone(base);
   project.pages = updateCollection(project.pages, changes.pages, 'pages');
   project.cards = updateCollection(project.cards, changes.cards, 'cards');
-  for (const key of ['runtime', 'theme', 'resources', 'sharedContent']) if (Object.hasOwn(changes, key)) project[key] = structuredClone(changes[key]);
+  for (const key of ['runtime', 'theme', 'resources', 'sharedContent', 'frame']) if (Object.hasOwn(changes, key)) project[key] = structuredClone(changes[key]);
+  if (Object.hasOwn(changes, 'frame')) delete project.frameConflicts;
   if (changes.email === null) delete project.email;
   else if (Object.hasOwn(changes, 'email')) project.email = structuredClone(changes.email);
   return project;
@@ -105,7 +110,8 @@ function collectionChanges(before, after, kind) {
 export function projectChanges(before, after) {
   const changes = {};
   if (before?.schemaVersion !== after?.schemaVersion) throw new TypeError('The project version cannot be changed.');
-  const supported = new Set(['schemaVersion', 'pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent', 'sharedContentConflicts', 'email']);
+  if (before?.frameVersion !== after?.frameVersion) throw new TypeError('The frame migration marker cannot be changed.');
+  const supported = new Set(['schemaVersion', 'pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent', 'sharedContentConflicts', 'email', 'frame', 'frameConflicts', 'frameVersion']);
   for (const key of new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])) {
     if (!supported.has(key) && !equal(before?.[key], after?.[key])) throw new TypeError(`Unsupported project change: ${key}.`);
   }
@@ -113,8 +119,9 @@ export function projectChanges(before, after) {
     const group = collectionChanges(before?.[key], after?.[key], key);
     if (group) changes[key] = group;
   }
-  for (const key of ['runtime', 'theme', 'resources', 'sharedContent', 'email']) {
+  for (const key of ['runtime', 'theme', 'resources', 'sharedContent', 'email', 'frame']) {
     if (Object.hasOwn(before ?? {}, key) !== Object.hasOwn(after ?? {}, key) || !equal(before?.[key], after?.[key])) changes[key] = structuredClone(after?.[key] ?? null);
   }
+  if (before?.frameConflicts?.length && !after?.frameConflicts?.length) changes.frame = structuredClone(after.frame);
   return changes;
 }

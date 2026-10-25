@@ -6,7 +6,7 @@ import { validateCss, validateHtml } from '../src/cms/validation.mjs';
 // The studio's own createEditor runs in a bare page, so the tests reach the
 // GrapesJS editor (window.__ed) and the studio handle (window.__studio) without
 // product code exposing them. Same file runs in chromium, firefox and webkit.
-const ORIGIN = 'http://studio.test';
+const ORIGIN = 'https://studio.test';
 const CANVAS_CSS = 'p{margin:0;height:40px}svg,img{display:block}';
 // GrapesJS writes an inline height:100% on #editor, overriding the px height
 // here. Without a height on html and body that resolves to 0: the canvas iframe
@@ -18,7 +18,7 @@ const SHELL = `<!doctype html><link rel="stylesheet" href="/grapes.css"><link re
 const PIC = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#369"/></svg>';
 let harness, gjsCss, studioCss;
 test.beforeAll(async () => {
-  const out = await build({ stdin: { contents: "import { createEditor } from './src/cms/client/editor.mjs'; window.createEditor = createEditor;", resolveDir: process.cwd() }, bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022' });
+  const out = await build({ stdin: { contents: "import { createEditor } from './src/cms/client/editor.mjs'; import { Draft } from './src/cms/client/draft.mjs'; window.createEditor = createEditor; window.Draft = Draft;", resolveDir: process.cwd() }, bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022' });
   harness = out.outputFiles[0].text;
   gjsCss = await readFile('node_modules/grapesjs/dist/css/grapes.min.css', 'utf8');
   studioCss = await readFile('src/cms/styles.css', 'utf8');
@@ -32,6 +32,7 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
     return route.fulfill({ status: body === 'missing' ? 404 : 200, contentType: type, body });
   });
   await page.goto(`${ORIGIN}/`);
+  expect(await page.evaluate(() => ({ secure: isSecureContext, uuid: typeof crypto.randomUUID })), 'The harness uses the production studio secure context').toEqual({ secure: true, uuid: 'function' });
   await page.evaluate(([html, css, bodyClass]) => new Promise(resolve => {
     window.__studio = window.createEditor({ page: { html, css, path: '/t/', bodyClass }, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onAssetPick: null,
       onReady: editor => {
@@ -129,6 +130,28 @@ for (const [label, css] of Object.entries(STARTS)) for (const device of ['Dator'
     // One drag is one undo step: undo restores the rules after the shrink drag.
     await page.evaluate(() => { window.__ed.UndoManager.undo(); });
     expect(await boxRules(page), 'one undo reverts the enlarge drag').toEqual(shrunk);
+  });
+}
+
+for (const boxSizing of ['content-box', 'border-box']) for (const device of ['Dator', 'Mobil']) {
+  test(`A2 resize on ${device} with ${boxSizing}, padding and border follows the rendered box`, async ({ page }) => {
+    await openStudio(page, { html: `<main>${BOX}</main>`, css: `#box{box-sizing:${boxSizing};width:240px;height:180px;padding:12px 18px;border:3px solid #369}` });
+    await setDevice(page, device);
+    await select(page, '#box');
+    const before = await boxSize(page), rulesBefore = await boxRules(page), key = RULE[device];
+    expect(await dragCorner(page, 30, 100), lastDrag).toBe(1);
+    const after = await boxSize(page), rules = await boxRules(page);
+    expect(Math.abs(after.width - before.width - 30)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.height - before.height - 100)).toBeLessThanOrEqual(1);
+    expect(rules[key].height).toBe('auto');
+    expect(px(rules[key]['min-height'])).toBeCloseTo(280, 0);
+    const saved = await page.evaluate(() => window.__ed.getCss());
+    expect(() => validateCss(saved)).not.toThrow();
+    await page.evaluate(() => window.__ed.UndoManager.skip(() => window.__ed.getWrapper().find('main')[0].addStyle({ width: '200px' })));
+    expect((await boxSize(page)).width).toBeCloseTo(200, 0);
+    await page.evaluate(() => { window.__ed.UndoManager.undo(); });
+    expect(await boxRules(page)).toEqual(rulesBefore);
+    expect(await boxSize(page)).toEqual(before);
   });
 }
 
@@ -281,4 +304,229 @@ test('Backspace and Delete remove a fully selected text block', async ({ page })
     await page.keyboard.press('ControlOrMeta+z');
     await expect.poll(() => canvas.locator('#t').evaluate(el => el.textContent.trim()), { message: `text after undo of ${key}` }).toBe('Hela texten');
   }
+});
+
+
+for (const framed of [false, true]) test(`B8: untouched ${framed ? 'framed' : 'legacy'} page switches leave Draft, undo and Save unchanged`, async ({ page }) => {
+  await openStudio(page, { html: '<main id="main"><h1>Start</h1></main>' });
+  const result = await page.evaluate(async framed => {
+    window.__studio.destroy();
+    const pages = ['a', 'b'].map(id => ({ id, path: `/${id}/`, bodyClass: 'page-test', html: `<main tabindex='-1' id='main'>\n  <h1 title='Rubrik' id='title'>${id.toUpperCase()}</h1>\n</main>`, css: '', project: null }));
+    const project = { schemaVersion: framed ? 2 : 1, pages, cards: [], ...(framed ? { frame: { html: '<header id="header">Sidram</header><main></main><footer id="footer">Avslutning</footer>', css: '' } } : {}) };
+    const draft = new window.Draft(project, 185);
+    let notifications = 0;
+    const open = id => new Promise(resolve => {
+      const item = draft.project.pages.find(page => page.id === id);
+      window.__studio = window.createEditor({ page: item, frame: draft.project.frame, cssPath: '/canvas.css', assets: [], onSelect() {},
+        onChange(values) {
+          notifications++;
+          const { frame, ...content } = values, previous = draft.project.pages.find(page => page.id === id), next = { ...previous, ...content };
+          const frameChanged = frame && JSON.stringify(frame) !== JSON.stringify(draft.project.frame);
+          if (JSON.stringify(previous) === JSON.stringify(next) && !frameChanged) return;
+          draft.change({ ...draft.project, pages: draft.project.pages.map(page => page.id === id ? next : page), ...(frameChanged ? { frame } : {}) }, frameChanged ? 'frame' : `page-${id}`);
+        }, onReady(editor) { window.__ed = editor; resolve(); },
+      });
+    });
+    await open('a');
+    const normalized = window.__studio.snapshot(true).html !== pages[0].html;
+    for (const id of ['b', 'a']) { window.__studio.destroy(); await open(id); }
+    window.__studio.destroy();
+    return { notifications, normalized, dirty: draft.dirty, generation: draft.generation, undo: draft.undoStack.length, redo: draft.redoStack.length, unchanged: draft.project === project, save: draft.beginSave() };
+  }, framed);
+  if (!framed) expect(result.normalized, 'The stored single-quoted HTML deliberately differs from GrapesJS serialization').toBe(true);
+  expect(result.notifications).toBe(0);
+  expect(result.dirty).toBe(false);
+  expect(result.generation).toBe(0);
+  expect(result.undo).toBe(0);
+  expect(result.redo).toBe(0);
+  expect(result.unchanged).toBe(true);
+  expect(result.save).toBeNull();
+});
+
+for (const consumer of ['svg', 'win']) test(`B8: leaving an untouched ${consumer} editor emits no change and stays clean`, async ({ page }) => {
+  await openStudio(page, { html: '<main id="main"><h1>Start</h1></main>' });
+  const result = await page.evaluate(async consumer => {
+    window.__studio.destroy();
+    const html = consumer === 'svg' ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path id="shape" fill="#123456" d="M0 0h100v100H0z"/></svg>' : "<div id='card'><p data-card-text>En liten vinst.</p></div>";
+    const design = { html, css: '', project: null }, svgDraft = { ...design, dirty: false };
+    const draft = new window.Draft({ schemaVersion: 2, pages: [], cards: [{ id: 'win', text: 'En liten vinst.', design }] }, 185);
+    let notifications = 0;
+    await new Promise(resolve => {
+      window.__studio = window.createEditor({ page: { ...design, path: consumer === 'svg' ? '/media/source.svg' : '/verkstad/', bodyClass: consumer === 'svg' ? 'cms-svg-editor' : 'page-win' }, cssPath: '/canvas.css', assets: [], onSelect() {},
+        onChange(values) {
+          notifications++;
+          if (consumer === 'svg') { svgDraft.html = values.html; svgDraft.css = values.css; svgDraft.dirty = true; }
+          else {
+            const document = new DOMParser().parseFromString(values.html, 'text/html');
+            document.querySelectorAll('[data-card-text] br').forEach(br => br.replaceWith('\n'));
+            const text = document.querySelector('[data-card-text]')?.textContent ?? draft.project.cards[0].text;
+            draft.change({ ...draft.project, cards: [{ ...draft.project.cards[0], text, design: values }] }, 'win-win');
+          }
+        }, onReady(editor) {
+          window.__ed = editor;
+          if (consumer === 'svg') { window.__studio.setStyleMode('svg'); editor.select(editor.getWrapper().find('svg')[0]); }
+          else editor.getWrapper().find('[data-card-text]')[0].set({ removable: false, copyable: false });
+          resolve();
+        },
+      });
+    });
+    // Clean SVG navigation retains svgDraft while clearEditor destroys the editor.
+    if (consumer === 'svg') window.__studio.flush();
+    const navigationAllowed = !svgDraft.dirty;
+    window.__studio.destroy();
+    return { notifications, navigationAllowed, svgDirty: svgDraft.dirty, svgUnchanged: svgDraft.html === html && svgDraft.css === '', dirty: draft.dirty, undo: draft.undoStack.length, save: draft.beginSave() };
+  }, consumer);
+  expect(result.notifications).toBe(0);
+  if (consumer === 'svg') {
+    expect(result.navigationAllowed).toBe(true);
+    expect(result.svgDirty).toBe(false);
+    expect(result.svgUnchanged).toBe(true);
+  }
+  expect(result.dirty).toBe(false);
+  expect(result.undo).toBe(0);
+  expect(result.save).toBeNull();
+});
+
+test('B8: a synchronous edit after ready is captured on immediate close before the dirty count advances', async ({ page }) => {
+  await openStudio(page, { html: '<main id="main"><h1>Start</h1></main>' });
+  const result = await page.evaluate(async () => {
+    window.__studio.destroy();
+    const changes = [];
+    await new Promise(resolve => {
+      window.__studio = window.createEditor({ page: { html: '<main id="main"><h1 id="title">Före</h1></main>', css: '', path: '/', bodyClass: '' }, frame: { html: '<header>Sidram</header><main></main><footer>Avslutning</footer>', css: '' }, cssPath: '/canvas.css', assets: [], onSelect() {}, onChange(values) { changes.push(values); },
+        onReady(editor) { window.__ed = editor; resolve(); },
+      });
+    });
+    window.__ed.getWrapper().find('#title')[0].components('Sista ändringen.');
+    const dirty = window.__ed.getDirtyCount();
+    window.__studio.destroy();
+    return { dirty, changes };
+  });
+  expect(result.dirty).toBe(0);
+  expect(result.changes).toHaveLength(1);
+  expect(result.changes[0].html).toContain('Sista ändringen.');
+});
+
+test('B8: native frame edits survive page switch, device styling and Draft undo', async ({ page }) => {
+  await openStudio(page, { html: '<main id="main"><h1>A</h1></main>' });
+  await page.evaluate(async () => {
+    window.__studio.destroy();
+    const flower = id => '<svg id="' + id + '" class="brand-mark"><polygon points="0,0 20,0 10,20" fill="currentColor"></polygon></svg>';
+    const frame = { html: '<header id="fh" data-cms-node="f-n0">' + flower('logo-a') + '</header><main></main><footer id="ff"><p id="closing" data-cms-node="f-n318">Thanks for stopping by.</p><p id="move">Flytta mig</p>' + flower('logo-b') + '</footer>', css: '' };
+    window.__draft = new window.Draft({ schemaVersion: 2, frame, pages: [{ id: 'a', path: '/a/', bodyClass: '', html: '<main id="main"><h1>A</h1></main>', css: '', project: null }, { id: 'b', path: '/b/', bodyClass: '', html: '<main id="main"><h1>B</h1></main>', css: '', project: null }], cards: [] }, 185);
+    window.__openFramePage = id => new Promise(resolve => {
+      const item = window.__draft.project.pages.find(item => item.id === id);
+      window.__studio = window.createEditor({ page: item, frame: window.__draft.project.frame, cssPath: '/canvas.css', assets: [],
+        onChange(values) {
+          const { frame, ...content } = values;
+          window.__draft.change({ ...window.__draft.project, frame, pages: window.__draft.project.pages.map(page => page.id === id ? { ...page, ...content } : page) }, 'frame');
+        },
+        onSelect() {}, onReady(editor) { window.__ed = editor; window.__resizes = []; editor.on('component:resize', ({ type }) => window.__resizes.push(type)); resolve(); },
+      });
+    });
+    await window.__openFramePage('a');
+  });
+  await expect(page.frameLocator('.gjs-frame').locator('#ff')).toHaveCount(1);
+  await page.evaluate(() => {
+    const editor = window.__ed;
+    editor.getWrapper().find('#ff')[0].addStyle({ 'min-height': '300px' });
+    editor.getWrapper().find('#closing')[0].components('En gemensam avslutning.');
+    editor.getWrapper().find('#move')[0].move(editor.getWrapper().find('#ff')[0], { at: 0 });
+    const added = editor.getWrapper().find('#ff')[0].append('<p>Ny ramnod</p>')[0];
+    const copy = added.clone();
+    editor.getWrapper().find('#ff')[0].append(copy);
+    window.__newFrameKeys = [added, copy].map(node => node.getAttributes()['data-cms-node']);
+    editor.getWrapper().find('#logo-a')[0].addStyle({ color: '#123456' });
+    window.__studio.flush(true);
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const doc = window.__ed.Canvas.getDocument();
+    return [...doc.querySelectorAll('.brand-mark')].map(node => getComputedStyle(node).color);
+  })).toEqual(['rgb(18, 52, 86)', 'rgb(18, 52, 86)']);
+  await page.evaluate(async () => { window.__studio.destroy(); await window.__openFramePage('b'); });
+  const canvas = page.frameLocator('.gjs-frame');
+  await expect(canvas.locator('#closing')).toHaveText('En gemensam avslutning.');
+  await expect(canvas.locator('#ff')).toHaveCSS('min-height', '300px');
+  const keys = await page.evaluate(() => ({ created: window.__newFrameKeys, saved: window.__draft.project.frame.html, existing: window.__ed.getWrapper().find('#closing')[0].getAttributes()['data-cms-node'], loaded: window.__ed.getWrapper().find('p').map(node => node.getAttributes()['data-cms-node']) }));
+  expect(keys.existing).toBe('f-n318');
+  expect(new Set(keys.created).size).toBe(2);
+  for (const key of keys.created) {
+    expect(key).toMatch(/^u-[0-9a-f]{32}$/);
+    expect(keys.saved).toContain(`data-cms-node="${key}"`);
+    expect(keys.loaded).toContain(key);
+  }
+  expect(await canvas.locator('#ff').evaluate(node => node.firstElementChild.id)).toBe('move');
+  const delta = await page.evaluate(() => window.__draft.beginSave().changes);
+  expect(Object.keys(delta)).toEqual(['frame']);
+  await page.evaluate(async () => {
+    window.__studio.destroy(); window.__draft.undo(); await window.__openFramePage('b');
+  });
+  await expect(canvas.locator('#closing')).toHaveText('Thanks for stopping by.');
+  for (const key of keys.created) await expect(canvas.locator(`[data-cms-node="${key}"]`)).toHaveCount(0);
+  await page.evaluate(async () => { window.__studio.destroy(); window.__draft.redo(); await window.__openFramePage('b'); });
+  await expect(canvas.locator('#closing')).toHaveText('En gemensam avslutning.');
+  for (const key of keys.created) await expect(canvas.locator(`[data-cms-node="${key}"]`)).toHaveText('Ny ramnod');
+  await page.evaluate(key => {
+    window.__ed.getWrapper().find(`[data-cms-node="${key}"]`)[0].components('Redigerad ramnod');
+    window.__studio.flush(true);
+  }, keys.created[0]);
+  await expect(canvas.locator(`[data-cms-node="${keys.created[0]}"]`)).toHaveText('Redigerad ramnod');
+  expect(await page.evaluate(key => {
+    const template = document.createElement('template');
+    template.innerHTML = window.__draft.project.frame.html;
+    return template.content.querySelector(`[data-cms-node="${key}"]`)?.textContent;
+  }, keys.created[0])).toBe('Redigerad ramnod');
+  await setDevice(page, 'Mobil');
+  await page.evaluate(() => { window.__ed.getWrapper().find('#logo-b')[0].addStyle({ color: '#654321' }); window.__studio.flush(true); });
+  await expect.poll(() => page.evaluate(() => [...window.__ed.Canvas.getDocument().querySelectorAll('.brand-mark')].map(node => getComputedStyle(node).color))).toEqual(['rgb(101, 67, 33)', 'rgb(101, 67, 33)']);
+  await setDevice(page, 'Dator');
+  await expect.poll(() => page.evaluate(() => [...window.__ed.Canvas.getDocument().querySelectorAll('.brand-mark')].map(node => getComputedStyle(node).color))).toEqual(['rgb(18, 52, 86)', 'rgb(18, 52, 86)']);
+  await page.evaluate(() => { window.__ed.getWrapper().find('#logo-b polygon')[0].addAttributes({ fill: '#abcdef' }); window.__studio.flush(true); });
+  await expect.poll(() => page.evaluate(() => [...window.__ed.Canvas.getDocument().querySelectorAll('.brand-mark polygon')].map(node => getComputedStyle(node).fill))).toEqual(['rgb(171, 205, 239)', 'rgb(171, 205, 239)']);
+  await select(page, '#ff');
+  await nextFrames(page);
+  expect(await page.evaluate(() => window.__ed.StyleManager.getSectors().length)).toBe(6);
+  expect(await page.evaluate(() => window.__ed.getSelected().get('layerable'))).toBe(true);
+  // Content can exceed min-height; the native handle starts at the rendered edge.
+  const height = () => canvas.locator('#ff').evaluate(node => node.getBoundingClientRect().height);
+  const beforeHeight = await height();
+  expect(beforeHeight).toBeGreaterThan(await canvas.locator('#ff').evaluate(node => parseFloat(getComputedStyle(node).minHeight)));
+  expect(await dragCorner(page, 0, 100), lastDrag).toBe(1);
+  expect(Math.abs(await height() - beforeHeight - 100)).toBeLessThanOrEqual(1);
+  const resized = await page.evaluate(() => window.__studio.snapshot(true));
+  expect(resized.frame.css).toMatch(/#ff\{[^}]*min-height:/);
+  expect(resized.css).not.toContain('#ff');
+});
+
+test('B8: CssComposer follows a component across main, keeps clone rules and surfaces unknown ownership without discarding the editor', async ({ page }) => {
+  await openStudio(page, { html: '<main id="main"><h1>A</h1></main>' });
+  const result = await page.evaluate(async () => {
+    window.__studio.destroy();
+    await new Promise(resolve => {
+      window.__studio = window.createEditor({ page: { html: '<main id="main"><h1>A</h1><p id="owned">Flytta ut</p></main>', path: '/', css: '#owned{color:red}', bodyClass: '' }, frame: { html: '<header><p id="removable">Ta bort</p></header><main></main><footer id="target"></footer>', css: '#removable{color:blue}' }, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onError(error) { window.__frameError = error.message; }, onReady(editor) { window.__ed = editor; resolve(); } });
+    });
+    const editor = window.__ed, root = editor.getWrapper();
+    root.find('#owned')[0].move(root.find('#target')[0]);
+    root.find('#removable')[0].remove();
+    const moved = window.__studio.snapshot(true);
+    const copy = root.find('#owned')[0].clone();
+    root.find('#target')[0].append(copy);
+    const cloned = window.__studio.snapshot(true);
+    window.__studio.flush(true);
+    const rule = editor.Css.setRule('.ownerless', { color: 'red' });
+    const dirtyBeforeClose = editor.getDirtyCount();
+    let refused = false;
+    try { window.__studio.destroy(); } catch { refused = true; }
+    const kept = refused ? editor.getWrapper().find('#target').length : 0;
+    if (refused) { editor.Css.getAll().remove(rule); window.__studio.flush(true); }
+    return { moved, cloned, copyId: copy.getId(), dirtyBeforeClose, refused, kept, error: window.__frameError };
+  });
+  expect(result.moved.css).not.toContain('#owned');
+  expect(result.moved.frame.css).toContain('#owned');
+  expect(result.moved.frame.css).not.toContain('#removable');
+  expect(result.cloned.frame.css).toContain('#' + result.copyId);
+  expect(result.dirtyBeforeClose, 'GrapesJS defers its dirty count until after this immediate close').toBe(0);
+  expect(result.refused).toBe(true);
+  expect(result.kept).toBe(1);
+  expect(result.error).toContain('saknar ägare');
 });

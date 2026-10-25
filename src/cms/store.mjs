@@ -2,6 +2,7 @@ import { HttpError } from './http.mjs';
 import { fontCss } from './theme.mjs';
 import { resourceReferences, resolveResources } from './resources.mjs';
 import { resourceSlots } from '../content/resources.mjs';
+import { composePage } from './frame.mjs';
 
 export async function digest(value) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
@@ -95,7 +96,8 @@ export function publicationChunks(project, resources = resourceSlots, references
   const addressableCards = project.cards.filter(card => (card.state ?? 'active') !== 'trash').map(publicCard);
   const activeIds = project.cards.filter(card => (card.state ?? 'active') === 'active').map(card => card.id);
   const rendered = [
-    ...project.pages.map(page => ({ path: page.path, html: page.html, css: fonts + page.css, meta: { ...metadata(page), resources } })),
+    ...project.pages.map(page => ({ path: page.path, html: composePage(project.frame, page), css: fonts + (project.frame?.css ?? '') + page.css, meta: { ...metadata(page), resources, ...(project.frame ? { frameVersion: 2 } : {}) } })),
+    ...(project.frame ? [{ path: '@frame', html: project.frame.html, css: fonts + project.frame.css, meta: { id: 'skift', resources } }] : []),
     ...addressableCards.map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(card), css: '', meta: {} })),
     ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest], ['email', project.email ?? null]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: {} })),
   ];

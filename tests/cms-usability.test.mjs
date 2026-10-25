@@ -4,7 +4,7 @@ import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 import { transitionAsset, transitionBuiltinAsset, updateBuiltinAsset } from '../src/cms/assets.mjs';
 import { publishSite, readPublicData, readSite } from '../src/cms/store.mjs';
-import { initial } from '../.generated/cms-seed.mjs';
+import { initial, legacyInitial } from '../.generated/cms-seed.mjs';
 
 let runtime, cookie;
 before(async () => { runtime = await cmsRuntime(); cookie = 'CF_Authorization=' + await runtime.token(); });
@@ -217,7 +217,7 @@ test('pre-shared-content retained revisions normalize through state preview revi
   const legacyRuntime=await cmsRuntime();
   try {
     const legacyCookie='CF_Authorization='+await legacyRuntime.token();
-    const legacy=structuredClone(initial);
+    const legacy=structuredClone(legacyInitial);
     delete legacy.sharedContent;
     legacy.pages=legacy.pages.map(page=>({...page,html:page.html.replace(/ data-cms-shared="footer\.tagline"/g,'')}));
     await publishSite(legacyRuntime.db,{project:legacy,baseVersion:0,requestId:crypto.randomUUID(),actor:'owner@example.test'});
@@ -225,15 +225,15 @@ test('pre-shared-content retained revisions normalize through state preview revi
     const stateResponse=await api('state');
     assert.equal(stateResponse.status,200,await stateResponse.clone().text());
     const state=await stateResponse.json();
-    assert.ok(state.project.sharedContent['footer.tagline']);
-    assert.ok(state.project.pages.every(page=>page.html.includes('data-cms-shared="footer.tagline"')));
+    assert.ok(state.project.frame.html.includes('data-cms-shared="footer.tagline"'));
+    assert.ok(state.project.pages.every(page=>!page.html.includes('data-cms-shared="footer.tagline"')));
     const preview=await api('preview',{method:'POST',headers:{Origin:legacyRuntime.url,'Content-Type':'application/json','X-CMS-Request':'1'},body:JSON.stringify({project:state.project,pageId:state.project.pages[0].id})});
     assert.equal(preview.status,200,await preview.clone().text());
     const revisionResponse=await api('revision/1');
     assert.equal(revisionResponse.status,200,await revisionResponse.clone().text());
     const revision=await revisionResponse.json();
-    assert.ok(revision.project.sharedContent['footer.tagline']);
-    assert.ok(revision.project.pages.every(page=>page.html.includes('data-cms-shared="footer.tagline"')));
+    assert.ok(revision.project.frame.html.includes('data-cms-shared="footer.tagline"'));
+    assert.ok(revision.project.pages.every(page=>!page.html.includes('data-cms-shared="footer.tagline"')));
     const saved=await api('save',{method:'POST',headers:{Origin:legacyRuntime.url,'Content-Type':'application/json','X-CMS-Request':'1'},body:JSON.stringify({project:revision.project,baseVersion:1,requestId:crypto.randomUUID()})});
     assert.equal(saved.status,200,await saved.clone().text());
   } finally { await legacyRuntime.close(); }

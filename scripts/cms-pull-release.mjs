@@ -37,12 +37,13 @@ export async function releaseVerdict({ revisions, media }, { seed, initial }) {
 }
 
 // Allowlisted failures are tolerated only outside the head revision.
-export function gateFailures(result, head, allow = new Set()) {
-  return result.revisions.filter(item => !item.compatible && (item.version === head || !allow.has(item.version)));
+export function gateFailures(result, head, allow = new Map()) {
+  if (!(allow instanceof Map) || [...allow].some(([version, error]) => !Number.isSafeInteger(version) || typeof error !== 'string' || !error)) throw new TypeError('Historical exceptions require exact expected errors.');
+  return result.revisions.filter(item => !item.compatible && (item.version === head || allow.get(item.version) !== item.error));
 }
 
-function select(sql) {
-  const run = spawnSync('npx', ['wrangler', 'd1', 'execute', 'CMS_DB', '--remote', '--json', '--command', sql], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 64 * 1024 * 1024 });
+export function select(sql, { local = false, persistTo } = {}) {
+  const run = spawnSync('npx', ['wrangler', 'd1', 'execute', 'CMS_DB', local ? '--local' : '--remote', ...(persistTo ? ['--persist-to', persistTo] : []), '--json', '--command', sql], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], maxBuffer: 64 * 1024 * 1024 });
   if (run.status !== 0) throw new Error(`wrangler exited ${run.status ?? run.error?.code}: ${(run.stdout ?? '').slice(0, 500)}`);
   const [statement] = JSON.parse(run.stdout);
   if (!statement?.success || !Array.isArray(statement.results)) throw new Error('unexpected wrangler output');
@@ -51,11 +52,12 @@ function select(sql) {
 
 const integer = value => { const number = Number(value); if (!Number.isSafeInteger(number) || number < 0) throw new Error(`invalid version ${value}`); return number; };
 
-function pullRevision(version) {
-  const [row] = select(`SELECT length(project) AS bytes, hex(substr(project, 1, ${PAGE})) AS hex FROM cms_revisions WHERE version = ${version}`);
+export function pullRevision(version, options) {
+  version = integer(version);
+  const [row] = select(`SELECT length(project) AS bytes, hex(substr(project, 1, ${PAGE})) AS hex FROM cms_revisions WHERE version = ${version}`, options);
   if (!row) throw new Error(`revision ${version} missing`);
   const parts = [Buffer.from(row.hex ?? '', 'hex')];
-  for (let offset = PAGE + 1; offset <= row.bytes; offset += PAGE) parts.push(Buffer.from(select(`SELECT hex(substr(project, ${offset}, ${PAGE})) AS hex FROM cms_revisions WHERE version = ${version}`)[0]?.hex ?? '', 'hex'));
+  for (let offset = PAGE + 1; offset <= row.bytes; offset += PAGE) parts.push(Buffer.from(select(`SELECT hex(substr(project, ${offset}, ${PAGE})) AS hex FROM cms_revisions WHERE version = ${version}`, options)[0]?.hex ?? '', 'hex'));
   const project = Buffer.concat(parts);
   if (project.length !== row.bytes) throw new Error(`revision ${version} read ${project.length} of ${row.bytes} bytes`);
   return { version, project };
@@ -63,15 +65,19 @@ function pullRevision(version) {
 
 async function main() {
   const all = process.argv.includes('--all');
-  const allow = new Set((process.argv.find(arg => arg.startsWith('--allow='))?.slice(8).split(',').filter(Boolean) ?? []).flatMap(range => {
+  const versionsAllowed = new Set((process.argv.find(arg => arg.startsWith('--allow='))?.slice(8).split(',').filter(Boolean) ?? []).flatMap(range => {
     const [from, to = from] = range.split('-').map(integer);
     return Array.from({ length: to - from + 1 }, (_, index) => from + index);
   }));
+  const errorsFile = process.argv.find(arg => arg.startsWith('--allow-errors='))?.slice(15);
+  const expected = errorsFile ? JSON.parse(await readFile(errorsFile, 'utf8')) : {};
+  const allow = new Map([...versionsAllowed].map(version => [version, expected[version]]));
+  if ([...allow.values()].some(value => typeof value !== 'string' || !value)) throw new Error('Every --allow version needs its recorded exact error in --allow-errors=path.json.');
   let head, revisions, media;
   try {
     head = integer(select('SELECT version FROM cms_head WHERE id = 1')[0]?.version);
     const versions = all ? select('SELECT version FROM cms_revisions ORDER BY version').map(row => integer(row.version)) : head ? [head] : [];
-    revisions = versions.map(pullRevision);
+    revisions = versions.map(version => pullRevision(version));
     media = select('SELECT * FROM cms_media');
   } catch (error) { throw new Error(`D1 unreadable (${error.message})`); }
   const { seed, initial } = await import('../.generated/cms-seed.mjs');

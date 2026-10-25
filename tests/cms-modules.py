@@ -603,17 +603,15 @@ with sync_playwright() as pw:
         page = make_page()
         try:
             result=page.evaluate("""()=>{
-              const project={sharedContent:{'footer.tagline':'Old'},pages:[
-                {id:'a',html:'<footer><p data-cms-node="a-node" data-cms-shared="footer.tagline">Old</p></footer>'},
-                {id:'b',html:'<footer><p data-cms-node="b-node" data-cms-shared="footer.tagline">Old</p></footer>'}
-              ]};
-              const next={...project.pages[0],html:'<footer><p data-cms-node="a-node" data-cms-shared="footer.tagline">New <strong>value</strong></p></footer>'};
-              return cmsTest.synchronizeSharedPageClient(project,'a',next);
+              const frame={html:'<main></main><footer><p data-cms-node="f-node" data-cms-shared="footer.tagline">New <strong>value</strong></p></footer>',css:''};
+              const pages=[{id:'a',path:'/a/',html:'<main id="main"><h1>A</h1></main>'},{id:'b',path:'/b/',html:'<main id="main"><h1>B</h1></main>'}];
+              return {frame,pages:pages.map(page=>cmsTest.composeEditorPage(page,frame)),stored:pages};
             }""")
-            assert result['sharedContent']['footer.tagline'] == 'New <strong>value</strong>', result
-            assert 'data-cms-node="a-node"' in result['pages'][0]['html'], result
-            assert 'data-cms-node="b-node"' in result['pages'][1]['html'], result
+            assert 'New <strong>value</strong>' in result['frame']['html'], result
+            assert 'data-cms-node="f-node"' in result['pages'][0]['html'], result
+            assert 'data-cms-node="f-node"' in result['pages'][1]['html'], result
             assert 'New <strong>value</strong>' in result['pages'][1]['html'], result
+            assert all('footer' not in item['html'] for item in result['stored']), result
             return {'propagated':True,'stable_ids':True}
         finally: page.close()
 

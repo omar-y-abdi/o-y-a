@@ -35,14 +35,26 @@ export function configureVisualComponent(component, { managedSvg = false } = {})
   return component;
 }
 
+function resizeExtraSpace(computed, sides) {
+  return computed.boxSizing === 'border-box' ? 0 : sides.reduce((sum, side) => sum + (parseFloat(computed[`padding${side}`]) || 0) + (parseFloat(computed[`border${side}Width`]) || 0), 0);
+}
+
+function resizeContentLength(value, extra) {
+  return extra ? `${+Math.max(0, parseFloat(value) - extra).toFixed(3)}px` : value;
+}
+
+// GrapesJS supplies border-box dimensions; content-box CSS excludes padding and borders.
 // A drag writes px into the device's rule. Width caps at the container and
 // height becomes a floor over `auto`, so one drag never fixes the box on other
 // widths. `height: auto` also replaces a stored px height in the same rule.
-export function responsiveResizeStyle(style, tag) {
+export function responsiveResizeStyle(style, tag, computed = {}) {
   const next = { ...style };
-  if (next.width && next.width !== 'auto') next.width = `min(${next.width},100%)`;
+  if (next.width && next.width !== 'auto') {
+    const extra = resizeExtraSpace(computed, ['Left', 'Right']);
+    next.width = `min(${resizeContentLength(next.width, extra)},${extra ? `calc(100% - ${extra}px)` : '100%'})`;
+  }
   if (next.height && next.height !== 'auto') {
-    if (tag !== 'img') next['min-height'] = next.height;
+    if (tag !== 'img') next['min-height'] = resizeContentLength(next.height, resizeExtraSpace(computed, ['Top', 'Bottom']));
     next.height = 'auto';
   }
   return next;

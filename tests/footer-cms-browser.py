@@ -79,7 +79,13 @@ with sync_playwright() as pw:
         context = browser.new_context(storage_state=str(qa.STATE_PATH), viewport={'width':width,'height':900}, reduced_motion='reduce')
         try:
             page = context.new_page(); page.on('dialog', lambda dialog: dialog.accept())
-            page.goto(BASE+'/admin/'); Q.wait_canvas(page)
+            page.goto(BASE+'/admin/')
+            page.wait_for_selector('iframe.gjs-frame, [data-shared-content-repair]')
+            repair = page.locator('[data-shared-content-repair]')
+            if repair.count():
+                # Explicit owner choice preserves the legacy home's custom frame.
+                repair.locator('button[type=submit]').click()
+            Q.wait_canvas(page)
             page.locator(f'[data-device={"mobile" if width <= 760 else "desktop"}]').click()
             frame = Q.frame(page)
             link = frame.locator('footer a[href="/developers/"], footer a[href="/developers/#main"]').first

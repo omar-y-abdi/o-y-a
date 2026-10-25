@@ -9,8 +9,8 @@ import { renderWin, exportWin, disposeWin } from '../../src/client/win.mjs';
 import { previewData } from '../../src/client/previewdata.mjs';
 import { nudgeComponent } from '../../src/cms/client/position.mjs';
 import { captureEditorView, restoreEditorView, centerOffset } from '../../src/cms/client/view-state.mjs';
-import { synchronizeSharedPageClient } from '../../src/cms/client/shared-project.mjs';
+import { composeEditorPage } from '../../src/cms/client/frame-project.mjs';
 import { materializeManagedSvg } from '../../src/cms/client/managed-svg-source.mjs';
 import { liveHtml } from '../../src/cms/client/live-text.mjs';
 
-globalThis.cmsTest = { remapClone, hasCloneSelector, mapCloneCss, editableText, replaceEditableText, createEditor, componentInspector, pageInspector, loadCards, loadCopy, renderWin, exportWin, disposeWin, previewData, nudgeComponent, captureEditorView, restoreEditorView, centerOffset, synchronizeSharedPageClient, materializeManagedSvg, liveHtml };
+globalThis.cmsTest = { remapClone, hasCloneSelector, mapCloneCss, editableText, replaceEditableText, createEditor, componentInspector, pageInspector, loadCards, loadCopy, renderWin, exportWin, disposeWin, previewData, nudgeComponent, captureEditorView, restoreEditorView, centerOffset, composeEditorPage, materializeManagedSvg, liveHtml };

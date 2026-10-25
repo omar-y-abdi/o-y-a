@@ -2,12 +2,15 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseFragment, serialize } from 'parse5';
-import { initial, seed } from '../.generated/cms-seed.mjs';
-import { normalizeStoredProject, refreshDevelopers } from '../src/cms/shared-content.mjs';
+import { legacyInitial as initial, seed as frameSeed } from '../.generated/cms-seed.mjs';
+const seed = frameSeed.legacy;
+import { normalizeStoredProject, refreshDevelopers } from '../src/cms/legacy-project.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { hasSignatureKeys, migrateKeys, rekeyHtml, validateCss, VALIDATION_POLICY } from '../src/cms/validation.mjs';
 import { normalizeClientProject } from '../src/cms/api.mjs';
-import { normalizeSkiftProject } from '../src/cms/skift.mjs';
+import { splitPage } from '../src/cms/frame.mjs';
+import { chooseFrame } from '../src/cms/frame-converter.mjs';
+import { normalizeSkiftProject } from '../src/cms/legacy-project.mjs';
 import { positionalKeys } from '../scripts/legacy-keys.mjs';
 import LEGACY_KEYS from '../src/cms/legacy-keys.json' with { type: 'json' };
 import { projectChanges, validateProjectChanges, applyProjectChanges } from '../src/cms/project-changes.mjs';
@@ -17,9 +20,10 @@ import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
 // A1b manipulation suite. Every case runs on the three server paths that take
 // page HTML from a client: full Save, delta Save and recovery.
-// Raw v185 is production data with positional keys; `base` is its studio copy.
+// Keep legacy input for ingress checks; A1b edits the schema-2 studio frame.
 const v185 = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
 const base = normalizeStoredProject(v185, seed, initial);
+const framed = validateProject(normalizeClientProject(base, frameSeed), frameSeed);
 const opts = { origins: ['https://omaryusuf.se'] };
 const ATTRIBUTE = /Ett skyddat funktionsattribut har ändrats\./;
 const LABEL = /Samtyckesknappens text är låst\./;
@@ -49,6 +53,14 @@ function edit(project, path, change) {
     change(elements(tree));
     return { ...page, html: serialize(tree) };
   }) };
+}
+
+function editStudio(project, path, change) {
+  const page = project.pages.find(page => page.path === path);
+  const tree = parseFragment(project.frame.html.replace('<main></main>', () => page.html), { scriptingEnabled: true });
+  change(elements(tree));
+  const split = splitPage(serialize(tree));
+  return { ...project, frame: { ...project.frame, html: split.html }, pages: project.pages.map(item => item === page ? { ...page, html: split.page } : item) };
 }
 
 // [path, mutation, expected]: true = accepted, a RegExp = 422 with that message, false = any 422.
@@ -98,9 +110,9 @@ const CASES = {
 };
 
 const paths = {
-  save: project => validateProject(structuredClone(project), seed, structuredClone(base), opts),
-  delta: project => validateProject(applyProjectChanges(structuredClone(base), validateProjectChanges(projectChanges(base, project))), seed, structuredClone(base), opts),
-  recover: project => validateProject(structuredClone(project), seed, null, { ...opts, publication: false }),
+  save: project => validateProject(structuredClone(project), frameSeed, structuredClone(framed), opts),
+  delta: project => validateProject(applyProjectChanges(structuredClone(framed), validateProjectChanges(projectChanges(framed, project))), frameSeed, structuredClone(framed), opts),
+  recover: project => validateProject(structuredClone(project), frameSeed, null, { ...opts, publication: false }),
 };
 function expectOutcome(run, expected, label) {
   if (expected === true) return assert.doesNotThrow(run, label);
@@ -108,46 +120,43 @@ function expectOutcome(run, expected, label) {
 }
 
 test('A1b: the unchanged v185 studio copy saves on every path', () => {
-  assert.doesNotThrow(() => paths.save(base));
-  assert.doesNotThrow(() => paths.recover(base));
+  assert.doesNotThrow(() => paths.save(framed));
+  assert.doesNotThrow(() => paths.recover(framed));
 });
 
 for (const [label, [path, change, expected]] of Object.entries(CASES)) {
   test(`A1b manipulation ${label}`, () => {
-    const project = edit(base, path, change);
+    const project = editStudio(framed, path, change);
     for (const [name, run] of Object.entries(paths)) expectOutcome(() => run(project), expected, `${label} (${name})`);
   });
 }
 
-// Stored facts let a page skip validateHtml while its HTML is unchanged. Facts proven
-// under policy 3 predate the consent lock, so they must not vouch for a locked button.
+// Page facts never vouch for frame HTML, under current or older policies.
 function cachedBaseline(change, expected, oldPolicies) {
-  const stored = validateProject(structuredClone(base), seed, structuredClone(base), opts);
-  const forged = edit(stored, '/om/', change);
+  const stored = validateProject(structuredClone(framed), frameSeed, structuredClone(framed), opts);
+  const forged = editStudio(stored, '/om/', change);
   const page = forged.pages.find(item => item.path === '/om/');
-  const contracts = (seed.pages.find(item => item.id === page.id) ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank).contracts;
+  const contracts = (frameSeed.pages.find(item => item.id === page.id) ?? frameSeed.pages.find(item => item.id === page.sourceId) ?? frameSeed.blank).contracts;
   const baseline = policy => ({ ...forged, pages: forged.pages.map(item => item === page ? { ...item, facts: { ...item.facts, validationKey: JSON.stringify([policy, contracts, true]) } } : item) });
-  // Control: facts under the current policy are trusted, so the old key alone is what forces the check.
-  assert.doesNotThrow(() => validateProject(structuredClone(forged), seed, baseline(VALIDATION_POLICY), opts));
-  for (const policy of oldPolicies) {
+  for (const policy of [VALIDATION_POLICY, ...oldPolicies]) {
     const old = baseline(policy);
-    assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), opts), expected, `full Save (${policy})`);
+    assert.throws(() => validateProject(structuredClone(forged), frameSeed, structuredClone(old), opts), expected, `full Save (${policy})`);
     const draft = structuredClone(old); draft.pages.find(item => item.path === '/').description = 'Ändrad på en annan sida.';
-    assert.throws(() => validateProject(applyProjectChanges(structuredClone(old), validateProjectChanges(projectChanges(old, draft))), seed, structuredClone(old), opts), expected, `delta Save (${policy})`);
-    assert.throws(() => validateProject(structuredClone(forged), seed, structuredClone(old), { ...opts, publication: false }), expected, `recovery against a stored baseline (${policy})`);
+    assert.throws(() => validateProject(applyProjectChanges(structuredClone(old), validateProjectChanges(projectChanges(old, draft))), frameSeed, structuredClone(old), opts), expected, `delta Save (${policy})`);
+    assert.throws(() => validateProject(structuredClone(forged), frameSeed, structuredClone(old), { ...opts, publication: false }), expected, `recovery against a stored baseline (${policy})`);
   }
 }
-test('A1b: a stored page accepted under the old validation policy is checked again on every path', () => {
+test('A1b: page facts under current and older policies cannot approve an inert frame button', () => {
   cachedBaseline(E => { setAttr(consent(E)[0], 'inert', ''); }, NAME, ['cms-policy-3-canonical-editor-widget-preview', 'cms-policy-4-consent-lock']);
 });
-test('A1b: a stored page with an svg-wrapped consent button, accepted under policy 4, is checked again on every path', () => {
+test('A1b: page facts under current and older policies cannot approve an svg-wrapped frame button', () => {
   cachedBaseline(E => { svgWrap(consent(E)[0]); }, NAMESPACE, ['cms-policy-4-consent-lock']);
 });
 
 // An old tab or browser draft holds raw v185 HTML: positional keys only.
 const oldDraft = () => { const draft = structuredClone(v185); draft.pages[0].description = 'Ändrad i en gammal flik.'; return draft; };
 // The one server ingress for client projects (api.mjs): A1a refresh, then the frozen e5592bc map.
-const fromClient = project => normalizeClientProject(project, seed);
+const fromClient = project => normalizeClientProject(project, frameSeed);
 const oldR1 = () => edit(oldDraft(), '/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); });
 
 test('A1b: the frozen map and rekeyHtml put every contract key of raw v185 on the same node', () => {
@@ -166,15 +175,16 @@ test('A1b: the frozen map and rekeyHtml put every contract key of raw v185 on th
 });
 
 test('A1b transition: an old tab saves through the frozen e5592bc map, and R1 still fails', () => {
-  assert.doesNotThrow(() => validateProject(fromClient(oldDraft()), seed, base, opts));
-  assert.throws(() => validateProject(fromClient(oldR1()), seed, base, opts), ATTRIBUTE);
-  assert.throws(() => validateProject(oldDraft(), seed, base, opts), { status: 422 }, 'Without migration positional keys do not match');
+  assert.doesNotThrow(() => validateProject(fromClient(oldDraft()), frameSeed, base, opts));
+  assert.throws(() => validateProject(fromClient(oldR1()), frameSeed, base, opts), ATTRIBUTE);
+  assert.throws(() => validateProject(oldDraft(), frameSeed, base, opts), { status: 422 }, 'Without migration positional keys do not match');
 });
 
 test('A1b transition: an old draft recovers through the frozen e5592bc map, and R1 still fails', () => {
-  const recovered = validateProject(fromClient(oldDraft()), seed, null, { ...opts, publication: false });
-  assert.throws(() => validateProject(fromClient(oldR1()), seed, null, { ...opts, publication: false }), ATTRIBUTE);
-  const changed = projectChanges(base, recovered).pages.upsert.map(page => page.id);
+  const recovered = validateProject(fromClient(oldDraft()), frameSeed, null, { ...opts, publication: false });
+  assert.throws(() => validateProject(fromClient(oldR1()), frameSeed, null, { ...opts, publication: false }), ATTRIBUTE);
+  const convertedBase = validateProject(fromClient(base), frameSeed, null, { ...opts, publication: false });
+  const changed = projectChanges(convertedBase, recovered).pages.upsert.map(page => page.id);
   assert.deepEqual(changed, ['home']);
 });
 
@@ -194,19 +204,34 @@ test('A1b: migrateKeys takes its map from the frozen e5592bc build by template l
 // What an e5592bc studio tab held: raw v185 plus the SKIFT links its read path
 // inserted (fixed keys), positional keys otherwise; /developers/ as A1a serves it.
 const oldTab = normalizeSkiftProject(refreshDevelopers(structuredClone(v185), seed), seed);
+const mainCase = label => /^T(?:07|08|09|10|11|14) /.test(label);
 const legacyPaths = {
-  save: project => validateProject(fromClient(structuredClone(project)), seed, structuredClone(base), opts),
+  save: project => validateProject(fromClient(structuredClone(project)), frameSeed, structuredClone(base), opts),
   // The old client sends changes against its own positional snapshot.
-  delta: project => validateProject(fromClient(applyProjectChanges(structuredClone(base), validateProjectChanges(projectChanges(oldTab, project)))), seed, structuredClone(base), opts),
-  recover: project => validateProject(fromClient(structuredClone(project)), seed, null, { ...opts, publication: false }),
+  delta: project => validateProject(fromClient(applyProjectChanges(structuredClone(base), validateProjectChanges(projectChanges(oldTab, project)))), frameSeed, structuredClone(base), opts),
+  recover: project => validateProject(fromClient(structuredClone(project)), frameSeed, null, { ...opts, publication: false }),
 };
 for (const [label, [path, change, expected]] of Object.entries(CASES)) {
+  if (!mainCase(label)) continue;
   test(`A1b manipulation through positional keys ${label}`, () => {
     const project = edit(oldTab, path, change);
     assert.ok(!project.pages.find(page => page.path === path).html.includes('data-cms-node="k'), 'The case runs on positional keys');
     for (const [name, run] of Object.entries(legacyPaths)) expectOutcome(() => run(project), expected, `${label} (${name}, positional)`);
   });
 }
+
+test('A1b: a benign frame change on only one legacy page requires the owner to choose its variant', () => {
+  for (const [label, [path, change, expected]] of Object.entries(CASES)) {
+    if (mainCase(label) || expected !== true) continue;
+    const project = fromClient(edit(oldTab, path, change));
+    const conflict = project.frameConflicts.find(item => item.key === 'frame');
+    assert.equal(conflict.options.length, 2, label);
+    assert.throws(() => validateProject(project, frameSeed, framed, opts), /Välj vilken sidram som ska gälla innan du sparar\./, label);
+    const edited = conflict.options.find(option => option.pages.includes(oldTab.pages.find(page => page.path === path).name));
+    assert.ok(edited, label);
+    assert.doesNotThrow(() => validateProject(chooseFrame(project, edited.value), frameSeed, framed, opts), label);
+  }
+});
 
 test('A1b: validateCss rejects data-cms-node selectors in every form, but not #id', () => {
   const forms = ['[data-cms-node]{color:red}', '[DATA-CMS-NODE="k1"]{color:red}', '[data-cms-\\6e ode]{color:red}', '[*|data-cms-node]{color:red}', '[|data-cms-node]{color:red}', ':is([data-cms-node]){color:red}', ':not([data-cms-node="n1"]){color:red}', 'p:has([data-cms-node]){color:red}', '@media (min-width:1px){[data-cms-node="n2"]{color:red}}'];
@@ -253,7 +278,7 @@ test('A1b transition over the API: old Save, replay, delta and recover', async (
   // A1a: the old tab's stale /developers/ is replaced by the current template, not stored.
   const keysAside = html => html.replace(/ data-cms-node="[^"]*"/g, '');
   const storedDevelopers = (await readSite(runtime.db)).project.pages.find(page => page.id === 'developers');
-  assert.equal(keysAside(storedDevelopers.html), keysAside(seed.footerPage.html));
+  assert.equal(keysAside(storedDevelopers.html), keysAside(splitPage(seed.footerPage.html).page));
   // Recovery needs no base revision: the map is frozen.
   const recovered = await admin('recover', { project: oldDraft(), pendingSave: null });
   assert.equal(recovered.status, 200, await recovered.clone().text());
@@ -262,13 +287,13 @@ test('A1b transition over the API: old Save, replay, delta and recover', async (
   assert.match(await recoveredR1.text(), ATTRIBUTE);
 });
 
-test('A1b over the API: an accessible name on a consent button fails delta Save and recover', async () => {
+test('A1b over the API: an accessible name on a frame consent button fails delta Save and recover', async () => {
   const version = await publishRaw();
-  assert.equal((await admin('save', { changes: projectChanges(v185, oldDraft()), baseVersion: version, requestId: crypto.randomUUID() })).status, 200, 'The untouched draft saves');
-  assert.equal((await admin('recover', { project: oldDraft(), pendingSave: null })).status, 200, 'The untouched draft recovers');
+  assert.equal((await admin('save', { project: framed, baseVersion: version, requestId: crypto.randomUUID() })).status, 200, 'The untouched studio frame saves');
+  assert.equal((await admin('recover', { project: framed, pendingSave: null })).status, 200, 'The untouched studio frame recovers');
   for (const index of [1, 3]) {
-    const forged = edit(oldDraft(), '/om/', E => { setAttr(consent(E)[index], 'aria-label', 'Bara nödvändiga'); });
-    const saved = await admin('save', { changes: projectChanges(v185, forged), baseVersion: await publishRaw(), requestId: crypto.randomUUID() });
+    const forged = editStudio(framed, '/om/', E => { setAttr(consent(E)[index], 'aria-label', 'Bara nödvändiga'); });
+    const saved = await admin('save', { changes: projectChanges(framed, forged), baseVersion: await publishRaw(), requestId: crypto.randomUUID() });
     assert.equal(saved.status, 422, `save ${index}`);
     assert.match(await saved.text(), NAME);
     const recovered = await admin('recover', { project: forged, pendingSave: null });
@@ -334,23 +359,15 @@ test('A1b over the API: unsaved new and duplicated pages in an old draft save an
   assert.match(await forgedSave.text(), ATTRIBUTE);
 });
 
-test('A1b over the API: the cases through positional keys on preview, validate and resource endpoints', async () => {
+test('A1b over the API: studio frame and main cases keep their outcomes on preview, validate and resource endpoints', async () => {
   await publishRaw();
   const ids = { '/om/': 'about', '/kontakt/': 'contact' };
   for (const [label, [path, change, expected]] of Object.entries(CASES)) {
-    const project = edit(oldTab, path, change);
-    for (const [name, body] of [['preview', { project, pageId: ids[path] }], ['validate', { project }]]) {
+    const project = editStudio(framed, path, change);
+    for (const [name, body] of [['preview', { project, pageId: ids[path] }], ['validate', { project }], ['resource-usage', { id: seed.assets[0].id, project }], ['asset-usage', { id: seed.assets[0].id, project }]]) {
       const response = await admin(name, body), text = await response.text();
       assert.equal(response.status, expected === true ? 200 : 422, `${label} (${name}): ${text}`);
       if (expected instanceof RegExp) assert.match(text, expected, `${label} (${name})`);
     }
-  }
-  const r1 = edit(oldTab, '/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); });
-  for (const name of ['resource-usage', 'asset-usage']) {
-    const accepted = await admin(name, { id: seed.assets[0].id, project: oldTab });
-    assert.equal(accepted.status, 200, `${name}: ${await accepted.clone().text()}`);
-    const rejected = await admin(name, { id: seed.assets[0].id, project: r1 });
-    assert.equal(rejected.status, 422, name);
-    assert.match(await rejected.text(), ATTRIBUTE);
   }
 });

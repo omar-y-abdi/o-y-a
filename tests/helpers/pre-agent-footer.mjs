@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { parseFragment, serialize } from 'parse5';
-import { initial } from '../../.generated/cms-seed.mjs';
+import { legacyInitial as initial } from '../../.generated/cms-seed.mjs';
 import { routes } from '../../src/content/site.mjs';
 import { preparePage, validateHtml } from '../../src/cms/validation.mjs';
 import { positionalKeys } from '../../scripts/legacy-keys.mjs';

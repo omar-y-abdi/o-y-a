@@ -31,13 +31,15 @@ for (const [name, media, error] of [
 ]) test(`A1c: head revision media check never skipped: ${name}`, async () => {
   const result = await releaseVerdict({ revisions: [{ version: 7, project: stored(project) }], media }, { seed, initial });
   assert.deepEqual(result.revisions.at(-1), error ? { version: 7, compatible: false, error } : { version: 7, compatible: true });
-  assert.equal(gateFailures(result, 7, new Set([7])).length, error ? 1 : 0, 'the head revision can never be allowlisted');
+  assert.equal(gateFailures(result, 7, new Map([[7, error ?? 'Ingen förväntad avvikelse.']])).length, error ? 1 : 0, 'the head revision can never be allowlisted');
 });
 
 test('A1c: allowlisted historical failures pass only outside the head revision', async () => {
   const broken = structuredClone(initial); broken.pages[0].title = '';
   const result = await releaseVerdict({ revisions: [{ version: 1, project: stored(broken) }, { version: 2, project: stored(initial) }], media: [] }, { seed, initial });
   assert.equal(result.compatible, false);
-  assert.deepEqual(gateFailures(result, 2, new Set([1])), []);
+  const expected = 'Hem: Sidtitel saknas eller har ogiltig längd.';
+  assert.equal(result.revisions.find(item => item.version === 1).error, expected);
+  assert.deepEqual(gateFailures(result, 2, new Map([[1, expected]])), []);
   assert.deepEqual(gateFailures(result, 2).map(item => item.version), [1]);
 });
