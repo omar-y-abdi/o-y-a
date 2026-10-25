@@ -124,8 +124,6 @@ export default {
       response = request.method === 'GET' || request.method === 'HEAD'
         ? json({analytics:Boolean(env.ANALYTICS) && env.ANALYTICS_ENABLED === 'true'})
         : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
-    } else if (/^\/data\/cards\/[a-z0-9-]{1,80}\.json$/.test(url.pathname) && !env.CMS_DB) {
-      response = json({error:'Card not found',code:'NOT_FOUND',hint:'Read /data/cards.json for published card IDs.'},404);
     } else if (url.pathname === '/api' || url.pathname.startsWith('/api/')) response = json({error:'Unknown public API endpoint'},404);
     else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});

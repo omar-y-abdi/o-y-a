@@ -1,7 +1,7 @@
 import { parseFragment, serialize } from 'parse5';
 import { HttpError } from './http.mjs';
 import { attribute, elements } from './html-tree.mjs';
-import { preparePage, validateHtml, validateCss, validateEditorData, migrateKeys } from './validation.mjs';
+import { preparePage, validateHtml, validateCss, migrateKeys } from './validation.mjs';
 import LEGACY_KEYS from './legacy-keys.json' with { type: 'json' };
 import { normalizeStoredProject as normalizeLegacyProject, normalizeClientProject as normalizeLegacyClient, refreshDevelopers, normalizeSharedValue, DEFAULT_SHARED_CONTENT } from './legacy-project.mjs';
 import { splitPage, composePage, frameShape, projectFrame, splitPageCss, legacySeed, validateFrame } from './frame.mjs';
@@ -46,7 +46,6 @@ export function toFrameProject(input, seed, { client = false } = {}) {
     const old = definition(legacy, page), source = definition(seed, page);
     const keys = seed.scopeKeys?.[source.id];
     const checked = validateHtml(page.html, old?.contracts ?? []);
-    if (client && page.project != null) validateEditorData(structuredClone(page.project), old?.contracts ?? []);
     const split = splitPage(checked), styles = splitPageCss(page.css, split.html, split.page, page.path, ownerDecisions);
     const html = projectFrame(split.html, ownerDecisions);
     const value = { html: scopedHtml(html, keys, true), css: styles.frame };
@@ -61,7 +60,6 @@ export function toFrameProject(input, seed, { client = false } = {}) {
   const options = [...variants.values()];
   const cards = Array.isArray(normalized.cards) ? normalized.cards.map(card => {
     if (!card?.design) return card;
-    if (client && card.design.project != null) validateEditorData(structuredClone(card.design.project));
     return { ...card, design: { ...card.design, project: null } };
   }) : normalized.cards;
   const { sharedContent: _shared, sharedContentConflicts, frameVersion: _version, ...project } = normalized;

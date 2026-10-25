@@ -13,13 +13,13 @@ npm ci
 npm run dev
 ```
 
-Publik förhandsvisning: `http://127.0.0.1:4173/`. Annan port: `node scripts/serve.mjs --port 5273`. Använd HTTP, inte direkt öppnade HTML-filer. Servern använder en Node-adapter för den riktiga Worker-handlern.
+Publik förhandsvisning och CMS: `http://127.0.0.1:8790/`. Annan port: `PORT=8791 npm run dev`. `PORT=0 npm run dev` väljer en ledig port och skriver adressen i terminalen. Använd HTTP, inte direkt öppnade HTML-filer.
 
 ```sh
-npm run build && node scripts/cms-dev.mjs
+npm run build && npm run preview
 ```
 
-CMS-utveckling kör en riktig lokal Worker med D1 och R2 via Miniflare på port 8790. Testidentiteten `owner@example.test` signeras med en temporär RSA-nyckel; ingen inloggningsgenväg finns i produktionskoden. Kommandot skriver privat Playwright-lagring till `output/cms-local/browser-auth.json`. Lokal data är tillfällig och identiteten ger ingen åtkomst till Cloudflare.
+`dev` bygger först; `preview` använder befintligt bygge. Båda kör en riktig lokal Worker i workerd med D1, R2, produktionens assets-konfiguration och en första publicering från byggets CMS-original. Testidentiteten `owner@example.test` signeras med en temporär RSA-nyckel; ingen inloggningsgenväg finns i produktionskoden. Kommandot skriver privat Playwright-lagring till `output/cms-local/browser-auth.json`. Lokal data är tillfällig och identiteten ger ingen åtkomst till Cloudflare.
 
 ## Redigera webbplatsen
 
@@ -46,7 +46,7 @@ Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [
 | `migrations/` | CMS-databasens schema |
 | `tests/` | Node-, Worker-, lagrings- och browserkontroller |
 
-`dist/` är det spårade bygget. `.generated/` återskapas vid bygge. Redigera källfiler och bygg om. Hemligheter, testidentiteter och arbetsloggar ignoreras av Git.
+`dist/` och `.generated/` är ignorerade byggresultat som återskapas med `npm run build`. En ny klon innehåller inget bygge. Redigera källfiler och bygg om. Hemligheter, testidentiteter och arbetsloggar ignoreras av Git.
 
 ## Verifiering
 
@@ -55,6 +55,7 @@ python3 -m venv .test-venv
 . .test-venv/bin/activate
 pip install -r requirements-test.txt
 python -m playwright install chromium
+npx playwright install chromium firefox webkit
 npm run check:fast &&
 CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
 ```
@@ -66,10 +67,17 @@ npm run quality &&
 npm run test:cms &&
 node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
+npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps &&
+npx playwright test --project=firefox --no-deps &&
+npx playwright test --project=webkit --no-deps &&
 npx wrangler deploy --dry-run --outdir artifacts/worker-build
 ```
 
+Riktade publika kontroller efter bygge: `node --test tests/http-checks.test.mjs`, `npm run test:public-pages` och `npm run test:skift`. Specs använder egna Worker-fixturer på port 0. `PLAYWRIGHT_PORT=8791 npm run test:public-pages` låter Playwright starta en lokal Worker via `webServer` på angiven port. Firefox och WebKit: `npx playwright test --project=firefox --no-deps`, sedan samma kommando med `--project=webkit`.
+
 Det lägger till publik HTTP/browser-E2E, 240 parallella kortexporter, autentiserad CMS-browser-E2E, sidfotsregressionen, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser, riktade kommandon och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
+
+`npm test` bygger först via `pretest`. `npm run check` lintar och anropar sedan `npm test`, så bygget körs en gång. `check:fast` har kvar sitt eget bygge. Direkta testkommandon, `test:slow`, `test:cms` och manuella verktyg bygger inte automatiskt: kör `npm run build` först enligt [QA-guiden](docs/QA.md#build-prerequisites).
 
 ## Miljöer och kontakt
 

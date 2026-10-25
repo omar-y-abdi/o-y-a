@@ -38,7 +38,7 @@ function action(name,value){
   if(name==='how'||name==='settings'){
     if(mode==='play')pause();returnTo=mode==='menu'?'menu':'pause';ui.open(name,game);return;
   }
-  if(!ready)return;
+  if(!ready&&name!=='close')return;
   if(name==='start')start(save.checkpoint);
   else if(name==='new')start();
   else if(name==='pause')pause();

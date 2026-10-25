@@ -46,8 +46,27 @@ for (const content of ['—', 'debugger', 'eval(', 'new Function(']) {
   });
 }
 
-test('lint retains V8 regexp early-error checks for manual scripts', async () => {
-  const result = await check({ 'scripts/smoke-live.mjs': 'const pattern = /(/;' });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Invalid regular expression/);
+for (const file of ['scripts/smoke-live.mjs', 'scripts/cms-dev.mjs', 'scripts/test-cms-modules.mjs', 'scripts/test-cms-compat.mjs']) {
+  test(`lint retains V8 regexp early-error checks for ${file}`, async () => {
+    const result = await check({ [file]: 'const pattern = /(/;' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Invalid regular expression/);
+  });
+}
+
+for (const file of ['tests/startup.spec.mjs', 'src/client/main.mjs', 'src/client/nested/feature.mjs']) {
+  test(`lint rejects V8 regexp early errors in ${file}`, async () => {
+    const result = await check({ [file]: 'const pattern = /(/;' });
+    assert.notEqual(result.status, 0, `${file} must be checked by V8, not only esbuild`);
+    assert.match(result.stderr, /Invalid regular expression/);
+    assert.ok(result.stderr.includes(file));
+  });
+}
+
+test('lint accepts valid browser-only and Playwright modules without executing them', async () => {
+  const result = await check({
+    'src/client/main.mjs': 'document.querySelector("main"); export const pattern = /\\(/u;',
+    'tests/startup.spec.mjs': 'import { test } from "@playwright/test"; test("browser", async ({ page }) => page.goto("/"));',
+  });
+  assert.equal(result.status, 0, result.stderr);
 });

@@ -9,3 +9,9 @@ export function reportFailure(error, operation = '') {
   console.error(JSON.stringify({ event: 'cms_failure', requestId, operation: OPERATIONS.has(operation) ? operation : 'admin', code }));
   return requestId;
 }
+
+// The key is a server-made private path, never a secret, so it can be logged
+// to find the orphan later.
+export function reportMailOrphan(key) {
+  console.error(JSON.stringify({ event: 'mail_orphan', key }));
+}

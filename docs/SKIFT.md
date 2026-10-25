@@ -35,31 +35,78 @@ fallbacks. The content-hashed bootstrap entry and shared public modules live
 under `/assets/`; main imports the bootstrap without awaiting it. The bootstrap
 shares main's copy promise, then loads `/play/skift/assets/app.js`. Because the
 game page is code-owned, its runtime copy still uses `/data/runtime.json`.
-Unversioned game files must be revalidated rather than cached as
-immutable. `media-src 'self' blob:` is scoped to game HTML; other public pages
+The app import carries `?v=` with the first 12 hex characters of its SHA-256.
+Changing the app also changes the bootstrap and main content-hashed filenames.
+The phase 2 bootstrap remains an esbuild entry under `/assets/`; no second
+bootstrap or separate copy loader is introduced. Both asset directories use
+one-year immutable caching, while `/play/skift/audio/*` uses a one-day lifetime.
+The game CSS is merged into the page's content-hashed stylesheet; its redundant
+`dist/play/skift/assets/app.css` is removed after reading. `media-src 'self' blob:` is scoped to game HTML; other public pages
 use the base public CSP. The admin CSP is unchanged.
 
 ## Updating the game
 
-Import the complete standalone release from its source project, then rebuild:
+Edit `games/skift/src/` and the single markup source `games/skift/index.html`.
+The site build compiles the game and copies its source audio directly into
+`dist/play/skift/`. The old vendored `public/play/skift/` tree is removed and
+ignored; builds do not recreate tracked files there before a commit stages
+their deletion. Neither generated game files nor generated modules under
+`src/` belong in git. The source page module adapts the standalone markup for the portfolio
+with parse5; the game build removes standalone header/brand selectors with
+css-tree. There is no patching of minified JavaScript.
+
+The runtime adapters live in `ui.js` (landing-copy whitelist and isolated menu
+selector), `main.js` (dismiss Help/Settings before startup completes), and
+`sound.js` (same-origin `/play/skift/audio/` paths). `src/copy.mjs` derives both
+languages' CMS defaults from `i18n.js`; only whitelisted landing text can be
+overridden, including empty strings. Modal HTML stays code-owned.
+
+The portfolio and standalone builds share `scripts/build-options.mjs` inside
+the game: bundling, full minification, Chrome 100/Safari 15.4/Firefox 100 targets
+and linked legal comments. The portfolio disables source maps, matching the
+old importer's exclusion of maps. The root esbuild pin and the standalone
+package's esbuild pin differ; byte-identical bundle output is not assumed.
+The root's exact development pins for three, cannon-es and howler match
+`games/skift/package.json`. No game dependencies enter the shell or CMS bundle.
+
+`RELEASE.json` is generated with the bundle SHA-256, source-file SHA-256 values,
+dependency pins, esbuild version, build options and the five integration
+adapters. It replaces the old upstream/adapted bundle pair. The build metafile
+under `.generated/build.json` records the actual game module graph. Library
+licenses and linked legal notices remain beside the game.
+
+From a checkout with private, installed root development dependencies and a
+synchronized root lockfile, run each verification command serially:
 
 ```sh
-node scripts/import-skift.mjs '/path/to/SKIFT project'
+node --test --test-concurrency=1 tests/skift-build.test.mjs
 npm run build
-npm run check
-npx playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps
+node --test --test-concurrency=1 tests/assets.test.mjs tests/skift.test.mjs
+node --test --test-concurrency=1 games/skift/tests/*.test.mjs
+npm run lint
+TEST_CONCURRENCY=1 npm test
+npx playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps --workers=1
 ```
 
-The importer needs source `src/i18n.js` and built `dist/play/skift/`. It copies
-audio, bundled JavaScript, CSS and licenses; writes the page template to
-`src/templates/skift.mjs` and the landing copy defaults to
-`src/content/skift-copy.mjs`; and adapts same-origin audio URLs for CMS previews, an isolated game
-menu selector, safe landing-copy overrides, dismissible Help/Settings during
-loading and ownership of header/brand styles by the portfolio shell. It fails if the released runtime no longer
-matches its checked adapters.
-No new runtime dependencies enter the portfolio or CMS bundles. Source maps
-are excluded. `public/play/skift/RELEASE.json` records upstream and adapted
-bundle SHA-256 hashes. Full bundled library licenses remain alongside the game.
+The clean-build test removes imported output from its temporary checkout,
+changes a source translation and checks that both the runtime and CMS defaults
+contain it. It checks the twelve runtime source modules, three library inputs,
+audio bytes, licenses and provenance. Browser coverage includes safe CMS text,
+loading-menu dismissal, shell navigation, underlined links and cached return
+navigation. Chrome network cache events distinguish cache hits from requests
+that reach the server. Public identity dumps and byte-identical screenshots
+remain separate release gates; these tests do not establish visual identity.
 
 Use a coherent deployment of the whole build. Verification commands build and
 test locally; they do not publish the website.
+
+## Optional statistics
+
+`/api/config` requires both an `ANALYTICS` binding and
+`ANALYTICS_ENABLED: "true"`. Enabling it is a separate, final configuration
+change after reviewing the currently published `/integritet/` statistics text.
+That page can come from D1; the source template and checked-in publication
+fixture do not establish its current production contents. The consent labels
+are protected by CMS validation, and the game stylesheet hides the consent
+banner and portfolio toast outside the title menu. Review the published policy
+before changing the flag; this build change leaves it disabled.

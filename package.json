@@ -9,12 +9,15 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs && node scripts/serve.mjs",
-    "preview": "node scripts/serve.mjs",
+    "dev": "node scripts/build.mjs && node scripts/cms-dev.mjs",
+    "preview": "node scripts/cms-dev.mjs",
     "lint": "node scripts/lint.mjs",
+    "pretest": "npm run build",
     "test": "node scripts/run-node-tests.mjs fast && npm run test:slow",
     "test:cms": "node scripts/test-cms-modules-parallel.mjs && node scripts/test-cms-parallel.mjs",
-    "check": "npm run build && npm run lint && npm test",
+    "test:public-pages": "playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs tests/public-startup.spec.mjs --project=chromium --no-deps && playwright test tests/public-pages.spec.mjs tests/skift.spec.mjs --project=chromium-webgl --no-deps",
+    "test:skift": "playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps",
+    "check": "npm run lint && npm test",
     "deploy:cloudflare": "npm run build && node scripts/cms-pull-release.mjs && wrangler d1 migrations apply CMS_DB --remote && wrangler deploy",
     "quality": "bash scripts/quality.sh",
     "edge:check": "npm run build && wrangler deploy --dry-run --outdir artifacts/worker-build",
@@ -30,6 +33,9 @@
     "parse5": "8.0.1"
   },
   "devDependencies": {
+    "three": "0.180.0",
+    "cannon-es": "0.20.0",
+    "howler": "2.2.4",
     "esbuild": "0.28.2",
     "miniflare": "5.20261001.0-alpha",
     "wrangler": "4.147.0",

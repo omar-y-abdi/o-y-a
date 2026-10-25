@@ -11,7 +11,6 @@ import { SKIFT_PATH } from '../content/skift.mjs';
 import { handleEmailAdmin } from './email-api.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
-const legacyEditorSource = project => project && (project.pages?.some(page => page.project != null) || project.cards?.some(card => card.design?.project != null)) ? project : undefined;
 const legacyDelta = changes => Object.hasOwn(changes, 'sharedContent') || changes.pages?.upsert.some(page => typeof page.html === 'string' && !page.html.trimStart().startsWith('<main'));
 function deltaBase(stored, normalized, changes, seed) {
   if (!legacyDelta(changes)) return normalized;
@@ -46,7 +45,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         const selected = await assetSelection(env.CMS_DB, resourceIds(project), { fonts: true });
         const assets = [...new Map([...media.items, ...selected].map(asset => [asset.id, asset])).values()];
         const builtins = mergeBuiltinAssetStates(seed.assets, builtinStates);
-        return json({ version: state?.version ?? 0, project, legacyProject: legacyEditorSource(state?.project), identity, definitions: seed.pages, frameContracts: seed.frame?.contracts ?? [], blank: seed.blank, built, assets: resourceCatalog({ ...seed, assets: builtins }, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' });
+        return json({ version: state?.version ?? 0, project, identity, definitions: seed.pages, frameContracts: seed.frame?.contracts ?? [], blank: seed.blank, built, assets: resourceCatalog({ ...seed, assets: builtins }, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' });
       }
       if (url.pathname === '/admin/api/history') {
         const cursor = Number(url.searchParams.get('before') ?? Number.MAX_SAFE_INTEGER);
@@ -58,11 +57,11 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         if (revision[1] === '0') return json({ version: 0, createdAt: null, project: initial });
         const state = await readSite(env.CMS_DB, Number(revision[1]));
         if (!state) throw new HttpError(404, 'Versionen finns inte.');
-        return json({ ...state, project: storedProject(state.project), legacyProject: legacyEditorSource(state.project) });
+        return json({ ...state, project: storedProject(state.project) });
       }
       if (url.pathname === '/admin/api/assets') {
         const state = url.searchParams.get('state');
-        const result = await assetPage(env.CMS_DB, { cursor: url.searchParams.get('cursor'), query: url.searchParams.get('q') ?? '', state: ['active','archived','trash'].includes(state) ? state : null, archived: state ? null : url.searchParams.get('archived') === '1', images: url.searchParams.get('kind') === 'image' });
+        const result = await assetPage(env.CMS_DB, { cursor: url.searchParams.get('cursor'), query: url.searchParams.get('q') ?? '', state: ['active','archived','trash'].includes(state) ? state : null, archived: state ? null : url.searchParams.get('archived') === '1', images: url.searchParams.get('kind') === 'image', fonts: url.searchParams.get('kind') === 'font' });
         return json(result);
       }
       if (url.pathname === '/admin/api/managed-svg') {
@@ -85,7 +84,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const payloadHash = await digest(JSON.stringify({ expectedVersion: body.expectedVersion, expectedHash: body.expectedHash, projectHash: body.projectHash, reverse: body.reverse }));
       const replay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
       if (replay) return json(replay);
-      const stored = await readSite(env.CMS_DB);
+      const stored = await readSite(env.CMS_DB, undefined, { raw: true });
       if (!stored || stored.version !== body.expectedVersion || await digest(JSON.stringify(stored.project)) !== body.expectedHash) throw new HttpError(409, 'Huvudrevisionen ändrades. Migreringen skrev ingenting.');
       if (stored.project.schemaVersion === (body.reverse ? 1 : 2)) throw new HttpError(409, 'Huvudrevisionen har redan det valda formatet.');
       const candidate = body.reverse ? toLegacyProject(stored.project, seed) : storedProject(stored.project);
@@ -118,7 +117,13 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       }
       throw new HttpError(422, 'SVG-sparningens fas är ogiltig.');
     }
-    if (['/admin/api/asset-metadata', '/admin/api/asset-usage', '/admin/api/asset-lifecycle'].includes(url.pathname)) {
+    if (url.pathname === '/admin/api/asset-usage') {
+      const body = await readJson(request, 1024);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string' || Object.keys(body).some(key => key !== 'id')) throw new HttpError(422, 'Välj en resurs för historikkontrollen.');
+      const builtin = seed.assets.find(asset => asset.id === body.id);
+      return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }));
+    }
+    if (['/admin/api/asset-metadata', '/admin/api/asset-lifecycle'].includes(url.pathname)) {
       const body = await readJson(request, 16 * 1024 * 1024);
       const builtin = seed.assets.find(asset => asset.id === body.id);
       if (url.pathname === '/admin/api/asset-metadata') {
@@ -126,20 +131,15 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         return json({ asset: builtin ? await updateBuiltinAsset(env.CMS_DB, builtin, patch) : await updateAsset(env.CMS_DB, id, patch) });
       }
       const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
-      if (url.pathname === '/admin/api/asset-usage') return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }, project));
       const input = { action: body.action, baseVersion: body.baseVersion, baseSiteVersion: body.baseSiteVersion, project };
       return json(builtin ? await transitionBuiltinAsset(env.CMS_DB, builtin, input) : await transitionAsset(env, { id: body.id, ...input }));
     }
-    if (['/admin/api/replace-resource', '/admin/api/resource-usage'].includes(url.pathname)) {
+    if (url.pathname === '/admin/api/replace-resource') {
       const body = await readJson(request, 16 * 1024 * 1024);
       const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
       const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
       const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
       const assets = resourceCatalog(builtinSeed, selectedAssets, project);
-      if (url.pathname.endsWith('/resource-usage')) {
-        const counts = resourceReferences(project, url.origin);
-        return json({ counts: Object.fromEntries([...counts].map(([src, count]) => [src, count])) });
-      }
       const previous = assets.find(asset => asset.id === body.fromId), next = assets.find(asset => asset.id === body.toId && !asset.builtin && !asset.trashed);
       if (!previous || !next) throw new HttpError(404, 'Filen som ska ersättas eller den nya filen saknas.');
       const result = replaceResource(project, previous, next, url.origin);
@@ -255,8 +255,6 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash }));
     }
-    const asset = url.pathname.match(/^\/admin\/api\/assets\/([0-9a-f-]{36})$/);
-    if (asset) return json(await updateAsset(env.CMS_DB, asset[1], await readJson(request, 4096)));
     throw new HttpError(404, 'Åtgärden finns inte.');
   } catch (error) { return errorResponse(error, new URL(request.url).pathname.split('/')[3]); }
 }

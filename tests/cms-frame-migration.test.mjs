@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { seed, legacyInitial } from '../.generated/cms-seed.mjs';
 import { frameMigration } from '../scripts/cms-migrate-frame.mjs';
+import { pruneRendered } from '../scripts/cms-prune-rendered.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
@@ -80,5 +81,48 @@ test('B8: a full Save committed before the format change replays its canonical l
     assert.equal(next.status, 200, await next.clone().text());
     assert.equal((await readSite(runtime.db)).project.schemaVersion, 2);
     assert.equal((await readSite(runtime.db)).version, 2);
+  } finally { await runtime.close(); }
+});
+
+test('B8/A17/C1: pruning rendered history preserves raw migration CAS and reverse conversion', async () => {
+  const runtime = await cmsRuntime();
+  try {
+    const legacy = structuredClone(legacyInitial);
+    legacy.pages[0].project = { components: false };
+    const save = (project, baseVersion) => publishSite(runtime.db, { project, baseVersion, requestId: crypto.randomUUID(), actor: runtime.email });
+    await save(legacy, 0);
+    await save(legacy, 1);
+    const source = await readSite(runtime.db, undefined, { raw: true });
+    const intent = frameMigration(source, seed);
+    assert.equal((await readSite(runtime.db)).project.pages[0].project, null, 'Ordinary reads discard unused editor metadata');
+    const now = Date.now() + 26 * 3600000;
+    const prune = () => pruneRendered(sql => runtime.db.prepare(sql).all(), { apply: true, now: () => now, log() {} });
+    const count = async version => (await runtime.db.prepare("SELECT count(*) AS n FROM cms_rendered WHERE version=? AND path NOT IN ('@resources','@email')").bind(version).first()).n;
+    assert.ok((await prune()).rowsDeleted > 0);
+    assert.equal(await count(1), 0);
+    assert.ok(await count(2) > 0, 'The head keeps its rendered rows');
+    assert.deepEqual((await readSite(runtime.db, undefined, { raw: true })).project, source.project);
+    const cookie = `CF_Authorization=${await runtime.token()}`;
+    const migrate = intent => {
+      const { project: _project, ...body } = intent;
+      return runtime.mf.dispatchFetch(runtime.url + '/admin/api/migrate-frame', { method: 'POST', headers: { Cookie: cookie, Origin: runtime.url, 'Content-Type': 'application/json', 'X-CMS-Request': '1' }, body: JSON.stringify({ ...body, requestId: crypto.randomUUID() }) });
+    };
+    const forward = await migrate(intent);
+    assert.equal(forward.status, 200, await forward.clone().text());
+    const migrated = await readSite(runtime.db);
+    assert.equal(migrated.version, 3);
+    await save(migrated.project, 3);
+    await prune();
+    assert.equal(await count(3), 0, 'Even the historical @frame row may expire');
+    assert.ok(await count(4) > 0);
+    const reverse = frameMigration(await readSite(runtime.db, undefined, { raw: true }), seed, { reverse: true });
+    const rollback = await migrate(reverse);
+    assert.equal(rollback.status, 200, await rollback.clone().text());
+    const restored = await readSite(runtime.db);
+    assert.equal(restored.version, 5);
+    assert.equal(restored.project.schemaVersion, 1);
+    assert.ok(restored.project.pages.every(page => page.html.includes('<footer')));
+    assert.equal((await readSite(runtime.db, 3)).project.schemaVersion, 2);
+    assert.deepEqual((await readSite(runtime.db, 1, { raw: true })).project, legacy, 'Pruning leaves every compressed revision available');
   } finally { await runtime.close(); }
 });

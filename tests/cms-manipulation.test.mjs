@@ -370,4 +370,10 @@ test('A1b over the API: studio frame and main cases keep their outcomes on previ
       if (expected instanceof RegExp) assert.match(text, expected, `${label} (${name})`);
     }
   }
+  const r1 = editStudio(framed, '/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); });
+  const rejected = await admin('asset-lifecycle', { id: seed.assets[0].id, project: r1, action: 'archive', baseVersion: 0 });
+  assert.equal(rejected.status, 422);
+  assert.match(await rejected.text(), ATTRIBUTE);
+  const history = await admin('asset-usage', { id: seed.assets[0].id });
+  assert.equal(history.status, 200, await history.clone().text());
 });

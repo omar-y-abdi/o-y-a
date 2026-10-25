@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/public-test.mjs';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -65,7 +65,6 @@ function assertLayout(state) {
 test.beforeAll(async () => { await mkdir(OUTPUT, { recursive: true }); });
 
 test.describe('all 240 production card exports', () => {
-  test.describe.configure({ retries: 1 });
   for (const card of BANK) {
     test(`${card.id} exports valid PNG`, async ({ page }, testInfo) => {
       const browserErrors = [];

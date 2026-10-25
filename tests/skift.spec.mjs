@@ -50,6 +50,8 @@ test('integrated game supports input, pause, persisted settings and district che
   await page.setViewportSize({ width: 1440, height: 900 });
   await openGame(page);
   await expect(page.locator('.site-header .brand')).toHaveAttribute('aria-label', 'Omar Yusuf, startsida');
+  await expect(page.locator('.primary-nav')).toHaveAttribute('aria-label', 'Huvudmeny');
+  for (const selector of ['.footer-bottom nav a', '.consent-banner p a', '.skip-link']) await expect(page.locator(selector).first()).toHaveCSS('text-decoration-line', 'underline');
   await page.locator('#start-button').click();
   const first = await snapshot(page);
   await page.keyboard.down('d');
@@ -74,6 +76,27 @@ test('integrated game supports input, pause, persisted settings and district che
   expect(restored.settings.sound).toBe(false); expect(restored.settings.language).toBe('en');
   await expect(page.locator('#new-button')).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test('a warm return reuses the versioned bootstrap and game and still starts a run', { tag: '@webgl' }, async ({ page, context }) => {
+  const session = await context.newCDPSession(page);
+  await session.send('Network.enable');
+  const cached = new Set(), responses = new Map();
+  session.on('Network.requestServedFromCache', ({ requestId }) => cached.add(requestId));
+  session.on('Network.responseReceived', ({ requestId, response }) => {
+    if (/\/(?:play\/skift\/assets\/app\.js|assets\/skift-bootstrap\.[A-Z0-9]{8}\.mjs)/.test(new URL(response.url).pathname)) responses.set(requestId, response);
+  });
+  await openGame(page);
+  expect(responses.size).toBe(2);
+  await page.goto(runtime.url + '/om/');
+  cached.clear(); responses.clear();
+  await openGame(page);
+  expect(responses.size).toBe(2);
+  const network = [...responses].filter(([id, response]) => !response.fromDiskCache && !cached.has(id)).map(([, response]) => response.url);
+  expect(network).toEqual([]);
+  await page.locator('#start-button').click();
+  expect((await snapshot(page)).mode).toBe('play');
+  await session.detach();
 });
 
 test('mobile game keeps touch controls visible and plays after resize', { tag: '@webgl' }, async ({ browser }) => {

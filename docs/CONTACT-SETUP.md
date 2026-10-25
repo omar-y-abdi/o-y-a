@@ -42,7 +42,7 @@ Detta värde används för HMAC av hastighetsnycklar och idempotens, inte för b
 
 ## 4. Publicera på din vanliga väg
 
-Behåll din befintliga repo-/Cloudflare-koppling. Byggkommandot är `npm run build`; statiska filer ligger i `dist/` och Workern i `src/worker.mjs`. Om du använder Wrangler direkt:
+Behåll din befintliga repo-/Cloudflare-koppling. Workers Builds använder inget separat byggkommando: deploykommandot `npm run deploy:cloudflare` bygger först. Statiska filer skapas i `dist/` och Workern finns i `src/worker.mjs`. För manuell verifiering och publicering:
 
 ```sh
 npm run edge:check &&
@@ -79,4 +79,4 @@ GIF-filen är färdig och används inne i kvittot. En avsändarbild i Gmail, Out
 
 API:t accepterar bara samma origin, JSON, begränsad kroppsstorlek, tillåtna fält, giltiga kontaktuppgifter och ett serververifierat Turnstile-svar. Samma försök får en HMAC-baserad idempotensnyckel hos Resend. Inget vanligt inmatningsfel eller leverantörsfel ger ett låtsat lyckat utskick.
 
-Läs också [integritetsbesluten](revision/PRIVACY-DECISIONS.md). Verkliga leverantörsavtal, eventuell överföring, kontologgar, mottagarbrevlådans hantering och gallring behöver motsvara policyn. Detta paket är inte en juridisk certifiering.
+Läs också [integritetsbesluten](PRIVACY-DECISIONS.md). Verkliga leverantörsavtal, eventuell överföring, kontologgar, mottagarbrevlådans hantering och gallring behöver motsvara policyn. Detta paket är inte en juridisk certifiering.

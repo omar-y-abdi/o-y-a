@@ -54,11 +54,22 @@ test('R10: stale metadata writes cannot reverse another tab archive', async () =
   const id = crypto.randomUUID();
   const upload = await request('/admin/api/upload', { method: 'POST', headers: { 'Cf-Access-Jwt-Assertion': token, Origin: origin, 'Content-Type': 'application/octet-stream', 'X-CMS-Request': '1', 'X-CMS-Upload-Id': id, 'X-CMS-Filename': 'review.png' }, body: await readFile('public/mail/omar-smile.png') });
   assert.equal(upload.status, 201);
-  const fields = { name: 'Review image', alt: '', baseVersion: 0 };
-  assert.equal((await admin('assets/' + id, { ...fields, archived: true })).status, 200);
-  assert.equal((await admin('assets/' + id, { ...fields, name: 'Stale rename', archived: false })).status, 409);
-  const archived = await (await admin('assets?state=archived')).json();
-  assert.equal(archived.items.find(asset => asset.id === id)?.archived, true);
+  const asset = await upload.json();
+  const state = await (await admin('state')).json();
+  const archive = await admin('asset-lifecycle', { id, action: 'archive', baseVersion: asset.version, baseSiteVersion: state.version, project: state.project });
+  assert.equal(archive.status, 200, await archive.clone().text());
+  const current = (await archive.json()).asset;
+  assert.equal(current.version, asset.version + 1);
+  const stale = await admin('asset-metadata', { id, name: 'Stale rename', alt: '', archived: false, baseVersion: asset.version });
+  assert.equal(stale.status, 409, await stale.clone().text());
+  const listing = await admin('assets?state=archived');
+  assert.equal(listing.status, 200, await listing.clone().text());
+  const archived = (await listing.json()).items.find(item => item.id === id);
+  assert.equal(archived?.archived, true);
+  assert.equal(archived.name, asset.name);
+  assert.equal(archived.version, current.version);
+  const removed = await admin('assets/' + id, { name: 'Removed route rename', alt: '', archived: false, baseVersion: current.version });
+  assert.equal(removed.status, 404);
 });
 
 test('R11: removing a dialog label cannot leave a dangling accessible-name reference', () => {

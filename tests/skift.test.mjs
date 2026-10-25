@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { parseFragment, serialize, serializeOuter } from 'parse5';
 import { elements } from '../src/cms/html-tree.mjs';
 import { legacyInitial as initial, seed as frameSeed, built } from '../.generated/cms-seed.mjs';
@@ -134,11 +135,12 @@ test('old D1 publication serves the built game and real assets; game texts survi
   assert.equal(await game.text(), build);
   assert.match(game.headers.get('content-security-policy'), /media-src 'self' blob:/);
   assert.doesNotMatch(publicHome.headers.get('content-security-policy'), /media-src/);
-  for (const [path, type] of [['assets/app.js', /javascript/], ['audio/shift.mp3', /audio\/mpeg/], ['audio/dash.wav', /audio\/wav|audio\/x-wav/]]) {
+  const gameHash = createHash('sha256').update(await readFile('dist/play/skift/assets/app.js')).digest('hex').slice(0, 12);
+  for (const [path, type] of [[`assets/app.js?v=${gameHash}`, /javascript/], ['audio/shift.mp3', /audio\/mpeg/], ['audio/dash.wav', /audio\/wav|audio\/x-wav/]]) {
     const response = await runtime.mf.dispatchFetch(runtime.url + '/play/skift/' + path);
     assert.equal(response.status, 200, path);
     assert.match(response.headers.get('content-type'), type);
-    assert.doesNotMatch(response.headers.get('cache-control') ?? '', /immutable/);
+    assert.equal(response.headers.get('cache-control'), path.startsWith('assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=86400');
   }
   const state = await (await admin('state')).json();
   assert.equal(typeof state.project.runtime['runtime.skift.sv.intro'], 'string', 'New landing texts must be editable before the first migrated Save');
@@ -153,6 +155,9 @@ test('old D1 publication serves the built game and real assets; game texts survi
   const live = await runtime.mf.dispatchFetch(runtime.url + '/play/skift/');
   assert.equal(live.headers.get('x-cms-version'), '2', 'Only the frame follows the CMS publication');
   const liveHtml = await live.text();
+  const inlineRuntime = liveHtml.match(/<script type="application\/json" id="cms-runtime">([\s\S]*?)<\/script>/);
+  assert.ok(inlineRuntime, 'The composed game frame includes the published runtime block');
+  assert.equal(JSON.parse(inlineRuntime[1])['runtime.skift.sv.intro'], 'CMS-intro för skiftet.');
   const main = html => serializeOuter(elements(parseFragment(html)).find(node => node.tagName === 'main')).replace(/ data-cms-node="[^"]+"/g, '');
   assert.equal(main(liveHtml), main(build), 'Publication replaces only the frame around the complete trusted game main');
   assert.match(liveHtml, /aria-current="page"/);

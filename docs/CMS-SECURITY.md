@@ -36,6 +36,6 @@ A complete rollback considers Worker code, D1 content/schema and R2 references t
 
 ## Verification scope
 
-Node tests cover JWT rejection, XSS and CSS payloads, origins, route bypasses, size bounds, storage rollback, stale writes and retries. Integration tests run actual workerd, D1 and R2 using a locally signed identity fixture. Browser tests cover the real editor and published responses; remote staging additionally verifies Cloudflare Access and deployed persistence. These checks do not certify absence of every vulnerability or replace control of the owner's email account.
+Node tests cover JWT rejection, XSS and CSS payloads, origins, route bypasses, size bounds, storage rollback, stale writes and retries. Integration tests run actual workerd, D1 and R2 using a locally signed identity fixture. Browser tests cover the real editor and locally published responses. Cloudflare Access and deployed persistence require a separately authorized production check; branch previews share production storage. These checks do not certify absence of every vulnerability or replace control of the owner's email account.
 
-The completion-package verification boundary and hosted Images prerequisites are recorded in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md); do not infer remote sign-off from offline codec tests.
+Local verification limits and hosted Images prerequisites are recorded in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md); do not infer remote sign-off from offline codec tests.

@@ -40,9 +40,43 @@ const TYPES = {
 };
 
 const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false }, sent: null, sentError: '', status: {}, settings: null, settingsError: '' };
-// Skriv mejl lives only here: never part of the project, never saved by Save.
-let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null, sending = false;
+// Skriv mejl is never part of the project or Save. Frozen sends survive reload.
+let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null, sending = false, restored = false;
 const testRequests = new Map();
+const testSending = new Set();
+const FROZEN_STORAGE = 'studio-mail-frozen';
+
+// Only mail bodies and their requestIds belong here, never contact settings.
+function persistFrozen() {
+  try {
+    const tests = [...testRequests].filter(([, request]) => request.frozen);
+    const mail = compose?.frozen ? { requestId: compose.requestId, body: compose.fingerprint, scheduledAt: compose.scheduledAt, attachments: compose.attachments } : null;
+    if (!mail && !tests.length) sessionStorage.removeItem(FROZEN_STORAGE);
+    else sessionStorage.setItem(FROZEN_STORAGE, JSON.stringify({ compose: mail, tests }));
+  } catch { toast('Det låsta mejlet kunde inte sparas i flikens lagring. Behåll fliken öppen och kontrollera utskicket i Resend innan du skriver ett nytt.', true); }
+}
+
+function restoreFrozen() {
+  if (restored) return;
+  restored = true;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(FROZEN_STORAGE) ?? 'null');
+    if (!saved) return;
+    const tests = new Map(saved.tests);
+    for (const [kind, request] of tests) {
+      if (!KINDS[kind] || !request.frozen || typeof request.requestId !== 'string' || JSON.parse(request.body).template !== kind) throw new Error('Invalid frozen test mail');
+    }
+    let mail = null;
+    if (saved.compose) {
+      const { requestId, body, scheduledAt, attachments } = saved.compose, parsed = JSON.parse(body);
+      if (typeof requestId !== 'string' || !Array.isArray(parsed.blocks) || !Array.isArray(attachments) || !parsed.identity) throw new Error('Invalid frozen compose');
+      mail = { ...parsed, requestId, fingerprint: body, scheduledAt, attachments, frozen: true };
+    }
+    compose = mail;
+    for (const [kind, request] of tests) testRequests.set(kind, request);
+    state.tab = mail ? 'compose' : tests.keys().next().value ?? state.tab;
+  } catch { toast('Flikens låsta mejl kunde inte återställas. Kontrollera utskicket i Resend: https://resend.com/emails innan du skriver ett nytt.', true); }
+}
 
 const emailOf = project => project.email ?? DEFAULT_EMAIL;
 const keys = path => path.split(/[.\[\]]+/).filter(Boolean);
@@ -52,8 +86,10 @@ const panel = () => root.querySelector('[data-email-panel]');
 const mounted = () => Boolean(root?.isConnected);
 const composing = () => compose ??= newCompose();
 const composeLocked = () => sending || Boolean(compose?.frozen);
+const testLocked = () => testSending.has(state.tab) || Boolean(testRequests.get(state.tab)?.frozen);
+const templateEmail = () => testRequests.get(state.tab)?.frozen ? JSON.parse(testRequests.get(state.tab).body).email ?? DEFAULT_EMAIL : emailOf(ctx.project());
 // The template-shaped object being edited: a draft template, or the compose state.
-const target = () => state.tab === 'compose' ? composing() : emailOf(ctx.project()).templates[state.tab];
+const target = () => state.tab === 'compose' ? composing() : templateEmail().templates[state.tab];
 const basePath = () => state.tab === 'compose' ? '' : `templates.${state.tab}.`;
 const withPath = (scope, path) => [...scope.querySelectorAll('[data-email-path]')].find(node => node.dataset.emailPath === path);
 const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -81,7 +117,7 @@ function fixAlt(object, path) {
   else if (!slots && block.alt === null) block.alt = '';
 }
 function commit(path, value) {
-  if (state.tab === 'compose' && composeLocked()) return;
+  if (state.tab === 'compose' ? composeLocked() : testLocked()) return;
   const apply = object => { setPath(object, path, value); fixAlt(object, path); };
   if (EMAIL_PATH.test(path)) update(apply, `email-${path}`); else apply(composing());
 }
@@ -150,7 +186,7 @@ function blocksSection(template, base, kind) {
 }
 
 function designHtml(kind, template, base) {
-  const email = emailOf(ctx.project()), d = template.design, dp = `${base}design.`;
+  const email = kind === 'compose' ? emailOf(ctx.project()) : templateEmail(), d = template.design, dp = `${base}design.`;
   const picked = template.blocks.findIndex(block => block.id === state.selected), block = template.blocks[picked];
   const blockGroup = !block ? '<p class="email-hint">Välj ett block i listan för att ändra dess text här.</p>'
     : STYLED.has(block.type) ? group(`Valt block · ${TYPES[block.type].name}`, styleFields(block, rel => `${base}blocks[${picked}].${rel}`))
@@ -160,8 +196,10 @@ function designHtml(kind, template, base) {
 }
 
 function templateHtml(kind) {
-  const template = target(), base = basePath(), textPath = `${base}text`;
+  const template = target(), base = basePath(), textPath = `${base}text`, frozen = testRequests.get(kind)?.frozen;
   return `<h2 class="email-panel-title">${KINDS[kind]}</h2>
+${frozen ? '<p class="email-hint" role="status">Ej bekräftat. Provmejlet kan ha skickats. Utkastet är låst tills utskicket bekräftas eller du kastar det.</p>' : ''}
+<fieldset class="email-group" style="border:0;padding:0;margin:0" aria-label="Provmejlets innehåll" data-email-test-fields${testLocked() ? ' disabled' : ''}>
 ${kind === 'receipt' ? check('Skicka kvitto till besökaren', `${base}enabled`, template.enabled) : ''}
 ${designHtml(kind, template, base)}
 ${field('Ämne', `${base}subject`, textInput(`${base}subject`, template.subject, 200))}
@@ -169,7 +207,8 @@ ${field('Förtext', `${base}preheader`, textInput(`${base}preheader`, template.p
 ${kind === 'notification' ? '<p class="email-hint">Fält: {namn} {mejl} {meddelande}</p>' : ''}
 ${blocksSection(template, base, kind)}
 <details class="email-text" data-email-details="text"${state.open.text ? ' open' : ''}><summary>Textversion</summary>${field('Textversion utan formatering', textPath, area(textPath, template.text, 10000, 8), 'Visas i mejlprogram som inte kan visa formatering.')}<button type="button" class="small-button" data-email-text-build>Skapa från blocken</button></details>
-<div class="email-actions"><button type="button" class="small-button primary" data-email-test>Provmejl</button><span class="email-hint">Skickar mejlet med exempeluppgifter till din egen adress.</span></div>`;
+</fieldset>
+<div class="email-actions"><button type="button" class="small-button primary" data-email-test${testSending.has(kind) ? ' disabled' : ''}>${frozen ? 'Försök igen' : 'Provmejl'}</button>${frozen ? `<button type="button" class="small-button danger" data-email-test-discard${testSending.has(kind) ? ' disabled' : ''}>Kasta utkastet</button>` : '<span class="email-hint">Skickar mejlet med exempeluppgifter till din egen adress.</span>'}</div>`;
 }
 
 const PANELS = { receipt: () => templateHtml('receipt'), notification: () => templateHtml('notification'), compose: composeHtml, sent: () => sentHtml(), settings: () => settingsHtml() };
@@ -193,7 +232,7 @@ function attachmentTotal(mail) {
 function composeHtml() {
   const mail = composing(), email = mail.frozen ? JSON.parse(mail.fingerprint).identity : emailOf(ctx.project()), locked = composeLocked() ? ' disabled' : '';
   return `<h2 class="email-panel-title">Skriv mejl</h2>
-<p class="email-hint">Från: ${escape(senderAddress(email))}. ${mail.frozen ? 'Avsändaren är låst till detta utskick.' : 'Avsändaren kommer från webbplatsens aktuella utkast, även osparade ändringar, och ändras under Kvitto eller Avisering.'} Mejlet du skriver här finns bara här och sparas inte med webbplatsen.</p>
+<p class="email-hint">Från: ${escape(senderAddress(email))}. ${mail.frozen ? 'Avsändaren är låst till detta utskick.' : 'Avsändaren kommer från webbplatsens aktuella utkast, även osparade ändringar, och ändras under Kvitto eller Avisering.'} Mejlet sparas inte med webbplatsen. Ett låst utskick bevaras i den här fliken tills det bekräftas eller kastas.</p>
 <p class="email-hint">Bilder från Resurser skickas som de är publicerade; osparade resursändringar syns bara i förhandsvisningen.</p>
 ${mail.frozen ? '<p class="email-hint" role="status">Ej bekräftat. Mejlet kan ha skickats. Utkastet är låst tills utskicket bekräftas eller du kastar det.</p>' : ''}
 <fieldset class="email-group" style="border:0;padding:0;margin:0" aria-label="Mejlets innehåll" data-email-compose-fields${locked}>
@@ -332,16 +371,21 @@ async function sendMail(button) {
   }
   const body = JSON.parse(mail.fingerprint);
   await run(button, async () => {
+    const wasFrozen = mail.frozen;
+    mail.frozen = true;
+    persistFrozen();
     lockSend(true);
     try {
       const result = await api('mail/send', { requestId: mail.requestId, ...body });
       compose = null;
+      persistFrozen();
       state.sent = null;
       state.status = {};
       toast(result.scheduledAt ? `Mejlet är schemalagt ${dateLabel(result.scheduledAt)}.` : 'Mejlet är skickat.');
       if (mounted() && state.tab === 'compose') { selectTab('sent'); root.querySelector('[data-email-tab=sent]').focus(); }
     } catch (error) {
-      mail.frozen = Boolean(error.details?.uncertain) || !(error.details?.refused || error.definitive);
+      mail.frozen = wasFrozen || Boolean(error.details?.uncertain) || !(error.details?.refused || error.definitive);
+      persistFrozen();
       state.sent = null;
       throw error;
     } finally { lockSend(false); }
@@ -352,6 +396,7 @@ async function discardCompose() {
   if (sending || !compose?.frozen) return;
   if (!await confirmAction({ title: 'Kasta utkastet?', message: 'Mejlet kan redan ha skickats. Kontrollera under Skickade eller i Resend innan du skriver ett nytt mejl.', action: 'Kasta utkastet', danger: true })) return;
   compose = null;
+  persistFrozen();
   renderPanel(scope => withPath(scope, 'subject'));
 }
 
@@ -364,7 +409,7 @@ function statusCell(item) {
   if (item.canceledAt) return `Avbrutet ${dateLabel(item.canceledAt)}`;
   // Resend may hold this mail although its id was never stored (E4 finalize failed),
   // so status and Avbryt have nothing to ask about yet.
-  if (!item.confirmed) return `<span data-email-unconfirmed>${item.kind === 'custom' ? 'Ej bekräftat. Mejlet kan ha skickats. Tryck Skicka igen i samma flik för att bekräfta det, eller kontrollera i' : 'Ej bekräftat. Provmejlet kan ha skickats. Kontrollera i'} <a href="https://resend.com/emails" target="_blank" rel="noopener">Resend</a>.</span>`;
+  if (!item.confirmed) return `<span data-email-unconfirmed>${item.kind === 'custom' ? 'Ej bekräftat. Mejlet kan ha skickats. Tryck Försök igen i samma flik för att bekräfta det, eller kontrollera i' : 'Ej bekräftat. Provmejlet kan ha skickats. Kontrollera i'} <a href="https://resend.com/emails" target="_blank" rel="noopener">Resend</a>.</span>`;
   if (status?.phase === 'loading') return '<span role="status">Hämtar status…</span>';
   if (status?.phase === 'restricted') return `<span data-email-restricted>Nyckeln saknar behörighet för status och avbryt. <a href="https://resend.com/emails/${escape(encodeURIComponent(item.id))}" target="_blank" rel="noopener">Se utskicket i Resend</a>.</span>`;
   const text = status?.phase === 'done' ? `<strong data-email-status-label>${escape(status.label)}</strong>` : status?.phase === 'error' ? `<span class="email-status-error" role="alert">${escape(status.message)}</span>` : '';
@@ -513,7 +558,7 @@ async function saveSettings(button) {
 function previewMail() {
   const project = ctx.project(), options = { resources: resolveSlots(project.resources, ctx.assets()), origin: location.origin };
   if (state.tab === 'compose') { const mail = composing(), { subject, preheader, blocks, design } = mail; return renderCustom({ subject, preheader, blocks, design }, mail.frozen ? JSON.parse(mail.fingerprint).identity : emailOf(project), options); }
-  return renderEmail(emailOf(project), state.tab, { ...options, visitor: SAMPLE });
+  return renderEmail(templateEmail(), state.tab, { ...options, visitor: SAMPLE });
 }
 
 // The frame is a fixed logical size, scaled down to the pane (as app.mjs preview() does).
@@ -642,7 +687,7 @@ function readField(element) {
 }
 
 function onField(event) {
-  if (state.tab === 'compose' && composeLocked()) return;
+  if (state.tab === 'compose' ? composeLocked() : testLocked()) return;
   const element = event.target;
   if (element.dataset?.emailAdd !== undefined) { if (element.value) addBlock(element.dataset.emailAdd, element.value); return; }
   const chips = element.dataset?.emailChipInput;
@@ -725,23 +770,48 @@ async function run(button, action) {
 
 async function sendTest(button) {
   const kind = state.tab;
+  if (testSending.has(kind)) return;
   await run(button, async () => {
-    const email = emailOf(ctx.project());
-    const fingerprint = JSON.stringify({ sender: email.sender, shell: email.shell, template: email.templates[kind] });
-    if (testRequests.get(kind)?.fingerprint !== fingerprint) testRequests.set(kind, { requestId: crypto.randomUUID(), fingerprint });
+    const body = JSON.stringify({ template: kind, email: ctx.project().email ?? null });
+    if (!testRequests.get(kind)?.frozen && testRequests.get(kind)?.body !== body) testRequests.set(kind, { requestId: crypto.randomUUID(), body, frozen: false });
     const request = testRequests.get(kind);
-    await api('mail/test', { requestId: request.requestId, template: kind, email: ctx.project().email ?? null });
-    if (testRequests.get(kind) === request) testRequests.delete(kind);
-    state.sent = null;
-    const view = state.settings ?? await api('contact').catch(() => null), to = view?.values.CONTACT_TO.value;
-    toast(to ? `Provmejlet är skickat till ${to}.` : 'Provmejlet är skickat.');
+    const wasFrozen = request.frozen;
+    request.frozen = true;
+    testSending.add(kind);
+    persistFrozen();
+    renderPanel();
+    try {
+      await api('mail/test', { requestId: request.requestId, ...JSON.parse(request.body) });
+      testRequests.delete(kind);
+      const to = state.settings?.values.CONTACT_TO.value;
+      toast(to ? `Provmejlet är skickat till ${to}.` : 'Provmejlet är skickat.');
+    } catch (error) {
+      request.frozen = wasFrozen || Boolean(error.details?.uncertain) || !(error.details?.refused || error.definitive);
+      if (!request.frozen && error.details?.refused) testRequests.delete(kind);
+      throw error;
+    } finally {
+      state.sent = null;
+      testSending.delete(kind);
+      persistFrozen();
+      if (mounted() && state.tab === kind) renderPanel();
+    }
   });
+}
+
+async function discardTest() {
+  const kind = state.tab;
+  if (testSending.has(kind) || !testRequests.get(kind)?.frozen) return;
+  if (!await confirmAction({ title: 'Kasta utkastet?', message: 'Provmejlet kan redan ha skickats. Kontrollera under Skickade eller i Resend innan du skickar ett nytt provmejl.', action: 'Kasta utkastet', danger: true })) return;
+  testRequests.delete(kind);
+  persistFrozen();
+  renderPanel();
 }
 
 function onClick(event) {
   const button = event.target.closest('button');
   if (!button || !root.contains(button)) return;
   if (button.closest('[data-email-compose-fields]') && composeLocked()) return;
+  if (button.closest('[data-email-test-fields]') && testLocked()) return;
   const id = button.closest('[data-email-block]')?.dataset.emailBlock;
   if (button.dataset.emailTab) return selectTab(button.dataset.emailTab);
   if ('emailBack' in button.dataset) return ctx.back();
@@ -750,6 +820,7 @@ function onClick(event) {
   if ('emailRemove' in button.dataset) return removeBlock(id);
   if ('emailTextBuild' in button.dataset) return run(button, buildText);
   if ('emailTest' in button.dataset) return sendTest(button);
+  if ('emailTestDiscard' in button.dataset) return discardTest().catch(report);
   if (button.dataset.emailChipRemove) return removeAddress(button.dataset.emailChipRemove, button.dataset.emailAddress);
   if ('emailPickResource' in button.dataset) return pickResource();
   if (button.dataset.emailAttachmentRemove !== undefined) return removeAttachment(Number(button.dataset.emailAttachmentRemove)).catch(report);
@@ -801,6 +872,7 @@ const shell = () => `<div class="special-heading"><div><p class="special-kicker"
 // Called by showSpecial('email'). `context`: { project(), change(project, group), assets(), back() }.
 export function mountEmail(stage, context) {
   ctx = context;
+  restoreFrozen();
   observer?.disconnect();
   clearTimeout(previewTimer);
   root = document.createElement('div');
