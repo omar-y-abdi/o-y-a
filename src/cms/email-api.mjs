@@ -57,8 +57,8 @@ async function resend(transport, key, path, { method = 'GET', body, idempotency,
   // A 409 can mean another same-key request is still running or was accepted
   // with different bytes. Neither response disproves delivery.
   if (status === 409) throw new HttpError(409, error?.name === 'concurrent_idempotent_requests'
-    ? 'Samma utskick behandlas redan. Vänta och försök igen med samma utskick.'
-    : 'Utskickets identitet används redan. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
+    ? 'Samma utskick behandlas redan. Det första försöket kan redan ha skickats. Vänta och försök igen med samma utskick. Kontrollera mejlet i Resend: https://resend.com/emails'
+    : 'Utskickets identitet används redan. Det första försöket kan redan ha skickats. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
   if (status === 429) throw refused(429, 'Resend begränsar takten. Vänta en minut.');
   throw new HttpError(503, UNAVAILABLE);
 }

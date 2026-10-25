@@ -172,7 +172,7 @@ test('test mail maps provider errors and is rate-limited', async () => {
     [() => Response.json({ name: 'invalid_api_key', message: 'no' }, { status: 401 }), 502, 'Nyckeln godtas inte av Resend. Klistra in en ny i Inställningar.'],
     [() => Response.json({ message: 'no' }, { status: 403 }), 502, 'Nyckeln godtas inte av Resend. Klistra in en ny i Inställningar.'],
     [() => Response.json({ name: 'validation_error', message: `The key ${KEY} or re_another_key is wrong` }, { status: 422 }), 422, 'Resend: The key [nyckel] or [nyckel] is wrong'],
-    [() => Response.json({ message: 'conflict' }, { status: 409 }), 409, 'Utskickets identitet används redan. Kontrollera mejlet i Resend: https://resend.com/emails'],
+    [() => Response.json({ message: 'conflict' }, { status: 409 }), 409, 'Utskickets identitet används redan. Det första försöket kan redan ha skickats. Kontrollera mejlet i Resend: https://resend.com/emails'],
     [() => Response.json({}, { status: 429 }), 429, 'Resend begränsar takten. Vänta en minut.'],
     [() => new Response('oops', { status: 500 }), 503, 'Resend svarar inte just nu. Försök igen; samma utskick skickas inte två gånger.'],
     [() => { throw new TypeError(`network ${KEY}`); }, 503, 'Resend svarar inte just nu. Försök igen; samma utskick skickas inte två gånger.'],
@@ -428,6 +428,8 @@ test('both Resend idempotency conflicts retain a fresh intent and its attachment
     const body = await response.json();
     assert.equal(body.details.uncertain, true);
     assert.equal(body.details.refused, undefined);
+    assert.match(body.error, /första försöket kan redan ha skickats/i);
+    assert.match(body.error, /Kontrollera.*https:\/\/resend.com\/emails/);
     assert.ok(await requestRow('mail/' + request.requestId));
     assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, 'mail/' + request.requestId);
   }

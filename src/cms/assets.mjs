@@ -145,6 +145,28 @@ function assertLifecycleInput(action, baseVersion, baseSiteVersion) {
 }
 function currentReferenceCount(project, src) { return resourceReferences(project).get(src) ?? 0; }
 
+async function recoverQueuedDelete(db, queued, current, { id, baseVersion, baseSiteVersion }) {
+  let snapshot;
+  try { snapshot = JSON.parse(queued.snapshot); } catch { /* The queue remains available for owner repair. */ }
+  const extension = queued.object_key.slice(id.length + 1);
+  if (!snapshot || snapshot.id !== id || snapshot.object_key !== queued.object_key || queued.object_key !== `${id}.${extension}` || !['png', 'jpg', 'gif', 'webp', 'avif', 'woff2'].includes(extension) || !/^[0-9a-f]{64}$/.test(snapshot.sha256) || !Number.isSafeInteger(snapshot.version) || snapshot.version < 0 || typeof snapshot.trashed_at !== 'string' || !snapshot.trashed_at) throw new HttpError(503, 'Den äldre resursraderingen har ogiltiga uppgifter. Bevara kön och kontrollera databasens backup.');
+  if (current && (current.object_key !== queued.object_key || current.sha256 !== snapshot.sha256)) throw new HttpError(409, 'Den äldre resursraderingen matchar inte den nuvarande filen. Inga uppgifter ändrades.');
+  if ((current?.version ?? snapshot.version) !== baseVersion) throw new HttpError(409, 'Resursen ändrades i en annan flik. Ladda om biblioteket.');
+  const columns = ['id', 'object_key', 'name', 'mime', 'bytes', 'width', 'height', 'alt', 'sha256', 'created_at', 'published_at', 'archived_at', 'version', 'validation_version', 'trashed_at', 'deleting_at'];
+  const values = columns.map(name => name === 'deleting_at' ? null : snapshot[name] ?? null);
+  // Move the old durable record back to canonical storage atomically. The exact
+  // queue row must still exist, so a delayed retry cannot recreate a file after
+  // another request consumed the queue and completed its deletion.
+  const [, consumed] = await db.batch([
+    db.prepare(`INSERT INTO cms_media(${columns.join(',')}) SELECT ${columns.map(() => '?').join(',')} WHERE NOT EXISTS (SELECT 1 FROM cms_media WHERE id = ?) AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_media_delete_queue WHERE id = ? AND object_key = ? AND snapshot = ?)`).bind(...values, id, baseSiteVersion, id, queued.object_key, queued.snapshot),
+    db.prepare('DELETE FROM cms_media_delete_queue WHERE id = ? AND object_key = ? AND snapshot = ? AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_media WHERE id = ? AND object_key = ? AND sha256 = ? AND version = ?)').bind(id, queued.object_key, queued.snapshot, baseSiteVersion, id, queued.object_key, snapshot.sha256, baseVersion),
+  ]);
+  if (!consumed.meta.changes && await db.prepare('SELECT id FROM cms_media_delete_queue WHERE id = ?').bind(id).first()) throw new HttpError(409, 'Resursen eller webbplatsen ändrades medan den äldre raderingen återställdes. Försök igen med aktuella uppgifter.');
+  const restored = await db.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+  if (restored && (restored.object_key !== queued.object_key || restored.sha256 !== snapshot.sha256)) throw new HttpError(409, 'Resursraderingens identitet ändrades. Inga filer raderades.');
+  return restored;
+}
+
 async function completeReservedDelete(env, row) {
   await env.CMS_MEDIA.delete(row.object_key);
   const removed = await env.CMS_DB.prepare('DELETE FROM cms_media WHERE id = ? AND deleting_at = ?').bind(row.id, row.deleting_at).run();
@@ -169,10 +191,18 @@ export async function assetUsage(env, asset) {
 export async function transitionAsset(env, { id, action, baseVersion, baseSiteVersion, project }) {
   assertLifecycleInput(action, baseVersion, baseSiteVersion);
   if (!UUID.test(id)) throw new HttpError(404, 'Filen finns inte.');
-  const current = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+  let current = await env.CMS_DB.prepare('SELECT * FROM cms_media WHERE id = ?').bind(id).first();
+  // Only an explicit delete can recover a historical delete intent. Reuse the
+  // current deletion checks after restoring its metadata, including history.
+  const queued = action === 'delete' ? await env.CMS_DB.prepare('SELECT * FROM cms_media_delete_queue WHERE id = ?').bind(id).first() : null;
+  if (queued) {
+    current = await recoverQueuedDelete(env.CMS_DB, queued, current, { id, baseVersion, baseSiteVersion });
+    if (!current) return { deleted: true, id, usage: { currentReferences: 0, historyReferences: 0 } };
+  }
   if (!current) throw new HttpError(404, 'Filen finns inte.');
   if (current.deleting_at) {
     if (action !== 'delete') throw new HttpError(409, 'Resursen håller redan på att raderas. Ladda om biblioteket.', { asset: record(current) });
+    if (queued && (currentReferenceCount(project, `/media/${current.object_key}`) || await retainedResourceUsage(env.CMS_DB, `/media/${current.object_key}`))) throw new HttpError(409, 'Den äldre resursraderingen används fortfarande i utkast eller historik. Inga filer raderades.');
     return completeReservedDelete(env, current);
   }
   const src = `/media/${current.object_key}`;

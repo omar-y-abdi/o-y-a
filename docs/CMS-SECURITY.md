@@ -26,6 +26,32 @@ Validation may reuse unchanged content from the server's trusted published basel
 
 R2 keys are immutable UUIDs. Upload parsing checks headers, bounded container integrity, size and dimensions; raster files must also decode through the CMS_IMAGES binding before registration. MIME is derived by the server. Existing unverified rows are checked before promotion under the media-integrity migration. WOFF2 has its separate bounded header policy; raster decoding is not a font-integrity certification. A private upload is not served publicly until used by a published revision. Archiving hides a file from selection but preserves bytes and historical URLs. Previously published files remain public after removal from a current page. Do not upload confidential files expecting later archival to revoke their old public URLs.
 
+The older `cms_media_delete_queue` remains recoverable. An explicit delete moves its matching snapshot back into canonical `cms_media` storage and consumes the queue in one D1 transaction, guarded by the exact snapshot, resource identity/version and current site version. The ordinary current-draft, retained-history and publication-CAS deletion checks then apply before R2 deletion. A newly referenced legacy file regains its metadata but its bytes are retained and deletion is rejected. Invalid snapshots, stale versions and conflicting current identities leave the records for owner review. If R2 deletion fails after handoff, the canonical `deleting_at` claim is retryable. Archive, restore and trash do not execute a queued deletion.
+
+An old queued record without a `cms_media` row is absent from the library. To recover it, first take the D1/R2 backup and rehearse on a copy described in [DEPLOYMENT.md](DEPLOYMENT.md). The owner can inspect only queue identifiers and recorded versions with this read-only command from the intended checkout:
+
+```sh
+npx wrangler d1 execute CMS_DB --remote --command "SELECT id, object_key, CASE WHEN json_valid(snapshot) THEN json_extract(snapshot, '$.version') END AS base_version FROM cms_media_delete_queue ORDER BY created_at, id"
+```
+
+Review one intended deletion at a time. A missing/non-integer version or unexpected object key needs backup inspection, not an invented value. If the resource already exists in the library, use its normal delete action with its current version. For a queue-only record, open the intended site's `/admin/` while authenticated and run the following in that tab's developer console, replacing only the reviewed identifier and integer version. This uses the existing Access session and write-guarded endpoint; it does not export a cookie or bypass validation.
+
+```js
+const id = 'REVIEWED_QUEUE_UUID';
+const baseVersion = 3; // Replace with the reviewed base_version from the queue.
+const stateResponse = await fetch('/admin/api/state');
+if (!stateResponse.ok) throw new Error(`State unavailable: ${stateResponse.status}`);
+const state = await stateResponse.json();
+const deletion = await fetch('/admin/api/asset-lifecycle', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-CMS-Request': '1' },
+  body: JSON.stringify({ id, action: 'delete', baseVersion, baseSiteVersion: state.version, project: state.project }),
+});
+console.info(deletion.status, await deletion.json());
+```
+
+A 409 requires review of current references/versions; do not automatically retry or suppress it. A storage failure can leave a canonical deletion claim, which is then visible in the library and can be retried normally. Re-read the queue and verify the resulting library state after the operation. Do not directly delete queued SQL rows or R2 keys.
+
 Current content limits: 64 pages, 2,000 wins, 8 MiB of serialized canonical project data, 1.5 million compressed revision bytes, 500,000 characters of HTML per page and 200,000 CSS characters per stylesheet. There is no separate character limit for discarded editor JSON. A public media upload is limited to 10 MiB, 8192 px per dimension and 32 megapixels. These are validation limits, not a promise of fast editing at every maximum simultaneously.
 
 Incoming JSON and public-media bodies have route-specific limits enforced while reading the stream. Private mail uploads currently check the declared size before streaming to R2 and compare R2's returned size afterward:
