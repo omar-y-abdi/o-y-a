@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { publishSite } from '../src/cms/store.mjs';
 import { initial } from '../.generated/cms-seed.mjs';
@@ -28,13 +29,6 @@ const copy = {
   'runtime.fold.status.folded': 'CMS rader hopvikta',
   'runtime.fold.status.expanded': 'CMS alla rader visas',
 };
-let runtime;
-test.beforeAll(async () => {
-  runtime = await cmsRuntime();
-  await publishSite(runtime.db, { project: { ...initial, runtime: copy }, baseVersion: 0, requestId: crypto.randomUUID(), actor: runtime.email });
-});
-test.afterAll(async () => runtime?.close());
-
 async function observeCsp(page) {
   await page.addInitScript(() => {
     window.__p2bViolations = [];
@@ -57,6 +51,13 @@ async function holdCopy(page) {
 }
 
 test.describe('public startup', () => {
+  let runtime;
+  test.beforeAll(async () => {
+    runtime = await cmsRuntime();
+    await publishSite(runtime.db, { project: { ...initial, runtime: copy }, baseVersion: 0, requestId: crypto.randomUUID(), actor: runtime.email });
+  });
+  test.afterAll(async () => runtime?.close());
+
   test('SKIFT shell handlers wait for the shared pending runtime copy before producing text', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await holdCopy(page);
@@ -90,6 +91,9 @@ test.describe('public startup', () => {
     await expect(page.locator('[data-privacy-dialog]')).toBeVisible();
     await expect(page.locator('[data-privacy-status]')).toHaveText(copy['runtime.privacy.status.unset']);
     await page.locator('[data-dialog-close]').click();
+    // Finish the dialog's asynchronous focus restoration before closing the menu.
+    await expect(page.locator('[data-privacy-dialog]')).toBeHidden();
+    await expect(page.locator('.site-footer [data-privacy-open]')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(menu).toHaveAttribute('aria-label', copy['runtime.nav.menu.open']);
     await expect(menu).toBeFocused();
@@ -232,4 +236,49 @@ test.describe('public startup', () => {
     expect(appRequests).toBe(1);
     expect(await page.evaluate(() => window.__p2bRuntimeRequests)).toBe(1);
   });
+});
+
+test.describe('privacy dialog pointer closure on published v185', () => {
+  let runtime;
+  test.beforeAll(async () => {
+    const project = JSON.parse(await readFile(new URL('./fixtures/cms-v185-project.json', import.meta.url), 'utf8'));
+    runtime = await cmsRuntime();
+    await publishSite(runtime.db, { project, baseVersion: 0, requestId: crypto.randomUUID(), actor: runtime.email });
+  });
+  test.afterAll(async () => runtime?.close());
+
+  for (const width of [390, 1440]) {
+    for (const path of ['/', '/play/skift/']) {
+      test(`${path} X closes the dialog and restores footer focus at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        // The privacy shell must work independently of the game's WebGL runtime.
+        await page.route('**/play/skift/assets/app.js', route => route.fulfill({ contentType: 'text/javascript', body: '' }));
+        const response = await page.goto(runtime.url + path, { waitUntil: 'networkidle' });
+        expect(response.status()).toBe(200);
+        if (path === '/') expect(response.headers()['x-cms-version']).toBe('1');
+        const trigger = page.locator('.site-footer [data-privacy-open]');
+        const dialog = page.locator('[data-privacy-dialog]');
+        const closer = dialog.locator('[data-dialog-close]');
+
+        await trigger.click();
+        await expect(dialog).toBeVisible();
+        await closer.click();
+        await expect(dialog).toBeHidden();
+        await expect(trigger).toBeFocused();
+
+        // Tab away and back to establish keyboard focus independently of
+        // each engine's dialog autofocus heuristics before switching to a pointer.
+        await trigger.press('Enter');
+        await expect(dialog).toBeVisible();
+        await page.keyboard.press('Shift+Tab');
+        await page.keyboard.press('Tab');
+        await expect(closer).toBeFocused();
+        await expect.poll(() => closer.evaluate(button => button.matches(':focus-visible'))).toBe(true);
+        await expect(closer).toHaveCSS('position', 'absolute');
+        await closer.click();
+        await expect(dialog).toBeHidden();
+        await expect(trigger).toBeFocused();
+      });
+    }
+  }
 });
