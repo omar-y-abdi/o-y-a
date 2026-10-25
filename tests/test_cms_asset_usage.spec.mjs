@@ -33,18 +33,21 @@ test('test_delayed_usage_refresh_preserves_metadata_draft', async ({ browser, pa
   await studio.route('**/admin/api/asset-usage', async route => {
     const response = await route.fetch();
     const usage = await response.json();
-    captured(usage);
+    captured({ usage, body: route.request().postDataJSON() });
     await gate;
     await route.fulfill({ response });
   });
   try {
     await studio.locator('[data-library=assets]').click();
     const uploaded = await uploadFile(studio, upload(), runtime.url);
-    const usage = await received;
+    const { usage, body } = await received;
+    expect(body).toEqual({ id: uploaded.id });
+    expect(usage).toEqual({ historyReferences: 0 });
+    await expect(studio.locator('#asset-usage')).toHaveText('0 referenser i aktuellt utkast · … i sparad historik.');
     await studio.locator('#asset-name').fill('draft name.png');
     await studio.locator('#asset-alt').fill('draft alt text');
     release();
-    await expect(studio.locator('#asset-usage')).toHaveText(`${usage.currentReferences} referenser i aktuellt utkast · ${usage.historyReferences} i sparad historik.`);
+    await expect(studio.locator('#asset-usage')).toHaveText(`0 referenser i aktuellt utkast · ${usage.historyReferences} i sparad historik.`);
     expect(await studio.locator('#asset-name').inputValue(), uploaded.id).toBe('draft name.png');
     expect(await studio.locator('#asset-alt').inputValue()).toBe('draft alt text');
   } finally { release(); await context.close(); }

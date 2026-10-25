@@ -35,8 +35,7 @@ export async function assertNoOverflow(page, label) {
 
 export async function openAssets(page, section = 'media') {
   if (!['media', 'wins'].includes(section)) throw new Error(`Unknown resource section: ${section}`);
-  await page.locator('[data-library=assets]').click();
-  if (section === 'wins') await page.locator('#library-list [data-special=wins]').click();
+  await page.locator(section === 'wins' ? '[data-library=wins]' : '[data-library=assets]').click();
   await page.locator(`#special-stage ${section === 'wins' ? '#win-search' : '[data-media-state=active]'}`).waitFor({ state: 'visible', timeout: 20_000 });
 }
 

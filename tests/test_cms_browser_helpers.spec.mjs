@@ -38,7 +38,7 @@ function responsePage(status = 200, id = 'asset-one') {
 
 test.describe('LibraryNavigationTests', () => {
   test.beforeEach(async ({ page }) => {
-    await libraryPage(page, runtime, bundle, '<button data-library="pages" aria-selected="true">Sidor</button><button data-library="assets" aria-selected="false">Resurser</button><div id="library-list"></div><div id="special-stage"></div><div id="custom-inspector"></div>');
+    await libraryPage(page, runtime, bundle, '<button data-library="pages" aria-selected="true">Sidor</button><button data-library="assets" aria-selected="false">Bilder</button><button data-library="wins" data-special="wins" aria-selected="false">Vinster</button><div id="library-list"></div><div id="special-stage"></div><div id="custom-inspector"></div>');
     await page.evaluate(() => {
       window.fixture = { requests: 0, view: 'pages' };
       window.libraryFixture.pageList([{ id: 'home', name: 'Home', path: '/' }], 'home');
@@ -56,7 +56,7 @@ test.describe('LibraryNavigationTests', () => {
           media();
         }
         if (el.dataset.special === 'media') media();
-        if (el.dataset.special === 'wins') {
+        if (el.dataset.library === 'wins' || el.dataset.special === 'wins') {
           window.fixture.view = 'wins'; window.libraryFixture.assetNavigation('wins', [], []); window.libraryFixture.winGallery([]);
         }
       });
@@ -73,10 +73,11 @@ test.describe('LibraryNavigationTests', () => {
   });
 
   test('test_wins_opens_assets_from_initial_pages_tab', async ({ page }) => {
-    expect(await page.locator('[data-special=wins]').count()).toBe(0);
+    expect(await page.locator('[data-library=wins]').count()).toBe(1);
     await openAssets(page, 'wins');
     await expect(page.locator('#special-stage #win-search')).toBeVisible({ timeout: 700 });
     expect(await page.evaluate(() => window.fixture.view)).toBe('wins');
+    expect(await page.evaluate(() => window.fixture.requests)).toBe(0);
   });
 
   test('test_media_opens_from_pages_without_duplicate_fetch', async ({ page }) => {

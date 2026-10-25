@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { routes } from '../src/content/site.mjs';
 import { SKIFT_PATH } from '../src/content/skift.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { CMSBrowserQA, DESKTOP, MOBILE, assertClean, assertNoOverflow, confirmYes, discoverPages, firstTextTarget, fontSelect, frame, lockPreview, openPage, revertIfDirty, save, saveAssetMetadata, seedRuntime, shiftEnterText, trackPage, upload, waitCanvas } from './helpers/cms-browser-qa.mjs';
+import { CMSBrowserQA, DESKTOP, MOBILE, assertClean, assertNoOverflow, confirmYes, discoverPages, firstTextTarget, fontSelect, frame, lockPreview, openAssets, openPage, revertIfDirty, save, saveAssetMetadata, seedRuntime, shiftEnterText, trackPage, upload, waitCanvas } from './helpers/cms-browser-qa.mjs';
 
 let runtime, baseline, api;
 const entries = routes.filter(route => route.path !== SKIFT_PATH).map(route => ({ id: route.template, name: route.name }));
@@ -373,8 +373,7 @@ test('font-upload-theme-individual', async ({ browser }, testInfo) => {
 
 test('win-edit-export', async ({ browser }, testInfo) => {
   await admin(browser, testInfo, async (page, qa) => {
-    await page.locator('[data-library=assets]').click();
-    await page.locator('[data-special=wins]').click();
+    await openAssets(page, 'wins');
     const card = page.locator('.win-card').first();
     await card.waitFor({ state: 'visible', timeout: 15_000 });
     await card.click();
