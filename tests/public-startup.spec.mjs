@@ -6,6 +6,7 @@ import { initial } from '../.generated/cms-seed.mjs';
 import { CSP, SKIFT_CSP } from '../src/csp.mjs';
 
 test.use({ viewport: { width: 390, height: 844 } });
+const GAME_SCRIPT = /\/play\/skift\/assets\/app\.js(?:\?|$)/;
 
 const copy = {
   ...initial.runtime,
@@ -37,8 +38,14 @@ async function observeCsp(page) {
 }
 
 // This controlled transport keeps the copy promise pending independently of
-// AbortSignal's wall clock. Real HTTP embedding/fallback is checked separately.
-async function holdCopy(page) {
+// AbortSignal's wall clock. Remove embedded copy so it cannot bypass the held
+// fetch. Real HTTP embedding/fallback is checked separately.
+async function holdCopy(page, path = '/play/skift/') {
+  await page.route(url => url.pathname === path, async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/<script type="application\/json" id="cms-runtime">[\s\S]*?<\/script>/, '');
+    await route.fulfill({ response, body });
+  });
   await page.addInitScript(runtimeCopy => {
     const originalFetch = window.fetch.bind(window);
     window.__p2bRuntimeRequests = 0;
@@ -63,8 +70,9 @@ test.describe('public startup', () => {
     await holdCopy(page);
     await page.route('**/api/config', route => route.fulfill({ json: { analytics: true } }));
     await page.route('**/api/event', route => route.fulfill({ status: 204 }));
-    await page.route('**/play/skift/assets/app.js', route => route.fulfill({ contentType: 'text/javascript', body: '' }));
+    await page.route(GAME_SCRIPT, route => route.fulfill({ contentType: 'text/javascript', body: '' }));
     await page.goto(runtime.url + '/play/skift/', { waitUntil: 'networkidle' });
+    await expect(page.locator('#cms-runtime')).toHaveCount(0);
     await expect(page.locator('html')).toHaveClass(/js-ready/);
     const menu = page.locator('[data-menu-toggle]');
     const initialLabel = await menu.getAttribute('aria-label');
@@ -107,8 +115,9 @@ test.describe('public startup', () => {
       await holdCopy(page);
       await page.route('**/api/config', route => route.fulfill({ json: { analytics: true } }));
       await page.route('**/api/event', route => route.fulfill({ status: 204 }));
-      await page.route('**/play/skift/assets/app.js', route => route.fulfill({ contentType: 'text/javascript', body: '' }));
+      await page.route(GAME_SCRIPT, route => route.fulfill({ contentType: 'text/javascript', body: '' }));
       await page.goto(runtime.url + '/play/skift/', { waitUntil: 'networkidle' });
+      await expect(page.locator('#cms-runtime')).toHaveCount(0);
       await expect(page.locator('html')).toHaveClass(/js-ready/);
       await page.evaluate(choice => document.querySelector(`[data-privacy-dialog] [data-consent="${choice}"]`).click(), choice);
       await expect(page.locator('[data-toast]')).toBeHidden();
@@ -123,12 +132,7 @@ test.describe('public startup', () => {
   }
 
   test('fold action waits for copy and uses owner labels on its first change', async ({ page }) => {
-    await holdCopy(page);
-    await page.route('**/projekt/furl/', async route => {
-      const response = await route.fetch();
-      const body = (await response.text()).replace(/<script type="application\/json" id="cms-runtime">[\s\S]*?<\/script>/, '');
-      await route.fulfill({ response, body });
-    });
+    await holdCopy(page, '/projekt/furl/');
     await page.goto(runtime.url + '/projekt/furl/', { waitUntil: 'networkidle' });
     await expect(page.locator('html')).toHaveClass(/js-ready/);
     const fold = page.locator('[data-fold]');
@@ -177,14 +181,26 @@ test.describe('public startup', () => {
     expect(requests).toBe(1);
   });
 
+  test('SKIFT frame embeds shared copy for shell and game without a runtime fetch', async ({ page }) => {
+    const runtimeRequests = [], gameRequests = [];
+    page.on('request', request => { if (new URL(request.url()).pathname === '/data/runtime.json') runtimeRequests.push(request.url()); });
+    await page.route(GAME_SCRIPT, async route => {
+      gameRequests.push(route.request().url());
+      await route.fulfill({ contentType: 'text/javascript', body: 'window.__p2bGameCopy = globalThis.__OY_SKIFT_COPY__;' });
+    });
+    const response = await page.goto(runtime.url + '/play/skift/', { waitUntil: 'networkidle' });
+    expect(response.headers()['content-security-policy']).toBe(SKIFT_CSP);
+    expect(await page.locator('#cms-runtime').evaluate(node => JSON.parse(node.textContent))).toEqual(copy);
+    await expect(page.locator('[data-menu-toggle]')).toHaveAttribute('aria-label', copy['runtime.nav.menu.open']);
+    await expect.poll(() => page.evaluate(() => window.__p2bGameCopy)).toEqual(copy);
+    expect(runtimeRequests).toEqual([]);
+    expect(gameRequests).toHaveLength(1);
+    expect(new URL(gameRequests[0]).searchParams.get('v')).toMatch(/^[a-f0-9]{12}$/);
+  });
+
   test('shell runs while copy waits; memory and privacy initialize with loaded text', async ({ page }) => {
     await observeCsp(page);
-    await holdCopy(page);
-    await page.route('**/verkstad/', async route => {
-      const response = await route.fetch();
-      const body = (await response.text()).replace(/<script type="application\/json" id="cms-runtime">[\s\S]*?<\/script>/, '');
-      await route.fulfill({ response, body });
-    });
+    await holdCopy(page, '/verkstad/');
     await page.goto(runtime.url + '/verkstad/', { waitUntil: 'load' });
     await expect(page.locator('html')).toHaveClass(/js-ready/);
     await expect(page.locator('[data-memory-card="0"]')).toBeDisabled();
@@ -202,12 +218,7 @@ test.describe('public startup', () => {
   });
 
   test('contact initialization waits for copy even when the envelope opens first', async ({ page }) => {
-    await holdCopy(page);
-    await page.route('**/kontakt/', async route => {
-      const response = await route.fetch();
-      const body = (await response.text()).replace(/<script type="application\/json" id="cms-runtime">[\s\S]*?<\/script>/, '');
-      await route.fulfill({ response, body });
-    });
+    await holdCopy(page, '/kontakt/');
     await page.route('**/api/contact/config', route => route.fulfill({ json: { enabled: false } }));
     await page.goto(runtime.url + '/kontakt/', { waitUntil: 'load' });
     await expect(page.locator('html')).toHaveClass(/js-ready/);
@@ -220,7 +231,7 @@ test.describe('public startup', () => {
   test('SKIFT entry shares pending copy and cannot block the shell', async ({ page }) => {
     await holdCopy(page);
     let appRequests = 0;
-    await page.route('**/play/skift/assets/app.js', async route => {
+    await page.route(GAME_SCRIPT, async route => {
       appRequests++;
       await route.fulfill({ contentType: 'text/javascript', body: 'window.__p2bGameCopy = globalThis.__OY_SKIFT_COPY__;' });
     });
@@ -252,7 +263,7 @@ test.describe('privacy dialog pointer closure on published v185', () => {
       test(`${path} X closes the dialog and restores footer focus at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });
         // The privacy shell must work independently of the game's WebGL runtime.
-        await page.route('**/play/skift/assets/app.js', route => route.fulfill({ contentType: 'text/javascript', body: '' }));
+        await page.route(GAME_SCRIPT, route => route.fulfill({ contentType: 'text/javascript', body: '' }));
         const response = await page.goto(runtime.url + path, { waitUntil: 'networkidle' });
         expect(response.status()).toBe(200);
         if (path === '/') expect(response.headers()['x-cms-version']).toBe('1');

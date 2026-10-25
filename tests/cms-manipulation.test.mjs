@@ -17,6 +17,8 @@ import { projectChanges, validateProjectChanges, applyProjectChanges } from '../
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
+import { uploadAsset } from '../src/cms/assets.mjs';
+import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 
 // A1b manipulation suite. Every case runs on the three server paths that take
 // page HTML from a client: full Save, delta Save and recovery.
@@ -361,10 +363,11 @@ test('A1b over the API: unsaved new and duplicated pages in an old draft save an
 
 test('A1b over the API: studio frame and main cases keep their outcomes on preview, validate and resource endpoints', async () => {
   await publishRaw();
+  const replacement = await uploadAsset({ CMS_DB: runtime.db, CMS_MEDIA: await runtime.mf.getR2Bucket('CMS_MEDIA'), CMS_IMAGES: await runtime.mf.getImagesBinding('CMS_IMAGES') }, { id: crypto.randomUUID(), name: 'frame-reference.png', bytes: Buffer.from(rasterFixtures.png, 'base64') });
   const ids = { '/om/': 'about', '/kontakt/': 'contact' };
   for (const [label, [path, change, expected]] of Object.entries(CASES)) {
     const project = editStudio(framed, path, change);
-    for (const [name, body] of [['preview', { project, pageId: ids[path] }], ['validate', { project }], ['resource-usage', { id: seed.assets[0].id, project }], ['asset-usage', { id: seed.assets[0].id, project }]]) {
+    for (const [name, body] of [['preview', { project, pageId: ids[path] }], ['validate', { project }], ['replace-resource', { project, fromId: seed.assets[0].id, toId: replacement.id }]]) {
       const response = await admin(name, body), text = await response.text();
       assert.equal(response.status, expected === true ? 200 : 422, `${label} (${name}): ${text}`);
       if (expected instanceof RegExp) assert.match(text, expected, `${label} (${name})`);
@@ -374,6 +377,8 @@ test('A1b over the API: studio frame and main cases keep their outcomes on previ
   const rejected = await admin('asset-lifecycle', { id: seed.assets[0].id, project: r1, action: 'archive', baseVersion: 0 });
   assert.equal(rejected.status, 422);
   assert.match(await rejected.text(), ATTRIBUTE);
+  assert.equal((await admin('resource-usage', { id: seed.assets[0].id, project: r1 })).status, 404, 'The removed endpoint cannot validate projects');
+  assert.equal((await admin('asset-usage', { id: seed.assets[0].id, project: {} })).status, 422, 'History accepts only an asset id, never a client project');
   const history = await admin('asset-usage', { id: seed.assets[0].id });
   assert.equal(history.status, 200, await history.clone().text());
 });
