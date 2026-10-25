@@ -115,8 +115,13 @@ with sync_playwright() as pw:
 
             # Reproduce the user's ordinary edit on another footer element.
             frame.locator('footer a[href="/tillganglighet/"]').click(); props(page)
-            page.locator('#element-text').fill('Tillgänglighet och stöd')
-            close_props(page); save(page)
+            accessibility_label = f'Tillgänglighet och stöd {width}'
+            assert page.locator('#element-text').input_value() != accessibility_label, 'Each viewport must perform a new edit on the shared Worker'
+            page.locator('#element-text').fill(accessibility_label)
+            close_props(page)
+            expect(page.locator('[data-action=save]')).to_be_enabled()
+            save(page)
+            expect(Q.frame(page).locator('footer a[href="/tillganglighet/"]')).to_have_text(accessibility_label)
 
             # Keep explicit CMS size editing, but it must not clip wrapped text.
             frame = Q.frame(page)
