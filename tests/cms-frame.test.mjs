@@ -126,7 +126,7 @@ test('B8: publication distinguishes absent legacy keys from new frame identities
   assert.equal(shared.html.includes('data-cms-node="f-n1"'), true, 'Internal frame identity stays intact');
 });
 
-test('B8: v185 becomes one frame, complete mains, scoped contracts and unchanged main CSS', () => {
+test('B8: v185 becomes one frame, complete mains and scoped contracts; only Q9 changes main CSS', () => {
   const before = JSON.stringify(v185);
   const project = validateProject(conversion.toFrameProject(v185, seed), seed);
   assert.equal(project.schemaVersion, 2);
@@ -154,9 +154,11 @@ test('B8: v185 becomes one frame, complete mains, scoped contracts and unchanged
   }
   assert.doesNotMatch(project.pages[0].css, /#(?:iua9|iyi2x6)\{/);
   assert.match(project.pages[0].css, /#main\{/);
-  const fixed = [...project.pages[0].css.matchAll(/#[\w-]+\{([^{}]*)\}/g)].map(([, body]) => [...body.matchAll(/(?:^|;)(?:width|height):[0-9.]+px(?=;|$)/g)].length).filter(Boolean);
-  assert.equal(fixed.length, 28);
-  assert.equal(fixed.reduce((sum, count) => sum + count, 0), 46);
+  assert.equal([...project.pages[0].css.matchAll(/(?:^|[;{])width:[0-9.]+px(?=[;}])/g)].length, 17, 'Q9 retains the 17 widths that do not cause overflow');
+  assert.equal([...project.pages[0].css.matchAll(/(?:^|[;{])height:[0-9.]+px(?=[;}])/g)].length, 26, 'Q9 preserves all 26 main heights');
+  assert.match(project.pages[0].css, /#iqcvri\{width:min\(388px,100%\)\}/);
+  assert.match(project.pages[0].css, /#iqupj3\{width:99px;height:52px\}/);
+  assert.match(project.pages[0].css, /#im2i7y\{width:191px;height:177px\}/);
   assert.equal(JSON.stringify(v185), before);
 });
 

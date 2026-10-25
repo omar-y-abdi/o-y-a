@@ -3,6 +3,9 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { readFile, readdir } from 'node:fs/promises';
 import { publishSite } from '../../src/cms/store.mjs';
+import { toFrameProject } from '../../src/cms/frame-converter.mjs';
+import { validateProject } from '../../src/cms/project.mjs';
+import { seed } from '../../.generated/cms-seed.mjs';
 
 export async function migrateCmsDb(db) {
   for (const file of (await readdir('migrations')).filter(name => name.endsWith('.sql')).sort()) await db.exec(await readFile(`migrations/${file}`, 'utf8'));
@@ -48,5 +51,5 @@ export async function cmsRuntime({ port = 0, persist = false, project, analytics
 
 export async function publicRuntime(options = {}) {
   const project = JSON.parse(await readFile(new URL('../fixtures/cms-v185-project.json', import.meta.url), 'utf8'));
-  return cmsRuntime({ project, ...options });
+  return cmsRuntime({ project: validateProject(toFrameProject(project, seed), seed), ...options });
 }

@@ -63,24 +63,121 @@ async function prepareCapture(page) {
   }
 }
 
+async function mainLayout(page) {
+  return page.locator('main').evaluate(main => {
+    const elements = [main, ...main.querySelectorAll('*')];
+    const keys = new Map(elements.map((node, index) => [node, node.id ? `#${node.id}` : `${node.localName}[${index}]`]));
+    const box = rect => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    const styles = new Map(elements.map(node => [node, getComputedStyle(node)]));
+    const visible = node => {
+      for (let parent = node; parent && main.contains(parent); parent = parent.parentElement) {
+        const style = styles.get(parent);
+        if (style.display === 'none' || style.visibility === 'hidden' || +style.opacity === 0 || parent.classList.contains('sr-only')) return false;
+      }
+      return true;
+    };
+    const nodes = [], painted = [], defects = {};
+    const record = (key, fraction) => { if (fraction > 0) defects[key] = Math.max(defects[key] ?? 0, fraction); };
+    function clipping(key, node, rect) {
+      const area = rect.width * rect.height;
+      if (!area) return;
+      const clip = (name, bounds, x, y) => {
+        const width = x ? Math.max(0, Math.min(rect.x + rect.width, bounds.x + bounds.width) - Math.max(rect.x, bounds.x)) : rect.width;
+        const height = y ? Math.max(0, Math.min(rect.y + rect.height, bounds.y + bounds.height) - Math.max(rect.y, bounds.y)) : rect.height;
+        record(`clip ${key} by ${name}`, 1 - width * height / area);
+      };
+      clip('viewport', { x: 0, width: innerWidth }, true, false);
+      for (let parent = node; parent && main.contains(parent); parent = parent.parentElement) {
+        const style = styles.get(parent), x = /^(hidden|clip|auto|scroll)$/.test(style.overflowX), y = /^(hidden|clip|auto|scroll)$/.test(style.overflowY);
+        if ((x || y) && (style.display !== 'inline' || parent instanceof SVGElement)) clip(keys.get(parent), parent.getBoundingClientRect(), x, y);
+      }
+    }
+    for (const node of elements) {
+      if (!visible(node) || node instanceof SVGElement && node.localName !== 'svg') continue;
+      const rect = node.getBoundingClientRect(), key = keys.get(node), style = styles.get(node);
+      if (!rect.width || !rect.height) continue;
+      const parent = node.parentElement, parentStyle = styles.get(parent);
+      nodes.push({ key, tag: node.localName, viewBox: node.getAttribute('viewBox'), box: box(rect), width: style.width, height: style.height, minHeight: style.minHeight, right: style.right, translate: style.translate, transform: style.transform, padding: style.padding, overflow: style.overflow, parent: parentStyle ? { key: keys.get(parent), width: parentStyle.width, padding: parentStyle.padding, box: box(parent.getBoundingClientRect()) } : null });
+      clipping(key, node, rect);
+      if (node.matches('img,svg')) painted.push({ key, rects: [box(rect)] });
+      [...node.childNodes].forEach((child, index) => {
+        if (child.nodeType !== Node.TEXT_NODE || !child.textContent.trim() || node.matches('script,style,noscript')) return;
+        const range = document.createRange();
+        range.selectNodeContents(child);
+        const rects = [...range.getClientRects()].filter(rect => rect.width && rect.height).map(box), textKey = `${key}/text[${index}]`;
+        rects.forEach(rect => clipping(textKey, node, rect));
+        painted.push({ key: textKey, rects });
+      });
+    }
+    function overlap(key, left, right) {
+      const width = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
+      const height = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
+      record(`overlap ${key}`, width * height / Math.min(left.width * left.height, right.width * right.height));
+    }
+    for (let index = 0; index < painted.length; index++) for (const right of painted.slice(index + 1)) {
+      const left = painted[index];
+      for (const a of left.rects) for (const b of right.rects) overlap(`${left.key} / ${right.key}`, a, b);
+    }
+    for (const parent of elements) {
+      if (!(parent instanceof HTMLElement)) continue;
+      const siblings = [...parent.children].filter(node => (node instanceof HTMLElement || node.localName === 'svg') && visible(node) && !['absolute', 'fixed'].includes(styles.get(node).position) && styles.get(node).float === 'none').map(node => ({ key: keys.get(node), rect: node.getBoundingClientRect() })).filter(({ rect }) => rect.width && rect.height);
+      for (let index = 0; index < siblings.length; index++) for (const right of siblings.slice(index + 1)) overlap(`flow ${siblings[index].key} / ${right.key}`, siblings[index].rect, right.rect);
+    }
+    return { viewport: innerWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth, nodes, defects };
+  });
+}
+
+function layoutIncreases(actual, reference) {
+  return Object.entries(actual.defects).flatMap(([defect, fraction]) => {
+    const previous = reference.defects[defect] ?? 0;
+    return fraction > previous + 1e-6 ? [{ defect, fraction, previous }] : [];
+  });
+}
+
+test('Q9: geometry guard rejects new or increased defects against raw at the same width, retaining existing defects', async ({ page }) => {
+  await page.setViewportSize({ width: 414, height: 844 });
+  await page.setContent('<style>*{box-sizing:border-box}body{margin:0}#clip{width:100px;overflow:hidden}#label{width:80px;height:20px}#first,#second{height:20px}</style><main><div id="clip"><div id="label">Läsbar text</div></div><section id="first">Första raden</section><section id="second">Andra raden</section></main>');
+  const before = await mainLayout(page);
+  expect(before.defects).toEqual({});
+  await page.locator('#clip').evaluate(node => { node.style.width = '10px'; });
+  await page.locator('#label').evaluate(node => { node.style.height = '5px'; node.style.overflow = 'hidden'; });
+  await page.locator('#second').evaluate(node => { node.style.marginTop = '-5px'; });
+  const after = await mainLayout(page);
+  expect(after.defects['clip #label by #clip']).toBeGreaterThan(0);
+  expect(after.defects['clip #label/text[0] by #label']).toBeGreaterThan(0);
+  expect(after.defects['overlap flow #first / #second']).toBeGreaterThan(0);
+  expect(layoutIncreases(after, before).map(item => item.defect)).toContain('overlap flow #first / #second');
+  expect(layoutIncreases(after, after)).toEqual([]);
+  const defect = 'clip #label by #clip', fraction = after.defects[defect];
+  const raw = { defects: { ...after.defects, [defect]: fraction - 5e-7 } };
+  expect(layoutIncreases(after, raw)).toEqual([]);
+  raw.defects[defect] = fraction - 2e-6;
+  expect(layoutIncreases(after, raw)).toEqual([{ defect, fraction, previous: fraction - 2e-6 }]);
+});
+
 function compareCapture(actual, expected, label, failures) {
   if (!actual || !expected) { failures.push(`${label}: capture missing`); return false; }
   const identity = isDeepStrictEqual(actual.identity, expected.identity);
   const png = actual.screenshot.equals(expected.screenshot);
   if (!identity) failures.push(`${label}: public identity`);
-  if (!png) failures.push(`${label}: PNG bytes (${expected.pngPath}, ${actual.pngPath})`);
+  if (!png) {
+    failures.push(`${label}: PNG bytes (${expected.pngPath}, ${actual.pngPath})`);
+    const previous = new Map(expected.layout?.nodes.map(node => [node.key, node]) ?? []);
+    const changed = (actual.layout?.nodes ?? []).filter(node => previous.has(node.key) && ['width', 'height'].some(axis => Math.abs(node.box[axis] - previous.get(node.key).box[axis]) > .01));
+    if (changed.length) failures.push(`${label}: changed main sizes: ${changed.map(node => `${node.key} ${previous.get(node.key).width}×${previous.get(node.key).height} -> ${node.width}×${node.height}`).join('; ')}`);
+  }
   return identity && png;
 }
 
-async function capture(browser, runtime, pages, version, javascript, width, testInfo, phase, failures) {
+async function capture(browser, runtime, pages, version, javascript, width, testInfo, phase, failures, motion = 'reduce') {
   const result = new Map();
   for (const item of pages) {
-    const label = `${item.path}, ${width}, js=${javascript}`, name = `${phase}-${item.id}-${width}-${javascript ? 'ready' : 'no-js'}`;
+    const label = `${item.path}, ${width}, js=${javascript}, motion=${motion}`, name = `${phase}-${item.id}-${width}-${javascript ? 'ready' : 'no-js'}-${motion}`;
     let context;
     try {
       // Same cold-context capture as public-evidence.spec.mjs. No browser state,
       // scroll position or pending work carries over from the previous page.
-      context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 1000 }, deviceScaleFactor: 1, colorScheme: 'light', reducedMotion: 'reduce', javaScriptEnabled: javascript });
+      context = await browser.newContext({ viewport: { width, height: width === 1440 ? 1000 : 844 }, deviceScaleFactor: 1, colorScheme: 'light', reducedMotion: motion, javaScriptEnabled: javascript });
       const page = await context.newPage();
       if (javascript) await page.addInitScript(() => {
         let random = 123456;
@@ -99,6 +196,10 @@ async function capture(browser, runtime, pages, version, javascript, width, test
           if (item.path === '/verkstad/') await expect(page.locator('[data-memory-card="0"]')).toBeEnabled();
         }
         await prepareCapture(page);
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          for (const animation of document.getAnimations()) { animation.pause(); animation.currentTime = 0; }
+        });
         const pngPath = testInfo.outputPath(`${name}.png`);
         // Native screenshot waits for fonts, including with scripting disabled.
         // The two independent baseline captures below are the stability check.
@@ -123,7 +224,9 @@ async function capture(browser, runtime, pages, version, javascript, width, test
         await testInfo.attach(`${name}.json`, { body: JSON.stringify(identity, null, 2), contentType: 'application/json' });
         await testInfo.attach(`${name}-render.json`, { body: JSON.stringify(rendering, null, 2), contentType: 'application/json' });
         await testInfo.attach(`${name}.png`, { path: pngPath, contentType: 'image/png' });
-        return { identity, screenshot, pngPath };
+        const layout = item.path === '/' ? await mainLayout(page) : null;
+        if (layout) await testInfo.attach(`${name}-main-layout.json`, { body: JSON.stringify(layout, null, 2), contentType: 'application/json' });
+        return { identity, screenshot, pngPath, layout };
       }, { timeout: 8_000 });
       result.set(item.path, value);
     } catch (error) { failures.push(`${label}, ${phase}: ${error.stack ?? error}`); }
@@ -161,6 +264,64 @@ test('B8: fifteen v185 pages retain exact approved screenshots and public identi
       const migrated = await capture(browser, runtime, before.pages, version, javascript, width, testInfo, 'after', failures);
       for (const item of before.pages) {
         if (stable.has(item.path)) compareCapture(migrated.get(item.path), baseline.get(item.path), `${item.path}, ${width}, js=${javascript}, migrated vs baseline`, failures);
+      }
+    }
+    expect(failures, failures.join('\n')).toEqual([]);
+  } finally { await runtime.close(); }
+});
+
+test('Q9: Home keeps raw dimensions at 390/414/600/760/1440; 320/360 add no measured clipping or overlap against raw at the same width', async ({ browser }, testInfo) => {
+  // 5 widths * 2 scripting modes * 2 motion modes * 3 captures, plus 16 narrow
+  // before/after captures. 3 s/capture plus 60 s setup/cleanup gives 288 s.
+  test.setTimeout((5 * 2 * 2 * 3 + 16) * 3_000 + 60_000);
+  const raw = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
+  const before = approvedBaseline(raw), after = validateProject(toFrameProject(raw, seed), seed);
+  const home = before.pages.find(page => page.path === '/');
+  const rawCss = raw.pages.find(page => page.path === '/').css;
+  expect(home.css).toBe(css.generate(css.parse(rawCss.replace(/#(?:iua9|iyi2x6)\{[^{}]*\}/g, ''))));
+  const runtime = await cmsRuntime(), failures = [], baselines = new Map(), stable = new Set();
+  const key = (javascript, motion, width) => `${javascript}/${motion}/${width}`;
+  try {
+    const original = await publishSite(runtime.db, { project: raw, baseVersion: 0, requestId: crypto.randomUUID(), actor: runtime.email });
+    for (const javascript of [false, true]) for (const motion of ['reduce', 'no-preference']) for (const width of [320, 360]) {
+      const rawNarrow = (await capture(browser, runtime, [home], original.version, javascript, width, testInfo, 'q9-raw-narrow', failures, motion)).get('/');
+      baselines.set(key(javascript, motion, width), rawNarrow);
+    }
+    const first = await publishSite(runtime.db, { project: before, baseVersion: original.version, requestId: crypto.randomUUID(), actor: runtime.email });
+    for (const javascript of [false, true]) for (const motion of ['reduce', 'no-preference']) for (const width of [390, 414, 600, 760, 1440]) {
+      const baseline = (await capture(browser, runtime, [home], first.version, javascript, width, testInfo, 'q9-before-1', failures, motion)).get('/');
+      const repeated = (await capture(browser, runtime, [home], first.version, javascript, width, testInfo, 'q9-before-2', failures, motion)).get('/');
+      baselines.set(key(javascript, motion, width), baseline);
+      if (compareCapture(repeated, baseline, `Q9 /, ${width}, js=${javascript}, motion=${motion}, baseline vs baseline`, failures)) stable.add(key(javascript, motion, width));
+    }
+    const second = await publishSite(runtime.db, { project: after, baseVersion: first.version, requestId: crypto.randomUUID(), actor: runtime.email });
+    for (const javascript of [false, true]) for (const motion of ['reduce', 'no-preference']) {
+      for (const width of [390, 414, 600, 760, 1440]) {
+        const migrated = (await capture(browser, runtime, [home], second.version, javascript, width, testInfo, 'q9-after', failures, motion)).get('/');
+        if (stable.has(key(javascript, motion, width))) compareCapture(migrated, baselines.get(key(javascript, motion, width)), `Q9 /, ${width}, js=${javascript}, motion=${motion}, migrated vs baseline`, failures);
+      }
+      const reference = baselines.get(key(javascript, motion, 414))?.layout;
+      for (const width of [320, 360]) {
+        const actual = (await capture(browser, runtime, [home], second.version, javascript, width, testInfo, 'q9-narrow', failures, motion)).get('/')?.layout;
+        const rawNarrow = baselines.get(key(javascript, motion, width))?.layout;
+        const label = `Q9 /, ${width}, js=${javascript}, motion=${motion}`;
+        if (!actual || !reference || !rawNarrow) { failures.push(`${label}: main layout missing`); continue; }
+        if (actual.viewport !== width || actual.document !== width || actual.body !== width) failures.push(`${label}: viewport/document/body ${actual.viewport}/${actual.document}/${actual.body}, expected ${width}/${width}/${width}`);
+        const sticker = actual.nodes.find(node => node.key === '#i58p9l');
+        if (!sticker || sticker.box.x < 0 || sticker.box.x + sticker.box.width > width) failures.push(`${label}: sticker crosses viewport: ${JSON.stringify(sticker)}`);
+        const present = new Set(actual.nodes.map(node => node.key));
+        for (const node of rawNarrow.nodes) if (!present.has(node.key)) failures.push(`${label}: visible main node lost versus raw ${width}: ${node.key}`);
+        // Compare axis-aligned boxes, text line fragments and img/svg roots.
+        // Raw at this width is authoritative; 414 only diagnoses narrow layouts.
+        const diagnostics = layoutIncreases(actual, reference).map(({ defect, fraction, previous }) => `${defect}: fraction ${fraction}, 414 ${previous}, raw ${width} ${rawNarrow.defects[defect] ?? 0}`);
+        for (const node of reference.nodes) if (!present.has(node.key)) diagnostics.push(`visible main node absent versus 414: ${node.key}`);
+        console.log(`${label}: 414 diagnostics\n${diagnostics.join('\n') || '(none)'}`);
+        for (const { defect, fraction, previous } of layoutIncreases(actual, rawNarrow)) {
+          const names = new Set(defect.match(/#[\w-]+|[a-z]+\[\d+\]/g) ?? []);
+          const causes = actual.nodes.filter(node => names.has(node.key));
+          const rawCauses = rawNarrow.nodes.filter(node => names.has(node.key));
+          failures.push(`${label}: ${defect}: fraction ${fraction} exceeds raw ${width} fraction ${previous}; migrated boxes/CSS ${JSON.stringify(causes)}; raw boxes/CSS ${JSON.stringify(rawCauses)}`);
+        }
       }
     }
     expect(failures, failures.join('\n')).toEqual([]);

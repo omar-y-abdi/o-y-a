@@ -133,6 +133,7 @@ for (const width of [320, 390, 768, 1440]) for (const motion of ['reduce', 'no-p
     await page.locator('[data-back-top]').click();
     expect(await waitAtTop(page)).toBe(0);
     expect(await focused(page.locator('.site-header .brand')), 'fokus flyttades inte till sidhuvudets varumärke').toBe(true);
+    if (width === 320) expect(await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth })), 'Q9: migrated Home has no horizontal scroll').toEqual({ viewport: 320, document: 320, body: 320 });
     await assertShell(page, `top ${width}/${motion}`);
     assertClean(errors, `top ${width}/${motion}`);
     if ([390, 1440].includes(width) && motion === 'reduce') await screenshot(page, info, `top-${width}`);

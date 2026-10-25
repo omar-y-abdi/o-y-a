@@ -119,6 +119,65 @@ export function validateFrameKeys(input, scopeKeys = {}) {
   return { ...input };
 }
 
+export function responsiveHomeCss(source, mainHtml) {
+  source ??= '';
+  const nodes = elements(parseFragment(mainHtml)), ids = new Set(nodes.map(node => attribute(node, 'id')).filter(Boolean));
+  // At 320px, contact-band has 320px; human-art and hero-intro have
+  // 320 - 2 * 18 = 284px inside section-wrap. Only these v185 boxes exceed it.
+  // Keep definite widths elsewhere: percentage caps change shrink-to-fit layout.
+  const overflowing = new Set(['iqcvri', 'i1wgyk', 'ibd1n']);
+  const sticker = nodes.some(node => attribute(node, 'id') === 'i58p9l' && hasClass(node, 'human-sticker'));
+  const flower = nodes.some(node => attribute(node, 'id') === 'iac4d6-2' && hasClass(node, 'human-flower') && attribute(node.parentNode, 'id') === 'i1wgyk' && hasClass(node.parentNode, 'human-art'));
+  let tree;
+  try { tree = css.parse(source, { positions: true, parseCustomProperty: true }); }
+  catch { fail('Startsidan har ogiltig CSS. Mobilstorlekarna kunde inte konverteras.'); }
+  const edits = [];
+  tree.children.forEach(media => {
+    if (media.type !== 'Atrule' || media.name !== 'media' || !media.block || css.generate(media.prelude).replace(/\s/g, '') !== '(max-width:760px)') return;
+    const artwork = media.block.children.toArray().find(rule => rule.type === 'Rule' && css.generate(rule.prelude) === '#i1wgyk');
+    const artworkWidth = artwork?.block.children.toArray().find(declaration => declaration.type === 'Declaration' && declaration.property === 'width')?.value;
+    const originalArtworkWidth = artworkWidth?.type === 'Value' && artworkWidth.children.size === 1 && artworkWidth.children.first.type === 'Dimension' && artworkWidth.children.first.unit.toLowerCase() === 'px' ? css.generate(artworkWidth) : null;
+    media.block.children.forEach(rule => {
+      if (rule.type !== 'Rule') return;
+      const declarations = new Map(), fixed = {}, duplicates = new Set();
+      rule.block.children.forEach(declaration => {
+        if (declaration.type !== 'Declaration') return;
+        if (declarations.has(declaration.property)) duplicates.add(declaration.property);
+        declarations.set(declaration.property, declaration);
+      });
+      for (const property of ['width', 'height']) {
+        const value = declarations.get(property)?.value;
+        if (value?.type === 'Value' && value.children.size === 1 && value.children.first.type === 'Dimension' && value.children.first.unit.toLowerCase() === 'px') fixed[property] = css.generate(value);
+      }
+      const label = rule.prelude ? css.generate(rule.prelude) : '(saknas)';
+      const offset = sticker && label === '#i58p9l' && declarations.has('right') && css.generate(declarations.get('right').value) === '-20px';
+      if (!Object.keys(fixed).length && !offset) return;
+      const selectors = rule.prelude?.type === 'SelectorList' ? rule.prelude.children : null, selector = selectors?.first;
+      if (selectors?.size !== 1 || selector.children.size !== 1 || selector.children.first.type !== 'IdSelector') fail(`Mobilstorleken ${label} på startsidan saknar ett entydigt element. Kontrollera regeln innan migreringen.`);
+      const id = css.ident.decode(selector.children.first.name);
+      if (!ids.has(id)) return;
+      if (['width', 'height', 'min-height', ...(offset ? ['right'] : [])].some(property => duplicates.has(property))) fail(`Mobilstorleken ${label} på startsidan har dubbla deklarationer. Kontrollera regeln innan migreringen.`);
+      // Public Home uses border-box (src/styles/base.css); heights stay fixed.
+      const next = fixed.width && overflowing.has(id) ? { width: `min(${fixed.width},100%)` } : {};
+      // Its centered parent supplies (100vw - 100%)/2 outside space. Rotation
+      // of the 68.8px two-line sticker adds <5px, plus <2px shadow.
+      if (offset) next.right = 'max(-20px,calc(7px - (100vw - 100%)/2))';
+      // The 249px card stays centered when its 303px parent shrinks. Move the
+      // right-anchored flower by half the lost width to retain their alignment.
+      if (flower && originalArtworkWidth && id === 'iac4d6-2' && fixed.width === '82px' && fixed.height === '87px' && !declarations.has('right')) {
+        edits.push({ start: rule.block.loc.end.offset - 1, end: rule.block.loc.end.offset - 1, text: `${source[rule.block.loc.end.offset - 2] === ';' ? '' : ';'}right:min(0px,calc((100% - ${originalArtworkWidth})/2))` });
+      }
+      for (const [property, value] of Object.entries(next)) {
+        const declaration = declarations.get(property);
+        // Token spans preserve surrounding whitespace and comments verbatim.
+        const values = declaration.value.children;
+        edits.push({ start: values?.first?.loc.start.offset ?? declaration.value.loc.start.offset, end: values?.last?.loc.end.offset ?? declaration.value.loc.end.offset, text: value });
+      }
+    });
+  });
+  return edits.sort((left, right) => right.start - left.start).reduce((result, edit) => result.slice(0, edit.start) + edit.text + result.slice(edit.end), source);
+}
+
 export function splitPageCss(source, frameHtml, pageHtml, path, ownerDecisions = true) {
   const inventory = html => {
     const nodes = elements(parseFragment(html));

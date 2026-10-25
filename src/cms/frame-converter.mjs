@@ -4,7 +4,7 @@ import { attribute, elements } from './html-tree.mjs';
 import { preparePage, validateHtml, validateCss, migrateKeys } from './validation.mjs';
 import LEGACY_KEYS from './legacy-keys.json' with { type: 'json' };
 import { normalizeStoredProject as normalizeLegacyProject, normalizeClientProject as normalizeLegacyClient, refreshDevelopers, normalizeSharedValue, DEFAULT_SHARED_CONTENT } from './legacy-project.mjs';
-import { splitPage, composePage, frameShape, projectFrame, splitPageCss, legacySeed, validateFrame } from './frame.mjs';
+import { splitPage, composePage, frameShape, projectFrame, splitPageCss, responsiveHomeCss, legacySeed, validateFrame } from './frame.mjs';
 
 const fail = message => { throw new HttpError(422, message); };
 const definition = (seed, page) => seed.pages.find(item => item.id === page.id) ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank;
@@ -46,7 +46,9 @@ export function toFrameProject(input, seed, { client = false } = {}) {
     const old = definition(legacy, page), source = definition(seed, page);
     const keys = seed.scopeKeys?.[source.id];
     const checked = validateHtml(page.html, old?.contracts ?? []);
-    const split = splitPage(checked), styles = splitPageCss(page.css, split.html, split.page, page.path, ownerDecisions);
+    const split = splitPage(checked);
+    const style = ownerDecisions && page.path === '/' ? responsiveHomeCss(page.css, split.page) : page.css;
+    const styles = splitPageCss(style, split.html, split.page, page.path, ownerDecisions);
     const html = projectFrame(split.html, ownerDecisions);
     const value = { html: scopedHtml(html, keys, true), css: styles.frame };
     const signature = JSON.stringify([frameShape(value.html), value.css]);

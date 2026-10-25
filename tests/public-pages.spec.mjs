@@ -1,6 +1,7 @@
 import { test, expect } from './helpers/public-test.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
 const project = JSON.parse(await readFile(new URL('./fixtures/cms-v185-project.json', import.meta.url), 'utf8'));
 const PAGES = [...new Set([...project.pages.map(page => page.path), '/play/skift/'])];
@@ -84,5 +85,33 @@ test.describe('public responsive matrix', () => {
     expect(sitemap.errors).toBe(0);
     expect(sitemap.namespace).toBe('http://www.sitemaps.org/schemas/sitemap/0.9');
     expect(sitemap.urls).toEqual([...project.pages.filter(page => !page.noindex).map(page => 'https://omaryusuf.se' + page.path), 'https://omaryusuf.se/play/skift/'].sort());
+  });
+});
+
+test.describe('raw v185 public Home before the owner migrates', () => {
+  let runtime;
+  test.beforeAll(async () => { runtime = await cmsRuntime({ project }); });
+  test.afterAll(async () => { await runtime?.close(); });
+
+  for (const width of [320, 1280]) test(`raw Home smoke at ${width}px; only the known 388px overflow is expected`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width, height: 844 }, reducedMotion: 'reduce' });
+    try {
+      const page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(String(error)));
+      page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+      const response = await page.goto(runtime.url + '/', { waitUntil: 'networkidle' });
+      expect(response.status()).toBe(200);
+      expect(response.headers()['x-cms-version']).toBe('1');
+      await expect(page.locator('html')).toHaveClass(/js-ready/);
+      await expect(page.locator('html')).toHaveAttribute('lang', 'sv');
+      await expect(page).toHaveTitle(/Omar Yusuf/);
+      await expect(page.locator('main h1')).toHaveCount(1);
+      await expect(page.locator('footer.site-footer')).toHaveCount(1);
+      await expect(page.locator('[data-print]')).toBeEnabled();
+      expect((await page.locator('main').innerText()).trim()).not.toBe('');
+      const expected = width === 320 ? 388 : width;
+      expect(await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth }))).toEqual({ viewport: width, document: expected, body: expected });
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
   });
 });
