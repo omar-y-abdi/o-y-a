@@ -4,6 +4,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { parse } from 'parse5';
+import * as css from 'css-tree';
 import { routes, site } from '../src/content/site.mjs';
 import { CSP, SKIFT_CSP } from '../src/csp.mjs';
 
@@ -57,6 +58,23 @@ test('public shell has one shared dependency and a separate lazy SKIFT entry', a
   assert.ok(mainCode.includes(`import("./${bootstrap}")`), 'SKIFT stays a dynamic import');
   assert.ok(bootstrapCode.includes('/play/skift/assets/app.js'));
   assert.doesNotMatch(mainCode, /\/play\/skift\/assets\/app\.js/);
+});
+
+test('built home CSS keeps the focused dialog closer absolutely positioned', async () => {
+  const html = await htmlFor(routes.find(route => route.path === '/'));
+  const stylesheet = html.match(/rel="stylesheet" href="(\/assets\/site\.[a-f0-9]{12}\.css)"/)?.[1];
+  assert.ok(stylesheet, 'Built home must link its content-hashed site stylesheet');
+  let position;
+  css.walk(css.parse(await readFile('dist' + stylesheet, 'utf8')), { visit: 'Rule', enter(rule) {
+    if (rule.prelude?.type !== 'SelectorList') return;
+    rule.prelude.children.forEach(selector => {
+      if (css.generate(selector) !== '.dialog-close:focus-visible') return;
+      rule.block.children.forEach(declaration => {
+        if (declaration.type === 'Declaration' && declaration.property === 'position') position = css.generate(declaration.value);
+      });
+    });
+  } });
+  assert.equal(position, 'absolute', 'Focus styling must not move the dialog pointer target before release');
 });
 
 test('public CSP constants permit external scripts and inert data blocks only', async () => {

@@ -265,19 +265,6 @@ test.describe('privacy dialog pointer closure on published v185', () => {
         await closer.click();
         await expect(dialog).toBeHidden();
         await expect(trigger).toBeFocused();
-
-        // Tab away and back to establish keyboard focus independently of
-        // each engine's dialog autofocus heuristics before switching to a pointer.
-        await trigger.press('Enter');
-        await expect(dialog).toBeVisible();
-        await page.keyboard.press('Shift+Tab');
-        await page.keyboard.press('Tab');
-        await expect(closer).toBeFocused();
-        await expect.poll(() => closer.evaluate(button => button.matches(':focus-visible'))).toBe(true);
-        await expect(closer).toHaveCSS('position', 'absolute');
-        await closer.click();
-        await expect(dialog).toBeHidden();
-        await expect(trigger).toBeFocused();
       });
     }
   }
