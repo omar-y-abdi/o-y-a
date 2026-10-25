@@ -58,7 +58,7 @@ Local offline Images checks do not establish the deployed account's entitlements
 
 ## Existing content and disaster recovery
 
-HTML/CSS are now the single editor content source. Legacy editor JSON is checked when submitted but no longer persisted as a competing document. Opening an old revision with editor JSON offers a visible original-version export and an unsaved canonical draft; it never silently overwrites the stored revision. Keep that export before saving. Unsafe imported backups remain rejected with visible recovery/export controls.
+HTML/CSS are now the single editor content source. Legacy page and card editor JSON is ignored and discarded, not validated as a second content representation. Incoming JSON still counts toward the route's request-size limit. Restoring an old revision loads a normalized, unsaved draft; it never silently overwrites the stored revision. The draft can be exported through **Utkast & backup**, but that export is the project returned by the Worker, not a byte-for-byte backup of its original compressed D1 record. Keep a D1 backup for exact historical recovery. Unsafe canonical HTML/CSS in imported backups remains rejected with visible recovery/export controls.
 
 The automated backup drill serializes D1 and retained R2 objects to a file, restores them into a second isolated instance of the same Worker, and checks current/historical content, object hashes, public bytes and re-publication. This is not proof that your real account's backups are complete.
 

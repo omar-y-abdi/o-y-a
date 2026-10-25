@@ -171,7 +171,7 @@ test('test mail maps provider errors and is rate-limited', async () => {
     [() => Response.json({ name: 'invalid_api_key', message: 'no' }, { status: 401 }), 502, 'Nyckeln godtas inte av Resend. Klistra in en ny i Inställningar.'],
     [() => Response.json({ message: 'no' }, { status: 403 }), 502, 'Nyckeln godtas inte av Resend. Klistra in en ny i Inställningar.'],
     [() => Response.json({ name: 'validation_error', message: `The key ${KEY} or re_another_key is wrong` }, { status: 422 }), 422, 'Resend: The key [nyckel] or [nyckel] is wrong'],
-    [() => Response.json({ message: 'conflict' }, { status: 409 }), 409, 'Samma utskick skickades redan med annat innehåll. Ladda om fliken.'],
+    [() => Response.json({ message: 'conflict' }, { status: 409 }), 409, 'Utskickets identitet används redan. Kontrollera mejlet i Resend: https://resend.com/emails'],
     [() => Response.json({}, { status: 429 }), 429, 'Resend begränsar takten. Vänta en minut.'],
     [() => new Response('oops', { status: 500 }), 503, 'Resend svarar inte just nu. Försök igen; samma utskick skickas inte två gånger.'],
     [() => { throw new TypeError(`network ${KEY}`); }, 503, 'Resend svarar inte just nu. Försök igen; samma utskick skickas inte två gånger.'],
@@ -184,7 +184,7 @@ test('test mail maps provider errors and is rate-limited', async () => {
     assert.equal(JSON.parse(text).error, message);
     assert.ok(!text.includes(KEY));
   }
-  assert.equal(await sentCount(), 3); // Success plus the ambiguous 500 and network failure.
+  assert.equal(await sentCount(), 4); // Success plus the ambiguous 409, 500 and network failure.
   limiter.success = false;
   const blocked = provider();
   const limited = await run(post('/admin/api/mail/test', body()), env(), blocked.fetch);
@@ -274,16 +274,19 @@ test('signed link: tampered, expired, other object refused; valid streams', asyn
   const head = await fetchLink(link, 'HEAD');
   assert.equal(head.status, 200);
   assert.equal(head.body, null);
-  const sig = link.split('/').at(-1);
+  const sig = new URL(link, origin).searchParams.get('token');
   const far = Math.floor(START / 1000) + SCHEDULE_MAX_DAYS * 86400 + 3600 + 61;
   for (const [path, at] of [
-    [`/mail-file/${id}/${exp}/${sig[0] === 'A' ? 'B' : 'A'}${sig.slice(1)}`, START],
+    [`/mail-file/${id}/${exp}?token=${sig[0] === 'A' ? 'B' : 'A'}${sig.slice(1)}`, START],
     [link, (exp + 1) * 1000],
     [link.replace(id, other), START],
-    [`/mail-file/${id}/${exp + 1}/${sig}`, START],
+    [`/mail-file/${id}/${exp + 1}?token=${sig}`, START],
     [await signFileLink(env(), id, far), START],
     [await signFileLink(env(), crypto.randomUUID(), exp), START],
-    [link + '/extra', START],
+    [`/mail-file/${id}/${exp}/extra?token=${sig}`, START],
+    [`/mail-file/${id}/${exp}/${sig}`, START],
+    [link + '&token=' + sig, START],
+    [link + '&extra=value', START],
   ]) assert.equal((await fetchLink(path, 'GET', at)).status, 403, path);
   assert.equal((await fetchLink(await signFileLink(env(), id, far - 1))).status, 200);
   assert.equal((await fetchLink(link, 'POST')).status, 405);
@@ -308,7 +311,8 @@ test('expired uploads are cleaned at the next upload or send', async () => {
   const exp = Math.floor(scheduled / 1000) + 3600;
   const [file] = p.calls[0].body.attachments;
   assert.equal(file.filename, 'offert.pdf');
-  assert.ok(file.path.startsWith(`${origin}/mail-file/${attachment}/${exp}/`));
+  assert.equal(new URL(file.path).pathname, `/mail-file/${attachment}/${exp}`);
+  assert.equal(new URL(file.path).searchParams.get('token').length, 43);
   const row = await runtime.db.prepare('SELECT sent_at, expires_at FROM cms_mail_files WHERE id = ?').bind(attachment).first();
   assert.equal(row.sent_at, iso(START));
   assert.equal(row.expires_at, iso(exp * 1000));
@@ -318,7 +322,7 @@ test('expired uploads are cleaned at the next upload or send', async () => {
   // A second send needs its own Resend id: resend_id is UNIQUE.
   const now = provider(() => Response.json({ id: 'immediate-1' }));
   assert.equal((await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id: immediate.id }] })), env(), now.fetch)).status, 200);
-  assert.ok(now.calls[0].body.attachments[0].path.includes(`/${Math.floor(Date.parse(immediate.expiresAt) / 1000)}/`));
+  assert.equal(new URL(now.calls[0].body.attachments[0].path).pathname, `/mail-file/${immediate.id}/${Math.floor(Date.parse(immediate.expiresAt) / 1000)}`);
   const immediateRow = await runtime.db.prepare('SELECT sent_at, expires_at FROM cms_mail_files WHERE id = ?').bind(immediate.id).first();
   assert.equal(immediateRow.sent_at, iso(clock));
   assert.equal(immediateRow.expires_at, immediate.expiresAt);
@@ -394,7 +398,7 @@ test('ambiguous provider failures keep unconfirmed intents listed', async () => 
 
 test('Kantfall 29: definitive Resend refusals delete fresh intent and release uploads', async () => {
   const attachment = (await (await upload()).json()).id;
-  for (const status of [400, 401, 403, 409, 422, 429]) {
+  for (const status of [400, 401, 403, 422, 429]) {
     const response = await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id: attachment }] })), env(), provider(() => Response.json({ message: 'refused' }, { status })).fetch);
     assert.notEqual(response.status, 200);
     assert.equal((await response.json()).details.refused, true);
@@ -412,6 +416,82 @@ test('a refusal on a retry retains an older ambiguous intent and its claim', asy
   assert.equal((await run(post('/admin/api/mail/send', request), env(), provider(() => Response.json({ message: 'conflict' }, { status: 409 })).fetch)).status, 409);
   assert.equal((await requestRow('mail/' + request.requestId)).resend_id, null);
   assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, 'mail/' + request.requestId);
+});
+
+test('both Resend idempotency conflicts retain a fresh intent and its attachment claim', async () => {
+  for (const name of ['concurrent_idempotent_requests', 'invalid_idempotent_request']) {
+    const { id } = await (await upload()).json();
+    const request = compose({ attachments: [{ kind: 'upload', id }] });
+    const response = await run(post('/admin/api/mail/send', request), env(), provider(() => Response.json({ name }, { status: 409 })).fetch);
+    assert.equal(response.status, 409);
+    const body = await response.json();
+    assert.equal(body.details.uncertain, true);
+    assert.equal(body.details.refused, undefined);
+    assert.ok(await requestRow('mail/' + request.requestId));
+    assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, 'mail/' + request.requestId);
+  }
+});
+
+test('a fresh refusal cannot discard an intent concurrently used by another send', { timeout: 30000 }, async () => {
+  for (const status of [400, 401, 403, 409, 422, 429]) {
+    const { id } = await (await upload()).json();
+    const request = compose({ attachments: [{ kind: 'upload', id }] });
+    const firstStarted = Promise.withResolvers(), secondStarted = Promise.withResolvers();
+    const firstAnswer = Promise.withResolvers(), secondAnswer = Promise.withResolvers();
+    const first = run(post('/admin/api/mail/send', request), env(), async () => { firstStarted.resolve(); return firstAnswer.promise; });
+    await firstStarted.promise;
+    const second = run(post('/admin/api/mail/send', request), env(), async () => { secondStarted.resolve(); return secondAnswer.promise; });
+    await secondStarted.promise;
+    try {
+      firstAnswer.resolve(Response.json({ name: status === 409 ? 'concurrent_idempotent_requests' : 'refused' }, { status }));
+      const failed = await first;
+      assert.notEqual(failed.status, 200);
+      assert.equal((await failed.json()).details.uncertain, true, `shared ${status} refusal`);
+      assert.ok(await requestRow('mail/' + request.requestId));
+      assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, 'mail/' + request.requestId);
+      assert.equal((await run(post('/admin/api/mail/attachment-remove', { id }), env())).status, 404);
+      secondAnswer.resolve(Response.json({ id: `concurrent-${status}` }));
+      assert.equal((await second).status, 200);
+      assert.equal((await requestRow('mail/' + request.requestId)).resend_id, `concurrent-${status}`);
+    } finally {
+      firstAnswer.resolve(Response.json({ name: 'refused' }, { status: 422 }));
+      secondAnswer.resolve(Response.json({ id: `concurrent-${status}` }));
+      await Promise.allSettled([first, second]);
+    }
+  }
+});
+
+test('a retry whose intent was discarded before registration cannot send or reclaim uploads', { timeout: 30000 }, async () => {
+  for (const withUpload of [false, true]) {
+    const { id } = await (await upload()).json();
+    const request = compose({ attachments: withUpload ? [{ kind: 'upload', id }] : [] });
+    const firstStarted = Promise.withResolvers(), firstAnswer = Promise.withResolvers();
+    const first = run(post('/admin/api/mail/send', request), env(), async () => { firstStarted.resolve(); return firstAnswer.promise; });
+    await firstStarted.promise;
+    const retryReady = Promise.withResolvers(), continueRetry = Promise.withResolvers();
+    const db = { prepare: sql => runtime.db.prepare(sql), async batch(statements) {
+      retryReady.resolve();
+      await continueRetry.promise;
+      return runtime.db.batch(statements);
+    } };
+    const p = provider(), retry = run(post('/admin/api/mail/send', request), env({ CMS_DB: db }), p.fetch);
+    await retryReady.promise;
+    try {
+      firstAnswer.resolve(Response.json({ name: 'validation_error' }, { status: 422 }));
+      assert.equal((await first).status, 422);
+      assert.equal(await requestRow('mail/' + request.requestId), null);
+      continueRetry.resolve();
+      const response = await retry;
+      assert.equal(response.status, 409);
+      assert.equal((await response.json()).details.uncertain, true);
+      assert.equal(p.calls.length, 0);
+      assert.equal((await runtime.db.prepare('SELECT claimed_by FROM cms_mail_files WHERE id = ?').bind(id).first()).claimed_by, null);
+    } finally {
+      firstAnswer.resolve(Response.json({ name: 'validation_error' }, { status: 422 }));
+      continueRetry.resolve();
+      await Promise.allSettled([first, retry]);
+    }
+  }
 });
 
 test('every E3/E4 provider refusal on an existing intent remains uncertain', async () => {

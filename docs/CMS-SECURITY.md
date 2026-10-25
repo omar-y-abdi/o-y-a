@@ -10,13 +10,13 @@ The owner address is a Worker secret, never a bundled constant. Access applicati
 
 ## Content boundary
 
-HTML is parsed with parse5, CSS with css-tree and project JSON traversed with depth/size limits. Scripts, event handlers, unsafe URLs, active embeds, foreign SVG content, external CSS imports, executable editor fields and prototype keys are rejected. Resources must come from approved local asset paths or registered R2 media paths. Page routes cannot shadow administration, APIs or infrastructure.
+HTML is parsed with parse5 and CSS with css-tree. Canonical project fields have explicit type, count and size limits. Scripts, event handlers, unsafe URLs, active embeds, foreign SVG content and external CSS imports in canonical content are rejected. Legacy editor JSON is ignored and discarded, including executable fields inside that unused data; it is not traversed as an additional security boundary. Resources must come from approved local asset paths or registered R2 media paths. Page routes cannot shadow administration, APIs, private attachment downloads or infrastructure.
 
 Protected component contracts preserve functional attributes, exact hook ownership, control counts, semantic values and state, required classes and the nearest functional parent. Visual wrappers and reordering within a function remain possible. Moving a control outside its functional group is rejected. Page validation also checks main content, heading structure, image alternatives and local links. Runtime text placeholders must retain their original set.
 
 Public CSP is defined by the committed `CSP` and `SKIFT_CSP` constants in `src/csp.mjs`. Executable scripts may load only from the same origin and Cloudflare Turnstile; inline executable scripts and eval remain blocked. SKIFT additionally permits same-origin and blob media. JSON-LD and runtime JSON are inert data blocks and need no script hashes. The separate admin policy allows inline styles for GrapesJS and validated previews. The visual editor's affordances are not the security boundary: server checks run for direct API requests too.
 
-HTML/CSS are the canonical editor representation. Legacy editor JSON is type/security checked on import but never trusted as a competing executable editor document. Preview-only JSON is restricted to one server-owned head record in a studio-owned srcdoc iframe. CMS-rendered public HTML embeds runtime copy from the page's own revision, read in the same D1 query, in `script#cms-runtime[type="application/json"]`. Serialization replaces every `<` with the literal JSON escape `\u003c`, preventing stored text from closing the script or opening an HTML comment. The client reads this head block before fetching `/data/runtime.json`; the endpoint remains available to API clients and pages without a block. Public card loading continues to use validated endpoints.
+HTML/CSS are the canonical editor representation. Legacy page and card `project` JSON fields are never used to source rendered content and are normalized to `null`; their bytes still count toward the incoming request limit. Preview-only JSON is restricted to one server-owned head record in a studio-owned srcdoc iframe. CMS-rendered public HTML embeds runtime copy from the page's own revision, read in the same D1 query, in `script#cms-runtime[type="application/json"]`. Serialization replaces every `<` with the literal JSON escape `\u003c`, preventing stored text from closing the script or opening an HTML comment. The client reads this head block before fetching `/data/runtime.json`; the endpoint remains available to API clients and pages without a block. Public card loading continues to use validated endpoints.
 
 ## Storage and recovery
 
@@ -26,7 +26,24 @@ Validation may reuse unchanged content from the server's trusted published basel
 
 R2 keys are immutable UUIDs. Upload parsing checks headers, bounded container integrity, size and dimensions; raster files must also decode through the CMS_IMAGES binding before registration. MIME is derived by the server. Existing unverified rows are checked before promotion under the media-integrity migration. WOFF2 has its separate bounded header policy; raster decoding is not a font-integrity certification. A private upload is not served publicly until used by a published revision. Archiving hides a file from selection but preserves bytes and historical URLs. Previously published files remain public after removal from a current page. Do not upload confidential files expecting later archival to revoke their old public URLs.
 
-Current content limits: 64 pages, 2,000 wins, 8 MiB request bodies, 1.5 million compressed revision bytes, 500,000 characters of HTML per page, 200,000 CSS characters per stylesheet and 1 million characters of editor JSON per page. A file is limited to 10 MiB, 8192 px per dimension and 32 megapixels. These are validation limits, not a promise of fast editing at every maximum simultaneously.
+Current content limits: 64 pages, 2,000 wins, 8 MiB of serialized canonical project data, 1.5 million compressed revision bytes, 500,000 characters of HTML per page and 200,000 CSS characters per stylesheet. There is no separate character limit for discarded editor JSON. A public media upload is limited to 10 MiB, 8192 px per dimension and 32 megapixels. These are validation limits, not a promise of fast editing at every maximum simultaneously.
+
+Incoming JSON and public-media bodies have route-specific limits enforced while reading the stream. Private mail uploads currently check the declared size before streaming to R2 and compare R2's returned size afterward:
+
+| Endpoint under `/admin/api/` | Body limit |
+| --- | --- |
+| `save`, `validate`, `preview` | 8 MiB |
+| `recover`, `managed-svg`, `asset-metadata`, `asset-lifecycle`, `replace-resource` | 16 MiB |
+| `migrate-frame` | 4 KiB |
+| `asset-usage`, `mail/cancel`, `mail/attachment-remove` | 1 KiB |
+| `contact` settings | 8 KiB |
+| `mail/test`, `mail/send` | 1 MiB |
+| `upload` public media | 10 MiB |
+| `mail/attachment` private attachment | 30 MiB declared upload limit; returned R2 size must match |
+
+The JSON reader's default is 4 MiB; the registered routes above provide their own limits. The public contact endpoint accepts at most 16 KiB and the analytics event endpoint at most 256 bytes. Authoritative limits live in `src/cms/api.mjs`, `src/cms/email-api.mjs`, `src/cms/http.mjs`, `src/server/contact.mjs` and `src/worker.mjs`.
+
+Private mail attachments use a separate `mail-private/` prefix and HMAC-authorized `/mail-file/{id}/{expiry}?token=…` downloads. Their bearer token is kept out of the URL path, and Wrangler query redaction covers Worker logs and traces. A release must verify that effective platform setting; it does not erase previously stored URLs. `CONTACT_HASH_SECRET` also encrypts saved contact settings and signs public contact idempotency/rate keys. Changing it requires the controlled transition in [CONTACT-SETUP.md](CONTACT-SETUP.md), including outstanding attachment sends and saved-settings recovery.
 
 ## Changes to functional code
 

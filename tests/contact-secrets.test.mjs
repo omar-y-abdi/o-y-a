@@ -177,8 +177,12 @@ test('secrets never leave the server', async () => {
 
 test('signed links bind id and expiry', async () => {
   const id = crypto.randomUUID(), exp = 2000000000;
-  const [, , linkId, linkExp, sig] = (await signFileLink(env(), id, exp)).split('/');
+  const link = new URL(await signFileLink(env(), id, exp), origin);
+  const [, , linkId, linkExp] = link.pathname.split('/');
+  const sig = link.searchParams.get('token');
   assert.equal(linkId, id);
+  assert.equal(link.pathname, `/mail-file/${id}/${exp}`);
+  assert.ok(!link.pathname.includes(sig));
   assert.equal(sig.length, 43);
   assert.equal(await verifyFileLink(env(), id, linkExp, sig, exp - 10), true);
   assert.equal(await verifyFileLink(env(), crypto.randomUUID(), linkExp, sig, exp - 10), false);
@@ -186,4 +190,25 @@ test('signed links bind id and expiry', async () => {
   assert.equal(await verifyFileLink(env(), id, linkExp, sig, exp + 1), false);
   assert.equal(await verifyFileLink(env({ CONTACT_HASH_SECRET: 'n'.repeat(48) }), id, linkExp, sig, exp - 10), false);
   assert.equal(await verifyFileLink(env(), id, linkExp, (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1), exp - 10), false);
+});
+
+test('controlled master rotation requires settings re-entry and invalidates old links', async () => {
+  await clear();
+  await writeContactSecrets(env(), SECRETS, identity.email);
+  const id = crypto.randomUUID(), exp = 2000000000;
+  const previous = new URL(await signFileLink(env(), id, exp), origin);
+  const rotated = env({ ...SECRETS, CONTACT_HASH_SECRET: 'r'.repeat(48) });
+  const unavailable = await readContactSettings(rotated);
+  for (const name of SECRET_NAMES) {
+    assert.equal(unavailable.states[name], 'unreadable');
+    assert.equal(unavailable.values[name], undefined, 'saved ciphertext must not fall back to environment values');
+  }
+  assert.equal(await verifyFileLink(rotated, id, String(exp), previous.searchParams.get('token'), exp - 1), false);
+  // Reverting the master before any writes restores the original ciphertext.
+  assert.deepEqual((await readContactSettings(env())).values, SECRETS);
+  await writeContactSecrets(rotated, SECRETS, identity.email);
+  assert.deepEqual((await readContactSettings(rotated)).values, SECRETS);
+  const next = new URL(await signFileLink(rotated, id, exp), origin);
+  assert.equal(await verifyFileLink(rotated, id, String(exp), next.searchParams.get('token'), exp - 1), true);
+  for (const name of SECRET_NAMES) assert.equal((await readContactSettings(env())).states[name], 'unreadable', 'rollback after re-entry also requires matching saved ciphertext');
 });

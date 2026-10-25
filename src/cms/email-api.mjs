@@ -53,7 +53,11 @@ async function resend(transport, key, path, { method = 'GET', body, idempotency,
   }
   if (status === 401 || status === 403) throw refused(502, 'Nyckeln godtas inte av Resend. Klistra in en ny i Inställningar.');
   if (status === 400 || status === 422) throw refused(422, `Resend: ${sanitise(error?.message, key)}`);
-  if (status === 409) throw refused(409, 'Samma utskick skickades redan med annat innehåll. Ladda om fliken.');
+  // A 409 can mean another same-key request is still running or was accepted
+  // with different bytes. Neither response disproves delivery.
+  if (status === 409) throw new HttpError(409, error?.name === 'concurrent_idempotent_requests'
+    ? 'Samma utskick behandlas redan. Vänta och försök igen med samma utskick.'
+    : 'Utskickets identitet används redan. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
   if (status === 429) throw refused(429, 'Resend begränsar takten. Vänta en minut.');
   throw new HttpError(503, UNAVAILABLE);
 }
@@ -84,30 +88,41 @@ function requireRetryWindow(existing, nowMs) {
   if (existing && nowMs - Date.parse(existing.created_at) > 23 * 3600000) throw new HttpError(409, 'Utskicket är äldre än 23 timmar och kan redan ha skickats. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
 }
 
-const discardIntent = (db, requestId) => db.batch([
-  db.prepare('DELETE FROM cms_sent_mail WHERE request_id = ? AND resend_id IS NULL').bind(requestId),
-  db.prepare('UPDATE cms_mail_files SET claimed_by = NULL WHERE claimed_by = ? AND sent_at IS NULL').bind(requestId),
-]);
+const discardIntent = async (db, requestId) => {
+  const [removed] = await db.batch([
+    db.prepare('DELETE FROM cms_sent_mail WHERE request_id = ? AND resend_id IS NULL AND send_attempts = 1').bind(requestId),
+    db.prepare('UPDATE cms_mail_files SET claimed_by = NULL WHERE claimed_by = ?1 AND sent_at IS NULL AND NOT EXISTS (SELECT 1 FROM cms_sent_mail WHERE request_id = ?1)').bind(requestId),
+  ]);
+  return removed.meta.changes === 1;
+};
+
+async function discardFreshIntent(db, requestId) {
+  try { return await discardIntent(db, requestId); }
+  catch (error) { reportFailure(error, 'mail'); return false; }
+}
 
 async function deliver(env, existing, intent, call, reserve = [], uploadCount = 0) {
   const db = env.CMS_DB;
-  if (!existing || reserve.length) {
-    const results = await db.batch([
-      ...(existing ? [] : [db.prepare('INSERT INTO cms_sent_mail(request_id,kind,recipients,subject,sender,attachments,created_at,scheduled_at,actor) VALUES(?,?,?,?,?,?,?,?,?)')
-        .bind(intent.requestId, intent.kind, JSON.stringify(intent.recipients), intent.subject, intent.sender, intent.attachments, intent.createdAt, intent.scheduledAt, intent.actor)]),
-      ...reserve,
-    ]);
-    if (uploadCount && results.at(-1)?.meta?.changes !== uploadCount) {
-      // An existing intent may stand for a send Resend accepted, so only a fresh one is discarded.
-      if (!existing) await discardIntent(db, intent.requestId).catch(cleanupError => reportFailure(cleanupError, 'mail'));
-      throw reject('Bilagan har tagits bort eller används av ett annat utskick. Ladda upp den igen.', 'attachments');
-    }
+  // Register every attempt before it can reach Resend, including retries with
+  // no attachments. A fresh refusal can discard only a never-shared intent.
+  const results = await db.batch([
+    ...(existing ? [] : [db.prepare('INSERT INTO cms_sent_mail(request_id,kind,recipients,subject,sender,attachments,created_at,scheduled_at,actor,send_attempts) VALUES(?,?,?,?,?,?,?,?,?,0)')
+      .bind(intent.requestId, intent.kind, JSON.stringify(intent.recipients), intent.subject, intent.sender, intent.attachments, intent.createdAt, intent.scheduledAt, intent.actor)]),
+    ...reserve,
+    db.prepare('UPDATE cms_sent_mail SET send_attempts = send_attempts + 1 WHERE request_id = ? AND resend_id IS NULL').bind(intent.requestId),
+  ]);
+  if (results.at(-1)?.meta?.changes !== 1) throw new HttpError(409, 'Ett annat försök ändrade utskicket. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
+  if (uploadCount && results.at(-2)?.meta?.changes !== uploadCount) {
+    const discarded = !existing && await discardFreshIntent(db, intent.requestId);
+    const error = reject('Bilagan har tagits bort eller används av ett annat utskick. Ladda upp den igen.', 'attachments');
+    if (!discarded) error.details.uncertain = true;
+    throw error;
   }
   try { return sentId(await call()); }
   catch (error) {
     // A fresh intent that Resend refused stores nothing (Kantfall 29). An older
     // intent may stand for an accepted send, so it stays for the next retry.
-    if (!existing && error.resendRefused) await discardIntent(db, intent.requestId).catch(cleanupError => reportFailure(cleanupError, 'mail'));
+    if (!existing && error.resendRefused && !await discardFreshIntent(db, intent.requestId)) error.details = { ...error.details, uncertain: true };
     throw error;
   }
 }
@@ -307,7 +322,7 @@ async function sendMail(request, env, context) {
   // Claim every upload atomically with the intent. A scheduled send also keeps
   // its files until an hour after delivery, even if finalize fails.
   // Claims expire with their upload rows; they do not retain files indefinitely.
-  const reserve = uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET claimed_by = ?, expires_at = MAX(expires_at, ?) WHERE id IN (SELECT value FROM json_each(?)) AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?) AND expires_at > ?').bind(requestId, iso((scheduledExp ?? 0) * 1000), uploads, requestId, iso(nowMs + 3600000))] : [];
+  const reserve = uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET claimed_by = ?1, expires_at = MAX(expires_at, ?2) WHERE id IN (SELECT value FROM json_each(?3)) AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?1) AND expires_at > ?4 AND EXISTS (SELECT 1 FROM cms_sent_mail WHERE request_id = ?1 AND resend_id IS NULL)').bind(requestId, iso((scheduledExp ?? 0) * 1000), uploads, iso(nowMs + 3600000))] : [];
   const id = await deliver(env, existing, intent, () => resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: requestId, body: {
     from: rendered.from, to: lists.to, ...(lists.cc.length ? { cc: lists.cc } : {}), ...(lists.bcc.length ? { bcc: lists.bcc } : {}),
     subject: rendered.subject, html: rendered.html, text: rendered.text,
@@ -434,10 +449,12 @@ export async function handleEmailAdmin(request, env, { identity, url, head, tran
 // the R2 body is passed through unread.
 export async function serveMailFile(request, env, now = Date.now) {
   if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'Länken kan bara hämtas.' }, 405, { Allow: 'GET, HEAD' });
-  const [, , id = '', exp = '', sig = '', extra] = new URL(request.url).pathname.split('/');
+  const url = new URL(request.url);
+  const [, , id = '', exp = '', extra] = url.pathname.split('/');
+  const sig = url.searchParams.get('token') ?? '';
   const nowSeconds = Math.floor(now() / 1000);
   const denied = () => json({ error: 'Länken gäller inte.' }, 403);
-  if (extra !== undefined || !env.CMS_DB || !/^\d{1,12}$/.test(exp) || Number(exp) > nowSeconds + SCHEDULE_MAX_DAYS * 86400 + 3600 + 60) return denied();
+  if (extra !== undefined || url.searchParams.size !== 1 || !env.CMS_DB || !/^\d{1,12}$/.test(exp) || Number(exp) > nowSeconds + SCHEDULE_MAX_DAYS * 86400 + 3600 + 60) return denied();
   if (!await verifyFileLink(env, id, exp, sig, nowSeconds)) return denied();
   const row = await env.CMS_DB.prepare('SELECT name, mime FROM cms_mail_files WHERE id = ?').bind(id).first();
   if (!row) return denied();

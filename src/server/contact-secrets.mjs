@@ -92,7 +92,7 @@ export async function writeContactSecrets(env, patch, actor, now = Date.now) {
 export async function signFileLink(env, id, exp) {
   if (!masterReady(env)) throw new HttpError(503, 'Huvudnyckeln saknas.');
   const signature = new Uint8Array(await crypto.subtle.sign('HMAC', await linkKey(env.CONTACT_HASH_SECRET), utf8(`${id}\n${exp}`)));
-  return `/mail-file/${id}/${exp}/${base64url(signature)}`;
+  return `/mail-file/${id}/${exp}?token=${base64url(signature)}`;
 }
 
 // Format, signature and "not expired". The upper bound of the window belongs

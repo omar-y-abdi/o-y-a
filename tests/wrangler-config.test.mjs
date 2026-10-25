@@ -2,6 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 
+test('private attachment query credentials are redacted from Worker logs and traces', async () => {
+  const config = JSON.parse(await readFile('wrangler.jsonc', 'utf8'));
+  assert.equal(config.observability.redact_query_string, true);
+});
+
 // A15: the deleted staging Worker shared production's D1 and R2. Only wrangler.jsonc may bind them.
 test('only wrangler.jsonc binds the production D1 database and R2 bucket', async () => {
   const configs = await Promise.all((await readdir('.')).filter(name => /^wrangler.*\.jsonc?$/.test(name)).map(async name => [name, await readFile(name, 'utf8')]));

@@ -1,5 +1,5 @@
 export const SITE_ORIGIN = 'https://omaryusuf.se';
-export const RESERVED = new Set(['admin', 'login', 'api', 'assets', 'media', 'data', 'cdn-cgi', 'cms-public', 'social', 'mail']);
+export const RESERVED = new Set(['admin', 'login', 'api', 'assets', 'media', 'data', 'cdn-cgi', 'cms-public', 'social', 'mail', 'mail-file']);
 
 export function canonicalPagePath(path) {
   if (RESERVED.has(path.split('/')[1])) return null;
