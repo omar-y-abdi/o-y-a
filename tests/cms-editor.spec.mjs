@@ -200,7 +200,7 @@ test('A2 an SVG icon shrinks to 50x50 and an image keeps its proportions', async
 });
 
 test('main text capture preserves the trusted noscript source across native editing', async ({ page, browserName }, info) => {
-  const prepared = preparePage('<body><header><p>Sidram</p></header><main id="main"><h1 id="heading">Före</h1><noscript><p class="noscript-note">JavaScript är avstängt. Rävar &amp; kaffe. <a href="/om/">Läs mer</a></p></noscript></main><footer><p>Avslutning</p></footer></body>');
+  const prepared = preparePage('<body><header><p id="frame-heading">Sidram</p></header><main id="main"><h1 id="heading">Före</h1><noscript><p class="noscript-note">JavaScript är avstängt. Rävar &amp; kaffe. &lt;em&gt;ord&lt;/em&gt; &amp;lt;bevara&amp;gt; &quot;citat&quot; <a href="/om/" title="ett &quot;citat&quot; &amp; värde">Läs mer</a></p></noscript></main><footer><p>Avslutning</p></footer></body>');
   const split = splitPage(prepared.html), frame = { html: split.html, css: '' };
   const fallback = prepared.contracts.find(contract => contract.fallback).fallback;
   expect(() => validateHtml(prepared.html, prepared.contracts)).not.toThrow();
@@ -224,9 +224,37 @@ test('main text capture preserves the trusted noscript source across native edit
   const after = await capture();
   let rejection;
   try { validateHtml(after.html, prepared.contracts); } catch (error) { rejection = error.message; }
-  if (rejection) await info.attach('trusted-fallback-capture.json', { contentType: 'application/json', body: JSON.stringify({ browserName, rejection, before: before.stages, after: after.stages }, null, 2) });
+  if (rejection || JSON.stringify(before.stages.composed) !== JSON.stringify(before.stages.original)) await info.attach('trusted-fallback-capture.json', { contentType: 'application/json', body: JSON.stringify({ browserName, rejection, before: before.stages, after: after.stages }, null, 2) });
+  expect(before.stages.composed).toEqual(before.stages.original);
   expect(after.html).toContain('Efter');
   expect(rejection, 'A native main edit must retain the original trusted fallback; inspect trusted-fallback-capture.json for the first changed stage').toBeUndefined();
+  expect(after.stages.snapshot).toEqual(before.stages.original);
+  const frameHeading = page.frameLocator('iframe.gjs-frame').locator('#frame-heading');
+  await frameHeading.dblclick();
+  await expect(frameHeading).toHaveAttribute('contenteditable', 'true');
+  await frameHeading.press('ControlOrMeta+A');
+  await frameHeading.pressSequentially('Ändrad sidram');
+  const frameEdit = await capture();
+  expect(frameEdit.html).toContain('Efter');
+  expect(frameEdit.html).toContain('Ändrad sidram');
+  expect(() => validateHtml(frameEdit.html, prepared.contracts)).not.toThrow();
+  expect(frameEdit.stages.snapshot).toEqual(before.stages.original);
+});
+
+test('framed capture preserves incoming fallback tampering for authoritative rejection', async ({ page }) => {
+  const prepared = preparePage('<body><header><p>Sidram</p></header><main id="main"><h1 id="heading">Före</h1><noscript><p>JavaScript är avstängt.</p></noscript></main><footer><p>Slut</p></footer></body>');
+  const fallback = prepared.contracts.find(contract => contract.fallback).fallback;
+  const forged = prepared.html.replace(fallback, fallback.replace('JavaScript är avstängt.', 'Ersatt av ett obetrott utkast.'));
+  const split = splitPage(forged);
+  await openStudio(page, { html: split.page, frame: { html: split.html, css: '' } });
+  const captured = await page.evaluate(() => {
+    window.__ed.getWrapper().find('#heading')[0].components('Efter');
+    const snapshot = window.__studio.snapshot(true);
+    return snapshot.frame.html.replace('<main></main>', snapshot.html);
+  });
+  expect(captured).toContain('Efter');
+  expect(captured).toContain('Ersatt av ett obetrott utkast.');
+  expect(() => validateHtml(captured, prepared.contracts)).toThrow('JavaScript-fallback får bara komma från den skyddade källmallen.');
 });
 
 const WORD = '<html xmlns:o="urn:schemas-microsoft-com:office:office"><body><!--StartFragment--><p class=MsoNormal style="margin:0cm"><span style="font-size:12.0pt">Rad ett<o:p></o:p></span></p><p class=MsoNormal><span style="font-size:12.0pt">Rad två<o:p></o:p></span></p><!--EndFragment--></body></html>';

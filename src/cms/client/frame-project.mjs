@@ -1,7 +1,8 @@
 function fragment(html) {
-  const template = document.createElement('template');
-  template.innerHTML = html;
-  return template;
+  // Firefox serializes noscript text from a live-document template as escaped
+  // markup. Keep parsing and serialization in the same inert document, as in
+  // liveHtml(), so fallback markup/entities survive without decoding or repair.
+  return new DOMParser().parseFromString(`<template>${html}</template>`, 'text/html').querySelector('template');
 }
 
 export function composeEditorPage(page, frame) {
