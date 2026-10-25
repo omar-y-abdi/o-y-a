@@ -30,7 +30,10 @@ test('literal-text-survives-three-save-reload-cycles', async ({ browser }, testI
       await expect(page.locator('#element-text')).not.toHaveValue(text);
       await page.locator('#element-text').fill(text);
       await expect(page.locator('[data-action=save]')).toBeEnabled();
+      const pending = page.waitForResponse(response => response.url() === runtime.url + '/admin/api/save' && response.request().method() === 'POST');
       await save(page);
+      const saved = await pending;
+      expect(saved.status(), await saved.text()).toBe(200);
       await page.reload();
       await waitCanvas(page);
       await (await frame(page)).locator('h1').click();
