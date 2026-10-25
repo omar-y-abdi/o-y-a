@@ -320,8 +320,8 @@ with sync_playwright() as pw:
 
     def shared_everywhere(ctx, text):
         project = api(ctx, 'state').json()['project']
-        assert project['sharedContent']['footer.tagline'] == text, project['sharedContent']
-        assert all(text in item['html'] for item in project['pages']), [item['path'] for item in project['pages'] if text not in item['html']]
+        assert text in project['frame']['html'], project['frame']
+        assert all('data-cms-shared="footer.tagline"' not in item['html'] for item in project['pages']), project['pages']
         return project
 
     def tagline_then_new_page():

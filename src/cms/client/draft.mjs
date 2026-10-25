@@ -29,10 +29,10 @@ export class Draft {
   rejectSave(error) {
     if (error.definitive) { this.pendingSave = null; this.pendingSnapshot = null; }
   }
-  restorePending(pendingSave) {
+  restorePending(pendingSave, snapshot) {
     this.pendingSave = pendingSave ?? null;
     if (!pendingSave) { this.pendingSnapshot = null; return; }
-    this.pendingSnapshot = pendingSave.changes
+    this.pendingSnapshot = snapshot ? structuredClone(snapshot) : pendingSave.changes
       ? applyProjectChanges(this.saved, pendingSave.changes)
       : pendingSave.project ? structuredClone(pendingSave.project) : null;
     if (!this.pendingSnapshot) throw new TypeError('Invalid pending save.');

@@ -2,6 +2,7 @@ import { HttpError } from './http.mjs';
 import { fontCss } from './theme.mjs';
 import { resourceReferences, resolveResources } from './resources.mjs';
 import { resourceSlots } from '../content/resources.mjs';
+import { composePage } from './frame.mjs';
 
 export async function digest(value) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
@@ -17,13 +18,14 @@ async function decompress(bytes) {
   return new Response(new Blob([new Uint8Array(bytes)]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 }
 
-export async function readSite(db, version) {
+export async function readSite(db, version, { raw = false } = {}) {
   const row = version === undefined
     ? await db.prepare('SELECT r.* FROM cms_head h JOIN cms_revisions r ON r.version = h.version WHERE h.id = 1').first()
     : await db.prepare('SELECT * FROM cms_revisions WHERE version = ?').bind(version).first();
   if (!row) return null;
   const project = JSON.parse(await decompress(row.project));
-  for (const page of project.pages) page.project = null;
+  // Migration CAS hashes the exact stored project; normal reads discard unused editor JSON.
+  if (!raw) for (const page of project.pages) page.project = null;
   return { version: row.version, requestId: row.request_id, createdAt: row.created_at, project };
 }
 
@@ -40,7 +42,7 @@ export async function replaySave(db, { requestId, actor, payloadHash }) {
 }
 
 export async function readPublicPage(db, path) {
-  const htmlPage = path.startsWith('/');
+  const htmlPage = path.startsWith('/') || path === '@frame';
   const row = await db.prepare(`SELECT h.version, p.html, p.css, p.meta${htmlPage ? ', r.html AS runtime' : ''} FROM cms_head h LEFT JOIN cms_rendered p ON p.version = h.version AND p.path = ?${htmlPage ? " LEFT JOIN cms_rendered r ON r.version = h.version AND r.path = '@runtime'" : ''} WHERE h.id = 1`).bind(path).first();
   if (!row || row.version === 0) return null;
   if (row.html === null) return { version: row.version, page: null };
@@ -102,7 +104,8 @@ export function publicationChunks(project, resources = resourceSlots, references
   const addressableCards = project.cards.filter(card => (card.state ?? 'active') !== 'trash').map(publicCard);
   const activeIds = project.cards.filter(card => (card.state ?? 'active') === 'active').map(card => card.id);
   const rendered = [
-    ...project.pages.map(page => ({ path: page.path, html: page.html, css: fonts + page.css, meta: { ...metadata(page), resources } })),
+    ...project.pages.map(page => ({ path: page.path, html: composePage(project.frame, page), css: fonts + (project.frame?.css ?? '') + page.css, meta: { ...metadata(page), resources, ...(project.frame ? { frameVersion: 2 } : {}) } })),
+    ...(project.frame ? [{ path: '@frame', html: project.frame.html, css: fonts + project.frame.css, meta: { id: 'skift', resources } }] : []),
     ...addressableCards.map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(card), css: '', meta: {} })),
     ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest], ['email', project.email ?? null]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: {} })),
   ];

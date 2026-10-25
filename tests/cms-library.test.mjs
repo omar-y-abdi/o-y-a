@@ -12,10 +12,12 @@ const asset = { id, src: `/media/${id}.png`, mime: 'image/png', name: 'Min bild'
 const font = { ...asset, id: '22345678-1234-4123-8123-123456789abc', mime: 'font/woff2', name: 'Mitt typsnitt' };
 font.src = `/media/${font.id}.woff2`;
 const cases = {
-  page: p => { p.pages[0].html += `<img src="${asset.src}" alt="">`; },
-  twice: p => { p.pages[0].html += `<img src="${asset.src}" alt=""><img src="${asset.src}" alt="">`; },
+  page: p => { p.pages[0].html = p.pages[0].html.replace('</main>', `<img src="${asset.src}" alt=""></main>`); },
+  twice: p => { p.pages[0].html = p.pages[0].html.replace('</main>', `<img src="${asset.src}" alt=""><img src="${asset.src}" alt=""></main>`); },
   css: p => { p.pages[0].css = `#main{background:url(${asset.src})}`; },
-  link: p => { p.pages[0].html += `<a href="${asset.src}">Bild</a>`; },
+  link: p => { p.pages[0].html = p.pages[0].html.replace('</main>', `<a href="${asset.src}">Bild</a></main>`); },
+  frame: p => { p.frame.html += `<img src="${asset.src}" alt="">`; },
+  frameCss: p => { p.frame.css = `.site-footer{background:url(${asset.src})}`; },
   win: p => { p.cards[0].design = { html: `<div><img src="${asset.src}" alt=""><span data-card-text>Vinst</span></div>`, css: '' }; },
   theme: p => { p.theme.fontFamily = `cms-font-${font.id}`; },
   slot: p => { p.resources.icon = asset.src; },

@@ -1,11 +1,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { initial, seed } from '../.generated/cms-seed.mjs';
+import { parseFragment, serializeOuter } from 'parse5';
+import { elements } from '../src/cms/html-tree.mjs';
+import { legacyInitial as initial, seed as frameSeed } from '../.generated/cms-seed.mjs';
+const seed = frameSeed.legacy;
 import { validateProject } from '../src/cms/project.mjs';
 import { preparePage, validateHtml } from '../src/cms/validation.mjs';
 // Namespace import: without the new exports each test fails on its own.
-import * as shared from '../src/cms/shared-content.mjs';
+import * as shared from '../src/cms/legacy-project.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
@@ -43,9 +46,9 @@ test('A1a: v185 normalizes, validates as a save and keeps every owner page', () 
   for (const key of ['name', 'title', 'description', 'css', 'path']) assert.equal(page[key], developers(v185)[key], key);
   for (const other of normalized.pages.filter(item => item.id !== 'developers')) assert.match(other.html, /data-skift-link/, other.path);
   assert.ok(!normalized.pages.some(item => item.id === 'skift' || item.path === '/play/skift/'), 'SKIFT is code-owned');
-  const saved = validateProject(normalized, seed);
+  const saved = validateProject(normalized, frameSeed);
   assert.equal(saved.pages.length, 15);
-  assert.doesNotThrow(() => validateProject(normalized, seed, saved));
+  assert.doesNotThrow(() => validateProject(normalized, frameSeed, saved));
   assert.deepEqual(shared.normalizeStoredProject(saved, seed, initial).pages.map(item => item.html), saved.pages.map(item => item.html), 'A saved copy is never replaced again');
   assert.deepEqual(v185, untouched, 'Normalization does not mutate the stored revision');
 });
@@ -56,7 +59,7 @@ test('A1a + A1b: an edited /developers/ is kept and validates under signature ke
   const normalized = shared.normalizeStoredProject(edited, seed, initial);
   assert.match(developers(normalized).html, /Ägarens tillägg\./);
   assert.ok(!developers(normalized).html.includes(UPDATED));
-  assert.doesNotThrow(() => validateProject(normalized, seed));
+  assert.doesNotThrow(() => validateProject(normalized, frameSeed));
 });
 
 test('A1b: a template element before a protected node shifts no identity', async () => {
@@ -82,17 +85,17 @@ test('A1a: a seed-HTML /developers/ with owner CSS is kept and still fails loudl
   developers(styled).css = '[data-cms-node="n93"]{color:#123456}';
   assert.equal(shared.refreshDevelopersPage(developers(styled), seed.footerPage), developers(styled));
   // A1b: owner CSS may not select editor keys at all.
-  assert.throws(() => validateProject(shared.normalizeStoredProject(styled, seed, initial), seed), { status: 422, message: /nodnycklar/ });
+  assert.throws(() => validateProject(shared.normalizeStoredProject(styled, seed, initial), frameSeed), { status: 422, message: /nodnycklar/ });
 });
 
 test('A14: links to anchors in the built game resolve against the build', () => {
   assert.ok(seed.skiftIds.includes('main'));
   const linked = structuredClone(initial);
   linked.pages[0].html = linked.pages[0].html.replace('</main>', '<p><a href="/play/skift/#main">Spela</a></p></main>');
-  assert.doesNotThrow(() => validateProject(linked, seed));
+  assert.doesNotThrow(() => validateProject(linked, frameSeed));
   const broken = structuredClone(initial);
   broken.pages[0].html = broken.pages[0].html.replace('</main>', '<p><a href="/play/skift/#saknas">Spela</a></p></main>');
-  assert.throws(() => validateProject(broken, seed), { status: 422, message: /saknar ett mål/ });
+  assert.throws(() => validateProject(broken, frameSeed), { status: 422, message: /saknar ett mål/ });
 });
 
 test('A14: stored SKIFT pages are dropped and a CMS page cannot take the game address', () => {
@@ -100,13 +103,13 @@ test('A14: stored SKIFT pages are dropped and a CMS page cannot take the game ad
   const stored = structuredClone(initial);
   stored.pages.push({ ...structuredClone(developers(initial)), id: 'skift', path: '/play/skift/', sourceId: 'skift', name: 'SKIFT' });
   assert.ok(!shared.normalizeStoredProject(stored, seed, initial).pages.some(page => page.id === 'skift'));
-  assert.ok(!validateProject(stored, seed).pages.some(page => page.id === 'skift'));
+  assert.ok(!validateProject(stored, frameSeed).pages.some(page => page.id === 'skift'));
   const custom = structuredClone(initial);
   custom.pages.push({ ...structuredClone(seed.blank), id: 'custom-game', sourceId: 'blank', path: '/play/skift/' });
-  assert.throws(() => validateProject(custom, seed), /Adressen \/play\/skift\/ används redan/);
+  assert.throws(() => validateProject(custom, frameSeed), /Adressen \/play\/skift\/ används redan/);
   const copy = structuredClone(initial);
   copy.pages.push({ ...structuredClone(developers(initial)), id: 'game-copy', path: '/spel-kopia/', sourceId: 'skift' });
-  assert.throws(() => validateProject(copy, seed), /Spelets sida kan inte redigeras i studion/);
+  assert.throws(() => validateProject(copy, frameSeed), /Spelets sida kan inte redigeras i studion/);
 });
 
 let runtime;
@@ -143,14 +146,17 @@ test('A1a + A14: published v185 serves every page, opens the studio, saves, rest
   assert.equal(save.status, 200, await save.clone().text());
   const game = await runtime.mf.dispatchFetch(runtime.url + '/play/skift/');
   assert.equal(game.status, 200);
-  assert.equal(game.headers.get('x-cms-version'), null, 'SKIFT never comes from D1');
-  assert.equal(await game.text(), await readFile('dist/play/skift/index.html', 'utf8'));
+  assert.equal(game.headers.get('x-cms-version'), '2', 'The frame follows publication while the game main remains code-owned');
+  const gameHtml = await game.text();
+  assert.match(gameHtml, /Starta ditt arbetsskift/);
+  const main = html => serializeOuter(elements(parseFragment(html)).find(node => node.tagName === 'main')).replace(/ data-cms-node="[^"]+"/g, '');
+  assert.equal(main(gameHtml), main(frameSeed.skiftPage.html), 'The complete game main remains code-owned');
   assert.ok(!(await readSite(runtime.db)).project.pages.some(page => page.id === 'skift'), 'Save does not persist SKIFT');
   assert.ok((await (await runtime.mf.dispatchFetch(runtime.url + '/developers/')).text()).includes(UPDATED));
   const historical = await (await admin('revision/1')).json();
   const restored = await admin('save', { project: historical.project, baseVersion: 2, requestId: crypto.randomUUID() });
   assert.equal(restored.status, 200, await restored.clone().text());
-  assert.equal((await checkCompatibility(runtime.db, { seed, initial })).compatible, true);
+  assert.equal((await checkCompatibility(runtime.db, { seed: frameSeed, initial })).compatible, true);
   // A14: an old tab's explicit game-page edit is refused, not silently dropped.
   const gamePage = { id: 'skift', path: '/play/skift/', sourceId: 'skift', name: 'SKIFT', title: 'SKIFT | Omar Yusuf', description: 'Spelet.', html: '<main id="main"><h1>SKIFT</h1></main>', css: '' };
   const head = (await readSite(runtime.db)).version;
@@ -158,7 +164,7 @@ test('A1a + A14: published v185 serves every page, opens the studio, saves, rest
   assert.equal(upsert.status, 422);
   assert.match(await upsert.text(), /Spelets sida kan inte redigeras i studion\./);
   // A full pre-A14 project still saves; its unchanged game page is not stored.
-  const full = structuredClone((await (await admin('state')).json()).project);
+  const full = structuredClone(initial);
   full.pages.push(gamePage);
   const legacySave = await admin('save', { project: full, baseVersion: head, requestId: crypto.randomUUID() });
   assert.equal(legacySave.status, 200, await legacySave.clone().text());

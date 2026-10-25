@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
+import { parseFragment, serializeOuter } from 'parse5';
+import { elements } from '../src/cms/html-tree.mjs';
+import { seed } from '../.generated/cms-seed.mjs';
 
 let runtime;
 // Each case renders a live 3D world. Share one fixture and run these cases in
@@ -121,9 +124,9 @@ test('mobile game keeps touch controls visible and plays after resize', { tag: '
   await context.close();
 });
 
-// A14: the game page is code-owned. The studio edits only its runtime texts;
-// the live page is the build, never a stored CMS row.
-test('CMS edits SKIFT texts while the live game stays the code-owned build', { tag: '@webgl' }, async ({ page, context }) => {
+// A14/B8: the game's complete main is code-owned. CMS publication supplies
+// its shared frame and runtime texts, without storing the game as a CMS page.
+test('CMS edits SKIFT texts while the live main stays the code-owned build', { tag: '@webgl' }, async ({ page, context }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
   const errors = [];
@@ -136,11 +139,17 @@ test('CMS edits SKIFT texts while the live game stays the code-owned build', { t
   await expect(page.locator('[data-copy-key^="runtime.skift."][data-copy-key$=".footer"]')).toHaveCount(0);
   const intro = page.locator('[data-copy-key="runtime.skift.sv.intro"]');
   await intro.fill('CMS-intro <img src=x onerror="window.injected=true">');
+  const saved = page.waitForResponse(response => response.url().endsWith('/admin/api/save'));
   await page.locator('[data-action="save"]').click();
+  const publication = await saved;
+  expect(publication.status(), await publication.text()).toBe(200);
+  const { version } = await publication.json();
   await expect(page.locator('#save-status')).toContainText(/Sparat|Sparad|Alla ändringar/i);
   const live = await context.newPage();
   const response = await live.goto(runtime.url + '/play/skift/');
-  expect(response.headers()['x-cms-version']).toBeUndefined();
+  expect(response.headers()['x-cms-version']).toBe(String(version));
+  const main = html => serializeOuter(elements(parseFragment(html)).find(node => node.tagName === 'main')).replace(/ data-cms-node="[^"]+"/g, '');
+  expect(main(await response.text())).toBe(main(seed.skiftPage.html));
   await expect(live).toHaveTitle('SKIFT | Starta ditt arbetsskift | Omar Yusuf');
   await expect(live.locator('.intro')).toHaveText('CMS-intro <img src=x onerror="window.injected=true">');
   await expect(live.locator('.intro img')).toHaveCount(0);

@@ -1,8 +1,8 @@
+import { shiftLink } from '../content/skift.mjs';
+import { attribute, elements } from './html-tree.mjs';
 import { parseFragment, serialize } from 'parse5';
 import { HttpError } from './http.mjs';
 import { validateHtml, rekeyHtml, hasSignatureKeys } from './validation.mjs';
-import { normalizeFooterProject, FOOTER_VERSION } from './footer.mjs';
-import { normalizeSkiftProject } from './skift.mjs';
 import { attribute as attr, walk, setInner } from './html-tree.mjs';
 
 export const DEFAULT_SHARED_CONTENT=Object.freeze({'footer.tagline':'Lite hjärna. Lite hjärta.<br>Ganska mycket nyfikenhet.'});
@@ -64,6 +64,7 @@ export function refreshDevelopersPage(page,template){
   return {...rest,html:serialize(tree),footerVersion:FOOTER_VERSION};
 }
 export function refreshDevelopers(input,seed){
+  seed=seed.legacy??seed;
   if(!input||!Array.isArray(input.pages)||!seed.footerPage)return input;
   const pages=input.pages.map(page=>refreshDevelopersPage(page,seed.footerPage));
   return pages.every((page,index)=>page===input.pages[index])?input:{...input,pages};
@@ -76,7 +77,11 @@ function rekeyPages(project){
   return {...project,pages:project.pages.map(page=>typeof page?.html==='string'?{...page,html:rekeyHtml(page.html)}:page)};
 }
 export function normalizeStoredProject(input,seed={},initial={}){
+  seed=seed.legacy??seed;
   return rekeyPages(normalizeStoredPages(refreshDevelopers(input,seed),seed,initial));
+}
+export function normalizeClientProject(input,seed={}){
+  return normalizeStoredPages(input,seed.legacy??seed,{});
 }
 function normalizeStoredPages(input,seed,initial){
   input=normalizeFooterProject(input,seed);
@@ -92,7 +97,7 @@ function normalizeStoredPages(input,seed,initial){
     const trusted=parseFragment(template.html), legacy=parseFragment(page.html);
     for(const key of required){
       const marker=findNode(trusted,'data-cms-shared',key);
-      const nodeKey=marker&&attr(marker,'data-cms-node');
+      const nodeKey=seed.sharedSlots?.[page.id]?.[key]??seed.sharedSlots?.[page.sourceId]?.[key]??(marker&&attr(marker,'data-cms-node'));
       const target=nodeKey&&findNode(legacy,'data-cms-node',nodeKey);
       if(!target)fail(`Den sparade versionen saknar en kompatibel gemensam innehållsplats: ${key}.`);
       setAttr(target,'data-cms-shared',key);
@@ -138,4 +143,88 @@ export function validateSharedInstances(pages,sharedContent,{publication=true,re
     if(publication)for(const key of requiredEverywhere)if((perPage.get(key)??0)!==1)fail(`Det gemensamma innehållet ${key} måste finnas exakt en gång på alla sidor.`);
   }
   return seen;
+}
+
+
+export const FOOTER_VERSION = 1;
+const LINK = '<a href="/developers/">För utvecklare</a>';
+// PR #10 migration. Signature keys do not shift, so only the link is added;
+// validateProject then checks the result against the current contracts.
+// Only pre-PR #10 pages qualify: unmarked and still positionally keyed. An
+// unmarked page with signature keys comes from a current build.
+export function normalizeFooterPage(page) {
+  if (page.footerVersion !== undefined && page.footerVersion !== FOOTER_VERSION) throw new HttpError(422, 'Sidfotens version stöds inte.');
+  if (page.footerVersion === FOOTER_VERSION || typeof page.html !== 'string' || hasSignatureKeys(page.html)) return page;
+  const tree = parseFragment(page.html, { scriptingEnabled: true });
+  // Legal pages hold a first privacy button in div.legal-actions: use the one
+  // whose parent is a nav inside a footer.
+  const inFooter = node => { for (let parent = node.parentNode; parent; parent = parent.parentNode) if (parent.tagName === 'footer') return true; return false; };
+  const nav = elements(tree).find(node => attribute(node, 'data-privacy-open') !== undefined && node.parentNode?.tagName === 'nav' && inFooter(node))?.parentNode;
+  if (!nav || elements(nav).some(node => node.tagName === 'a' && attribute(node, 'href') === '/developers/')) return { ...page, footerVersion: FOOTER_VERSION };
+  const link = parseFragment(LINK).childNodes[0];
+  link.parentNode = nav;
+  nav.childNodes.unshift(link);
+  return { ...page, html: serialize(tree), footerVersion: FOOTER_VERSION };
+}
+
+export function normalizeFooterProject(input, seed) {
+  seed = seed.legacy ?? seed;
+  if (!input || !Array.isArray(input.pages)) return input;
+  let changed = false;
+  const pages = input.pages.map(page => {
+    if (!page || typeof page !== 'object') return page;
+    const normalized = normalizeFooterPage(page);
+    changed ||= normalized !== page;
+    return normalized;
+  });
+  if (!changed) return input;
+  // The new footer must point to a page that is also editable and publishable.
+  // Once marked, subsequent owner edits/deletions are not re-added on reads.
+  if (seed.footerPage && !pages.some(page => page?.path === seed.footerPage.path || page?.id === seed.footerPage.id)) pages.push({ ...structuredClone(seed.footerPage), footerVersion: FOOTER_VERSION });
+  return { ...input, pages };
+}
+
+
+// The link uses a fixed identity outside the signature keys.
+export function normalizeSkiftPage(page, definition) {
+  const links = definition?.contracts?.filter(contract => ['skift-nav', 'skift-nav-mobile'].includes(contract.key)) ?? [];
+  if (!links.length || typeof page.html !== 'string') return page;
+  // A page that already carries every link identity needs no migration and is
+  // returned without parsing it on each public read.
+  if (links.every(link => page.html.includes(`data-cms-node="${link.key}"`))) return page;
+  const tree = parseFragment(page.html, { scriptingEnabled: true });
+  const nodes = elements(tree);
+  const missing = links.filter(link => !nodes.some(node => attr(node, 'data-cms-node') === link.key));
+  if (!missing.length) return page;
+  // Check a re-keyed copy: stored pages from older builds carry positional keys.
+  // The output keeps the page's own keys; Save validates them afterwards.
+  validateHtml(rekeyHtml(page.html), definition.contracts.filter(contract => !missing.some(link => link.key === contract.key)));
+  for (const link of missing) {
+    const menu = nodes.find(node => (attr(node, 'class') ?? '').split(/\s+/).includes(link.containerClass));
+    if (!menu) throw new HttpError(422, 'Sidans toppmeny saknas.');
+    const anchor = parseFragment(shiftLink(false, link.key === 'skift-nav-mobile')).childNodes[0];
+    anchor.attrs.push({ name: 'data-cms-node', value: link.key });
+    anchor.parentNode = menu;
+    const workshop = menu.childNodes.findIndex(node => node.tagName === 'a' && attr(node, 'href') === '/verkstad/');
+    menu.childNodes.splice(workshop < 0 ? menu.childNodes.length : workshop + 1, 0, anchor);
+  }
+  return { ...page, html: serialize(tree) };
+}
+
+// The game page is code-owned: the build at SKIFT_PATH is always served, so a
+// stored copy is dropped on read and on save instead of shadowing template fixes.
+export function normalizeSkiftProject(input, seed) {
+  seed = seed.legacy ?? seed;
+  if (!input || !Array.isArray(input.pages)) return input;
+  const pages = input.pages.filter(page => page?.id !== 'skift').map(page => {
+    if (!page || typeof page !== 'object') return page;
+    const definition = seed.pages?.find(item => item.id === page.id) ?? seed.pages?.find(item => item.id === page.sourceId) ?? seed.blank;
+    return normalizeSkiftPage(page, definition);
+  });
+  let runtime = input.runtime;
+  if (runtime && typeof runtime === 'object' && !Array.isArray(runtime)) {
+    const missing = Object.entries(seed.runtime ?? {}).filter(([key]) => key.startsWith('runtime.skift.') && !Object.hasOwn(runtime, key));
+    if (missing.length) runtime = { ...Object.fromEntries(missing), ...runtime };
+  }
+  return runtime === input.runtime && pages.length === input.pages.length && pages.every((page, index) => page === input.pages[index]) ? input : { ...input, pages, runtime };
 }

@@ -2,11 +2,13 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { parseFragment, serialize } from 'parse5';
-import { initial, seed, built } from '../.generated/cms-seed.mjs';
+import { parseFragment, serialize, serializeOuter } from 'parse5';
+import { elements } from '../src/cms/html-tree.mjs';
+import { legacyInitial as initial, seed as frameSeed, built } from '../.generated/cms-seed.mjs';
+const seed = frameSeed.legacy;
 import { routes } from '../src/content/site.mjs';
 import { validateProject } from '../src/cms/project.mjs';
-import { normalizeStoredProject } from '../src/cms/shared-content.mjs';
+import { normalizeStoredProject } from '../src/cms/legacy-project.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
@@ -50,10 +52,10 @@ test('every public page links to a built, dedicated SKIFT page', async () => {
 test('SKIFT stays out of the CMS page register while its navigation links stay protected', () => {
   const project = structuredClone(initial);
   assert.ok(!project.pages.some(page => page.id === 'skift' || page.path === '/play/skift/'), 'Game must not appear in the CMS page register');
-  assert.doesNotThrow(() => validateProject(project, seed));
+  assert.doesNotThrow(() => validateProject(project, frameSeed));
   const redirected = structuredClone(project);
   redirected.pages[0].html = redirected.pages[0].html.replace(/(<a class="shift-link" href=")\/play\/skift\//, '$1/om/');
-  assert.throws(() => validateProject(redirected, seed), /skyddat/);
+  assert.throws(() => validateProject(redirected, frameSeed), /skyddat/);
 });
 
 test('old CMS state gains the game navigation, not a stored game page, without changing owner content or identities', () => {
@@ -71,7 +73,7 @@ test('old CMS state gains the game navigation, not a stored game page, without c
   assert.equal(upgraded.runtime['runtime.skift.sv.footer'], 'Ägarens äldre skifttext.');
   assert.deepEqual(legacy, untouched);
   assert.deepEqual(normalizeStoredProject(upgraded, seed, initial), upgraded);
-  assert.doesNotThrow(() => validateProject(upgraded, seed));
+  assert.doesNotThrow(() => validateProject(upgraded, frameSeed));
   const forged = withoutGame(initial);
   forged.pages[0].html = forged.pages[0].html.replace('data-motion-toggle=""', 'data-motion-toggle="" data-contact-form=""');
   assert.throws(() => normalizeStoredProject(forged, seed, initial), /koppling|funktion|attribut/);
@@ -91,10 +93,10 @@ test('partial navigation upgrades retain owner labels and reject forged identiti
     const normalized = normalizeStoredProject(project, seed, initial);
     assert.match(normalized.pages[0].html, new RegExp(marker));
     assert.match(normalized.pages[0].html, /Ägarens spellänk/);
-    assert.doesNotThrow(() => validateProject(normalized, seed));
+    assert.doesNotThrow(() => validateProject(normalized, frameSeed));
     const forged = structuredClone(initial);
     forged.pages[0].html = forged.pages[0].html.replace(anchor, match => match.replace(/data-cms-node="[^"]+"/, 'data-cms-node="forged-nav"'));
-    assert.throws(() => validateProject(forged, seed), /koppling|funktion|attribut/);
+    assert.throws(() => validateProject(forged, frameSeed), /koppling|funktion|attribut/);
   }
 });
 
@@ -107,7 +109,7 @@ test('adding SKIFT navigation preserves a custom shared footer from a pre-shared
   assert.equal(upgraded.sharedContent['footer.tagline'], custom);
   assert.ok(!upgraded.sharedContentConflicts);
   assert.ok(!upgraded.pages.some(page => page.id === 'skift'), 'A14: no game page inherits the footer');
-  assert.doesNotThrow(() => validateProject(upgraded, seed));
+  assert.doesNotThrow(() => validateProject(upgraded, frameSeed));
 });
 
 let runtime;
@@ -151,10 +153,16 @@ test('old D1 publication serves the built game and real assets; game texts survi
   assert.equal(save.status, 200, await save.clone().text());
   assert.equal((await (await runtime.mf.dispatchFetch(runtime.url + '/data/runtime.json')).json())['runtime.skift.sv.intro'], 'CMS-intro för skiftet.');
   const live = await runtime.mf.dispatchFetch(runtime.url + '/play/skift/');
-  assert.equal(live.headers.get('x-cms-version'), null, 'A14: Save never moves the game into D1');
-  assert.equal(await live.text(), build);
+  assert.equal(live.headers.get('x-cms-version'), '2', 'Only the frame follows the CMS publication');
+  const liveHtml = await live.text();
+  const inlineRuntime = liveHtml.match(/<script type="application\/json" id="cms-runtime">([\s\S]*?)<\/script>/);
+  assert.ok(inlineRuntime, 'The composed game frame includes the published runtime block');
+  assert.equal(JSON.parse(inlineRuntime[1])['runtime.skift.sv.intro'], 'CMS-intro för skiftet.');
+  const main = html => serializeOuter(elements(parseFragment(html)).find(node => node.tagName === 'main')).replace(/ data-cms-node="[^"]+"/g, '');
+  assert.equal(main(liveHtml), main(build), 'Publication replaces only the frame around the complete trusted game main');
+  assert.match(liveHtml, /aria-current="page"/);
   assert.ok(!(await readSite(runtime.db)).project.pages.some(page => page.id === 'skift'));
-  assert.equal((await checkCompatibility(runtime.db, { seed, initial })).compatible, true);
+  assert.equal((await checkCompatibility(runtime.db, { seed: frameSeed, initial })).compatible, true);
   const reload = await (await admin('state')).json();
   assert.equal(reload.project.runtime['runtime.skift.sv.intro'], 'CMS-intro för skiftet.');
   const historical = await (await admin('revision/1')).json();

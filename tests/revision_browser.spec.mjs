@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { CheckFailure, waitScrollSettled, waitAtTop, fikaCommentCandidates } from './helpers/revision-scroll.mjs';
 import { initial, seed } from '../.generated/cms-seed.mjs';
-import { normalizeStoredProject } from '../src/cms/shared-content.mjs';
+import { normalizeStoredProject } from '../src/cms/frame-converter.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { publishSite } from '../src/cms/store.mjs';
 import { fikaResult } from '../src/client/playlogic.mjs';

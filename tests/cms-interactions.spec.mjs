@@ -26,10 +26,15 @@ test('literal-text-survives-three-save-reload-cycles', async ({ browser }, testI
   await admin(browser, testInfo, async (page, qa, context) => {
     for (let iteration = 0; iteration < 3; iteration++) {
       await (await frame(page)).locator('h1').click();
-      await page.locator('#element-text').fill('Omar\nYusuf' + '.'.repeat(iteration + 1));
+      const text = 'Omar\nYusuf' + '.'.repeat(iteration + 2);
+      await expect(page.locator('#element-text')).not.toHaveValue(text);
+      await page.locator('#element-text').fill(text);
+      await expect(page.locator('[data-action=save]')).toBeEnabled();
       await save(page);
       await page.reload();
       await waitCanvas(page);
+      await (await frame(page)).locator('h1').click();
+      await expect(page.locator('#element-text')).toHaveValue(text);
       await expect((await frame(page)).locator('h3 a[href="/projekt/blade-blend/"]')).toHaveText('Blade & Blend ');
       const response = await context.request.get(runtime.url + '/');
       expect(await response.text()).not.toContain('Blade &amp;amp;');

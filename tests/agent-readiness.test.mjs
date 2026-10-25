@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parse } from 'parse5';
 import { initial } from '../.generated/cms-seed.mjs';
+import { composePage } from '../src/cms/frame.mjs';
 
 const origin = 'https://omaryusuf.se';
 const file = path => readFileSync('dist' + path, 'utf8');
@@ -168,9 +169,9 @@ test('published CMS HTML is the Markdown source, not an outdated static snapshot
             async first() {
               return {
                 version: 12,
-                html: initial.pages[0].html.replace(/<h1\b[^>]*>[\s\S]*?<\/h1>/, '<h1>CMS published heading</h1><p>The owner changed this body in the editor. Real published content.</p>'),
+                html: composePage(initial.frame, { ...initial.pages[0], html: initial.pages[0].html.replace(/<h1\b[^>]*>[\s\S]*?<\/h1>/, '<h1>CMS published heading</h1><p>The owner changed this body in the editor. Real published content.</p>') }),
                 css: '',
-                meta: JSON.stringify({id:'home',path:'/',name:'Hem',title:'CMS page | Omar Yusuf',description:'Owner published updated content.',template:'home',bodyClass:'page-home'}),
+                meta: JSON.stringify({id:'home',path:'/',name:'Hem',title:'CMS page | Omar Yusuf',description:'Owner published updated content.',template:'home',bodyClass:'page-home',frameVersion:2}),
               };
             },
           };
@@ -241,9 +242,9 @@ test('published CMS markup remains owner-controlled without injecting untracked 
     prepare() { return { bind() { return { async first() {
       return {
         version: 5,
-        html: initial.pages[0].html.replace(/<a href="\/developers\/"[^>]*>[\s\S]*?<\/a>/, ''),
+        html: composePage(initial.frame, initial.pages[0]).replace(/<a href="\/developers\/"[^>]*>[\s\S]*?<\/a>/, ''),
         css: '',
-        meta: JSON.stringify({id:'home',path:'/',name:'Hem',title:'CMS portfolio | Omar Yusuf',description:'A published personal portfolio page.',template:'home',bodyClass:'page-home'}),
+        meta: JSON.stringify({id:'home',path:'/',name:'Hem',title:'CMS portfolio | Omar Yusuf',description:'A published personal portfolio page.',template:'home',bodyClass:'page-home',frameVersion:2}),
       };
     } }; } }; },
   };

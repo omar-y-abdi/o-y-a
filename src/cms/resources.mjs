@@ -70,6 +70,7 @@ function mapProject(project, handlers, editorData = true) {
   const design = value => ({ ...value, html: mapHtml(value.html, handlers), css: mapCss(value.css ?? '', handlers), ...(editorData ? { project: mapEditor(value.project, handlers) } : {}) });
   return {
     ...project,
+    ...(project.frame ? { frame: { html: mapHtml(project.frame.html, handlers), css: mapCss(project.frame.css ?? '', handlers) } } : {}),
     pages: project.pages.map(design),
     cards: project.cards.map(card => card.design ? { ...card, design: design(card.design) } : card),
     theme: { ...project.theme, fontFamily: handlers.font(project.theme.fontFamily) },

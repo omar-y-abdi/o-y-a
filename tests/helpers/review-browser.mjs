@@ -80,8 +80,7 @@ export async function revertIfDirty(page) {
 
 export async function openAssets(page, section = 'media') {
   if (!['media', 'wins'].includes(section)) throw new Error(`Unknown resource section: ${section}`);
-  await page.locator('[data-library=assets]').click();
-  if (section === 'wins') await page.locator('#library-list [data-special=wins]').click();
+  await page.locator(`[data-library=${section === 'wins' ? 'wins' : 'assets'}]`).click();
   await expect(page.locator(`#special-stage ${section === 'wins' ? '#win-search' : '[data-media-state=active]'}`)).toBeVisible({ timeout: 20_000 });
 }
 
