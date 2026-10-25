@@ -1,4 +1,3 @@
-import { legacyEditorDraft } from './legacy.mjs';
 import { api, upload } from './api.mjs';
 import { Backups } from './backups.mjs';
 import { Draft } from './draft.mjs';
@@ -7,7 +6,7 @@ import { runtimeView } from './runtime.mjs';
 import { $, $$, escape, toast, dialog, confirmAction, field } from './dom.mjs';
 import { createEditor } from './editor.mjs';
 import { pageInspector, componentInspector, componentColorInspector, themeInspector } from './inspector.mjs';
-import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign } from './library.mjs';
+import { pageList, assetNavigation, mediaGallery, winGallery, winFields, assetDetail, historyView, defaultWinDesign, draftResourceText, assetReferenceCount } from './library.mjs';
 import { renderThemeCss as themeCss, assetFontCss } from '../theme-core.mjs';
 import { applyWinAction, exportWinPackage, filterWins, planWinImport, WIN_BATCH_ACTIONS } from './win-bulk.mjs';
 import { applySharedContentClient, synchronizeSharedPageClient } from './shared-project.mjs';
@@ -16,13 +15,18 @@ import { materializeManagedSvg } from './managed-svg-source.mjs';
 import { saveManagedSvgOperation } from './managed-svg-save.mjs';
 import { RESERVED } from '../routes.mjs';
 
+// The Mejl view is its own chunk and loads the first time it is needed.
+const email = () => import('./email.mjs');
+// Same pattern as EMAIL_PATH in email.mjs, so a path can be tested without loading the chunk.
+const EMAIL_FIELD = /^(templates|sender|shell)\./;
+
 let draft, identity, definitions, blank, assets = [], built;
 let active, selected, current = { type: 'page', id: 'home' }, lastPage = 'home';
 let library = 'pages', device = matchMedia('(max-width:760px)').matches ? 'mobile' : 'desktop', zoom = 100, locked = false, saving = false, themeMode = false;
-let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSelection = new Set(), history, reviewVersion = null, replacement = null, mediaState = 'active';
+let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSelection = new Set(), history, reviewVersion = null, replacement = null, mediaState = 'active', mediaKind = 'all';
 let backups, previewSequence = 0, inspectorTab = 'design', pendingViewRestore = null, svgDraft = null;
 let saveError = '';
-let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer, mediaTotal = 0;
+let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer;
 const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
 const saveInProgress = 'Sparar. Ändringarna finns kvar; försök igen.';
 const page = () => draft.project.pages.find(item => item.id === lastPage) ?? draft.project.pages[0];
@@ -42,6 +46,8 @@ function status() {
   $('[data-action=edit]').classList.toggle('is-active', !locked);
   $('[data-action=lock]').classList.toggle('is-active', locked);
   $('.right-panel').inert = locked || device === 'compare';
+  $('.studio-shell').classList.toggle('studio-shell--email', current.type === 'email');
+  $('[data-special=email]').setAttribute('aria-current', current.type === 'email' ? 'page' : 'false');
 }
 
 function remember() {
@@ -95,7 +101,7 @@ function updateCard(id, values) {
 function renderSidebar() {
   $$('[data-library]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.library === library)));
   if (library === 'pages') pageList(draft.project.pages, current.type === 'page' ? current.id : '', $('#library-search').value);
-  else assetNavigation(current.type, assets, draft.project.cards, mediaTotal);
+  else assetNavigation(current.type);
   $('[data-action=add-page]').hidden = library !== 'pages';
 }
 
@@ -226,7 +232,7 @@ function openPage(id, hash = '') {
 }
 
 function openWin(id) {
-  clearEditor(); current = { type: 'win', id }; library = 'assets'; themeMode = false; locked = false; reviewVersion = null;
+  clearEditor(); current = { type: 'win', id }; library = 'wins'; themeMode = false; locked = false; reviewVersion = null;
   const win = card(); if (!win) return showSpecial('wins');
   const design = win.design ?? defaultWinDesign(win);
   $('#special-stage').hidden = true; $('#editor').hidden = false; $('#preview-stage').hidden = true; $('#loading-state').hidden = false;
@@ -251,10 +257,11 @@ function specialBase(type) {
   $('#editor').hidden = true; $('#preview-stage').hidden = true; $('#special-stage').hidden = false; $('#loading-state').hidden = true;
   $('#styles-panel').hidden = true; $('#traits-panel').hidden = true; $('#custom-inspector').innerHTML = '';
   const guides = {
-    media: ['Resurser', 'Välj en bild eller ett typsnitt för att se uppgifter och redigera filens användning.'],
+    media: ['Bilder', 'Välj en bild eller ett typsnitt för att se uppgifter och redigera filens användning.'],
     wins: ['Små vinster', 'Välj en vinst för att redigera text, kategori och hela dess visuella design.'],
     history: ['Tidigare versioner', 'Granska utan att ändra utkastet. Återställ läser in en version; Save publicerar den.'],
     runtime: ['Funktionstexter', 'Ändra svaren som webbplatsen visar. Behåll dynamiska värden inom klamrar.'],
+    email: ['Mejl', 'Redigera mejlens text och utseende, skicka mejl och följ utskicken.'],
     asset: ['Filens uppgifter', 'Bild, typsnitt och användning'],
   };
   $('#selection-name').textContent = guides[type][0]; $('#selection-type').textContent = 'Portfolio Studio';
@@ -265,8 +272,8 @@ function specialBase(type) {
 
 async function showSpecial(type) {
   specialBase(type);
-  if (type === 'media') { library = 'assets'; $('#canvas-label').textContent = 'Resurser'; await loadMedia(); }
-  if (type === 'wins') { library = 'assets'; $('#canvas-label').textContent = 'Små vinster'; renderWins(); }
+  if (type === 'media') { library = 'assets'; $('#canvas-label').textContent = 'Bilder'; await loadMedia(); }
+  if (type === 'wins') { library = 'wins'; $('#canvas-label').textContent = 'Små vinster'; renderWins(); }
   if (type === 'history') {
     $('#canvas-label').textContent = 'Historik'; $('#special-stage').innerHTML = '<div class="empty-state" role="status">Hämtar tidigare kapitel…</div>';
     history = await api('history');
@@ -276,20 +283,34 @@ async function showSpecial(type) {
     $('#canvas-label').textContent = 'Lekarnas texter';
     runtimeView(draft.project.runtime);
   }
+  if (type === 'email') {
+    $('#canvas-label').textContent = 'Mejl';
+    $('#special-stage').innerHTML = '<div class="empty-state" role="status">Öppnar mejl…</div>';
+    const view = await email().catch(() => null);
+    // The owner may have opened something else while the chunk loaded.
+    if (current.type !== 'email') return;
+    if (!view) {
+      current = { type: 'email-error' };
+      $('#special-stage').innerHTML = '<div class="empty-state" role="alert">Mejlvyn kunde inte laddas. Ladda om sidan och öppna Mejl igen.</div>';
+      renderSidebar();
+      status();
+      throw new Error('Mejlvyn kunde inte laddas. Ladda om sidan och öppna Mejl igen.');
+    }
+    view.mountEmail($('#special-stage'), { project: () => draft.project, change, assets: () => assets, back: () => openPage(lastPage) });
+  }
   renderSidebar();
 }
 
 async function loadMedia(more = false) {
   const sequence = ++mediaSequence;
   const query = $('#library-search').value;
-  const parameters = new URLSearchParams({ q: query, state: mediaState, ...(more && mediaNext ? { cursor: mediaNext } : {}) });
+  const parameters = new URLSearchParams({ q: query, state: mediaState, kind: mediaKind, ...(more && mediaNext ? { cursor: mediaNext } : {}) });
   const result = await api('assets?' + parameters);
   if (sequence !== mediaSequence || current.type !== 'media') return;
   cacheAssets(result.items);
   mediaItems = more ? [...new Map([...mediaItems, ...result.items].map(asset => [asset.id, asset])).values()] : result.items;
   mediaNext = result.next;
-  if (!more && mediaState === 'active' && !query) mediaTotal = result.total;
-  mediaGallery([...assets.filter(asset => asset.builtin), ...mediaItems], query, mediaState);
+  mediaGallery([...assets.filter(asset => asset.builtin), ...mediaItems], query, mediaState, { project: draft.project, kind: mediaKind });
   if (mediaNext) $('#special-stage').insertAdjacentHTML('beforeend', '<button type="button" class="small-button" data-action="more-media" style="margin-top:24px">Visa fler filer</button>');
 }
 
@@ -305,11 +326,12 @@ function renderWins() {
 async function showAsset(id) {
   specialBase('asset'); current.id = id; library = 'assets';
   const item = assets.find(asset => asset.id === id); if (!item) return;
-  assetDetail(item); $('#canvas-label').textContent = 'Resurs'; $('#selection-name').textContent = 'Filens uppgifter'; $('#selection-type').textContent = item.mime; renderSidebar();
+  const currentReferences = assetReferenceCount(draftResourceText(draft.project), item);
+  assetDetail(item, { currentReferences, historyReferences: null }); $('#canvas-label').textContent = 'Resurs'; $('#selection-name').textContent = 'Filens uppgifter'; $('#selection-type').textContent = item.mime; renderSidebar();
   const view = current;
   try {
-    const usage = await api('asset-usage', { id: item.id, project: draft.project });
-    if (current === view) assetDetail(item, usage);
+    const usage = await api('asset-usage', { id: item.id });
+    if (current === view) assetDetail(item, { currentReferences, ...usage });
   } catch (error) { if (current === view) $('#asset-usage').textContent = `Användningen kunde inte kontrolleras: ${error.message}`; }
 }
 
@@ -465,6 +487,7 @@ async function save() {
     savingDraft.rejectSave(error);
     saveError = error.message ?? '';
     showError(error);
+    routeEmailError(error).catch(showError);
   } finally { await backups.persist(); saving = false; status(); }
 }
 
@@ -479,6 +502,15 @@ function showError(error) {
   if (error.status === 0) dialog(`<span class="dialog-eyebrow">UTKASTET FINNS KVAR</span><h2>Anslutningen bröts.</h2><p>${escape(error.message)}</p><div class="dialog-buttons"><button type="button" class="small-button" data-action="export-draft">Exportera utkast</button><button type="button" class="small-button" data-action="close-dialog">Stäng</button></div>`);
 }
 
+// A rejected mail setting is shown on its own field in the Mejl view, which opens if needed.
+async function routeEmailError(error) {
+  const field = error.status === 422 ? error.details?.field : undefined;
+  if (typeof field !== 'string' || !EMAIL_FIELD.test(field) || current.type === 'svg') return;
+  const view = await email();
+  if (current.type !== 'email') await showSpecial('email');
+  view.showEmailError(field, error.message);
+}
+
 async function reconcile() {
   if (saving) { toast(saveInProgress, true); return; }
   $('#studio-dialog').close(); active?.flush();
@@ -491,7 +523,7 @@ async function reconcile() {
   if (result.conflicts.length && !await confirmAction({ title: 'Välj dina ändringar vid konflikt?', message: `Båda flikarna har ändrat samma innehåll: ${result.conflicts.join(', ')}. Dina versioner av dessa delar behålls. Övriga ändringar sammanförs. Granska utkastet före Save.`, action: 'Behåll mina vid konflikt' })) return;
   if (saving) { toast(saveInProgress, true); return; }
   if (!unchangedSince(snapshot, version, owner)) return;
-  clearEditor(); draft = new Draft(state.project, state.version); change(reapplyShared(result.project)); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); remember();
+  clearEditor(); draft = new Draft(state.project, state.version); change(reapplyShared(result.project)); assets = state.assets; openPage(lastPage); status(); remember();
   toast('Utkasten är sammanförda. Granska ändringarna och välj Save.');
 }
 
@@ -503,7 +535,7 @@ async function revert() {
   const state = await api('state');
   if (saving) { toast(saveInProgress, true); return; }
   if (!unchangedSince(snapshot, version, owner)) return;
-  clearEditor(); saveError = ''; draft = new Draft(state.project, state.version); assets = state.assets; mediaTotal = state.mediaTotal; openPage(lastPage); status(); await backups.persist();
+  clearEditor(); saveError = ''; draft = new Draft(state.project, state.version); assets = state.assets; openPage(lastPage); status(); await backups.persist();
 }
 
 async function restore(version) {
@@ -591,7 +623,7 @@ async function importWins() {
   input.click();
 }
 async function submitLifecycle(item, action) {
-  const usage=await api('asset-usage',{id:item.id,project:draft.project});
+  const usage={currentReferences:assetReferenceCount(draftResourceText(draft.project),item),...await api('asset-usage',{id:item.id})};
   const names={archive:'Arkivera',restore:'Återställ',trash:'Flytta till papperskorg',delete:'Radera permanent'};
   if(action!=='restore'){
     const warning=`${usage.currentReferences} referenser i aktuellt utkast · ${usage.historyReferences} i historik.`;
@@ -599,7 +631,6 @@ async function submitLifecycle(item, action) {
   }
   const result=await api('asset-lifecycle',{id:item.id,action,baseVersion:item.version,baseSiteVersion:draft.version,project:draft.project});
   if(result.deleted){assets=assets.filter(asset=>asset.id!==item.id);toast('Resursen är permanent raderad.');return showSpecial('media');}
-  if(!item.builtin){if(item.state==='active'&&result.asset.state!=='active')mediaTotal=Math.max(0,mediaTotal-1);else if(item.state!=='active'&&result.asset.state==='active')mediaTotal++;}
   assets=assets.map(asset=>asset.id===item.id?result.asset:asset); toast(`${names[action]} klar.`); showAsset(item.id);
 }
 
@@ -628,7 +659,7 @@ async function perform(action) {
   if (action === 'history' || action === 'restore') { $('#studio-dialog').close(); if (action === 'restore' && reviewVersion !== null) return restore(reviewVersion); return showSpecial('history'); }
   if (action === 'edit') return editView();
   if (action === 'lock') { if (locked) return editView(); if (!active) openPage(lastPage); locked = true; status(); return preview(); }
-  if (action === 'undo' || action === 'redo') { const view = active ? { ...captureEditorView(active.editor, { device, zoom, tab: inspectorTab }), themeMode, current: { ...current } } : null; active?.flush(); if (draft[action]()) { pendingViewRestore = view; const previous = { ...current }; clearEditor(); if (previous.type === 'win') openWin(previous.id); else openPage(lastPage); status(); remember(); } return; }
+  if (action === 'undo' || action === 'redo') { const view = active ? { ...captureEditorView(active.editor, { device, zoom, tab: inspectorTab }), themeMode, current: { ...current } } : null; active?.flush(); if (draft[action]()) { if (current.type === 'email') { status(); remember(); (await email()).refreshEmail(); return; } pendingViewRestore = view; const previous = { ...current }; clearEditor(); if (previous.type === 'win') openWin(previous.id); else openPage(lastPage); status(); remember(); } return; }
   if (action === 'collapse-left' || action === 'expand-left') { document.body.classList.toggle('is-left-collapsed', action === 'collapse-left'); return fit(); }
   if (action === 'toggle-pages') { document.body.classList.remove('show-properties'); document.body.classList.toggle('show-pages'); return; }
   if (action === 'toggle-properties') { document.body.classList.remove('show-pages'); document.body.classList.toggle('show-properties'); return; }
@@ -681,7 +712,7 @@ document.addEventListener('click', event => {
   Promise.resolve().then(async () => {
     if (button.dataset.action) return perform(button.dataset.action);
     if (button.dataset.pageId) { if (!await confirmManagedSvgNavigation()) return; return openPage(button.dataset.pageId); }
-    if (button.dataset.library) { if (!await confirmManagedSvgNavigation()) return; library = button.dataset.library; $('#library-search').value = ''; renderSidebar(); if (library === 'assets') return showSpecial('media'); if (current.type !== 'page') return openPage(lastPage); }
+    if (button.dataset.library) { if (!await confirmManagedSvgNavigation()) return; library = button.dataset.library; $('#library-search').value = ''; renderSidebar(); if (library === 'assets') return showSpecial('media'); if (library === 'wins') return showSpecial('wins'); if (current.type !== 'page') return openPage(lastPage); }
     if (button.dataset.device) return setDevice(button.dataset.device);
     if (button.dataset.inspector) return setInspectorTab(button.dataset.inspector);
     if (button.dataset.special) { if (!await confirmManagedSvgNavigation()) return; return showSpecial(button.dataset.special); }
@@ -689,6 +720,7 @@ document.addEventListener('click', event => {
     if (button.dataset.winId) { if (!await confirmManagedSvgNavigation()) return; return openWin(button.dataset.winId); }
     if (button.dataset.winFilter) { winFilter = button.dataset.winFilter; winLimit = 60; return renderWins(); }
     if (button.dataset.winState) { winState = button.dataset.winState; winLimit = 60; return renderWins(); }
+    if (button.dataset.mediaKind) { mediaKind = button.dataset.mediaKind; return loadMedia(); }
     if (button.dataset.mediaState) { mediaState = button.dataset.mediaState; return loadMedia(); }
     if (button.dataset.restoreVersion) return restore(Number(button.dataset.restoreVersion));
     if (button.dataset.reviewVersion) {
@@ -712,7 +744,7 @@ $('#file-input').addEventListener('change', async event => {
   const replacing = replacement; replacement = null;
   toast('Laddar upp filen…');
   try {
-    const asset = await upload(file, crypto.randomUUID()); assets = [...assets, asset]; mediaTotal++;
+    const asset = await upload(file, crypto.randomUUID()); assets = [...assets, asset];
     if (replacing) {
       if (replacing.mime.startsWith('image/') !== asset.mime.startsWith('image/')) throw new Error('Filen laddades upp, men bild och typsnitt kan inte ersätta varandra.');
       active?.flush();
@@ -736,7 +768,7 @@ new ResizeObserver(() => { if (active && !locked && device !== 'compare') fit();
 
 async function boot() {
   const state = await api('state');
-  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; mediaTotal = state.mediaTotal; built = state.built;
+  draft = new Draft(state.project, state.version); identity = state.identity; definitions = state.definitions; blank = state.blank; assets = state.assets; built = state.built;
   backups = new Backups(identity.email, {
     snapshot: backupSnapshot,
     flush: () => active?.flush(),
@@ -748,13 +780,6 @@ async function boot() {
     },
   });
   await backups.start();
-  const legacy = legacyEditorDraft(state.project);
-  if (legacy) {
-    const original = { project: state.project, version: state.version, pendingSave: null };
-    draft.change(legacy);
-    $('#legacy-editor-note').hidden = false;
-    $('#export-legacy-editor').onclick = () => backups.export(original);
-  }
   $('#environment-badge').hidden = state.environment !== 'staging';
   $('.owner-avatar').title = `Inloggad som ${identity.email}. Logga ut.`;
   openPage(draft.project.pages[0].id); status();

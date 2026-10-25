@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
+const port = process.env.PLAYWRIGHT_PORT;
+if (port && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) throw new Error('PLAYWRIGHT_PORT must be an integer between 1 and 65535; omit it for port-0 fixtures.');
+const serverURL = port ? `http://127.0.0.1:${port}` : undefined;
+
 export default defineConfig({
   testDir: './tests',
   testMatch: ['**/*.spec.mjs'],
@@ -12,22 +16,30 @@ export default defineConfig({
   reporter: process.env.CI ? [['line'], ['json', { outputFile: 'output/playwright/results.json' }]] : 'line',
   use: {
     browserName: 'chromium',
-    ...(process.env.CHROMIUM_PATH ? {} : { channel: process.env.PW_CHANNEL || 'chrome' }),
+    ...(process.env.CHROMIUM_PATH || !process.env.PW_CHANNEL ? {} : { channel: process.env.PW_CHANNEL }),
     headless: true,
     viewport: { width: 390, height: 844 },
     reducedMotion: 'reduce',
     acceptDownloads: true,
-    baseURL: process.env.BASE_URL || 'http://127.0.0.1:4173',
+    baseURL: process.env.BASE_URL || serverURL,
+    trace: 'retain-on-failure',
     launchOptions: process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH, args: ['--no-sandbox'] } : undefined,
   },
   outputDir: 'output/playwright/artifacts',
+  webServer: serverURL ? {
+    command: 'node scripts/cms-dev.mjs --public-tests',
+    url: serverURL + '/',
+    env: { PORT: port },
+    reuseExistingServer: false,
+    timeout: 60_000,
+  } : undefined,
   projects: [
     { name: 'chromium', grepInvert: /@webgl/ },
-    // Software-rendered worlds share CI's CPU; finish other cases first.
-    { name: 'chromium-webgl', grep: /@webgl/, workers: 1, dependencies: ['chromium'] },
+    // Named public scripts run this serial project after ordinary Chromium.
+    { name: 'chromium-webgl', grep: /@webgl/, workers: 1 },
 
-    // The studio editor must behave the same in every engine; other specs stay chromium-only.
-    { name: 'firefox', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'firefox', channel: '', launchOptions: {} } },
-    { name: 'webkit', testMatch: 'cms-editor.spec.mjs', use: { browserName: 'webkit', channel: '', launchOptions: {} } },
+    // The studio editor, mail preview images and public startup need every engine; other email cases skip there.
+    { name: 'firefox', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs'], use: { browserName: 'firefox', channel: '', launchOptions: {} } },
+    { name: 'webkit', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs'], use: { browserName: 'webkit', channel: '', launchOptions: {} } },
   ],
 });

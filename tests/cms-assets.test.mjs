@@ -2,7 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { inspectAsset, uploadAsset, listAssets, assetResponse } from '../src/cms/assets.mjs';
+import { inspectAsset, uploadAsset, assetPage, assetResponse } from '../src/cms/assets.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/theme.mjs';
 import { cmsRuntime, migrateCmsDb } from './helpers/cms-runtime.mjs';
@@ -27,7 +27,7 @@ test('upload stores an immutable R2 object and recoverable metadata', async () =
   const asset = await uploadAsset(env, { id, bytes: png, name: 'Testbild.png', alt: 'Gul figur på blå botten' });
   assert.equal(asset.src, `/media/${id}.png`);
   assert.equal(asset.width, 1200);
-  assert.equal((await listAssets(env.CMS_DB)).some(item => item.id === id), true);
+  assert.equal((await assetPage(env.CMS_DB)).items.some(item => item.id === id), true);
   const stored = await env.CMS_MEDIA.get(`${id}.png`);
   assert.deepEqual(new Uint8Array(await stored.arrayBuffer()), png);
   const retry = await uploadAsset(env, { id, bytes: png, name: 'Testbild.png', alt: 'Gul figur på blå botten' });

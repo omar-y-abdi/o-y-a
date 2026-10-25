@@ -24,5 +24,7 @@ export function mergeProjects(base, local, remote) {
       .map(key => [key, choose(`${name}:${key}`, before[key], mine[key], theirs[key])])
       .filter(([, value]) => value !== undefined));
   }
-  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime'), resources: properties('resources'), sharedContent: properties('sharedContent', {}) }, conflicts };
+  // Mail settings merge as one value: a half-merged object would fail validation.
+  const email = choose('email', base.email, local.email, remote.email);
+  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime'), resources: properties('resources'), sharedContent: properties('sharedContent', {}), ...(email === undefined ? {} : { email }) }, conflicts };
 }

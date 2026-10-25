@@ -1,4 +1,4 @@
-import {STRINGS} from './i18n.js';
+import {COPY_KEYS,STRINGS} from './i18n.js';
 import {clock,rank,dashDelay,pulseDelay} from './rules.js';
 export class UI {
   constructor(settings,save,onAction,onSetting) {
@@ -11,13 +11,13 @@ export class UI {
     this.modal.addEventListener('cancel',e=>{e.preventDefault();onAction('close');});
     this.translate();
   }
-  t(key){return STRINGS[this.settings.language][key]||key;}
+  t(key){return (COPY_KEYS.includes(key)?globalThis.__OY_SKIFT_COPY__?.['runtime.skift.'+this.settings.language+'.'+key]:undefined)??(STRINGS[this.settings.language][key]||key);}
   translate(){document.documentElement.lang=this.settings.language;document.querySelectorAll('[data-t]').forEach(e=>e.textContent=this.t(e.dataset.t));
     document.getElementById('language-button').textContent=this.settings.language==='sv'?'SV / EN':'EN / SV';
     document.getElementById('pause-button').setAttribute('aria-label',this.t('pause'));
     const swedish=this.settings.language==='sv',world=swedish?'Spelvärld':'Game world';
     document.getElementById('world').setAttribute('aria-label',world);document.querySelector('#world canvas')?.setAttribute('aria-label','SKIFT — '+world);
-    document.querySelector('.site-header nav').setAttribute('aria-label',swedish?'Spelmeny':'Game menu');
+    document.querySelector('[data-skift-menu]').setAttribute('aria-label',swedish?'Spelmeny':'Game menu');
     document.getElementById('joystick').setAttribute('aria-label',swedish?'Styrspak':'Movement joystick');
     this.nodes['pulse-control'].setAttribute('aria-label',swedish?'Puls':'Pulse');
     document.getElementById('language-button').setAttribute('aria-label',swedish?'Byt till engelska':'Switch to Swedish');

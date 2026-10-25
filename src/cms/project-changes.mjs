@@ -10,7 +10,7 @@ const fields = {
 const hasOnly = (value, allowed) => Object.keys(value).every(key => allowed.has(key));
 
 export function validateProjectChanges(changes) {
-  if (!isRecord(changes) || !Object.keys(changes).length || !hasOnly(changes, new Set(['pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent']))) throw new TypeError('Invalid changes envelope.');
+  if (!isRecord(changes) || !Object.keys(changes).length || !hasOnly(changes, new Set(['pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent', 'email']))) throw new TypeError('Invalid changes envelope.');
   const normalized = {};
   for (const kind of ['pages', 'cards']) {
     if (!Object.hasOwn(changes, kind)) continue;
@@ -39,6 +39,11 @@ export function validateProjectChanges(changes) {
     if (!isRecord(changes[key])) throw new TypeError(`Invalid ${key} replacement.`);
     normalized[key] = changes[key];
   }
+  // null removes the mail settings (a restored revision from before they existed).
+  if (Object.hasOwn(changes, 'email')) {
+    if (changes.email !== null && !isRecord(changes.email)) throw new TypeError('Invalid email replacement.');
+    normalized.email = changes.email;
+  }
   return normalized;
 }
 
@@ -66,6 +71,8 @@ export function applyProjectChanges(base, changes) {
   project.pages = updateCollection(project.pages, changes.pages, 'pages');
   project.cards = updateCollection(project.cards, changes.cards, 'cards');
   for (const key of ['runtime', 'theme', 'resources', 'sharedContent']) if (Object.hasOwn(changes, key)) project[key] = structuredClone(changes[key]);
+  if (changes.email === null) delete project.email;
+  else if (Object.hasOwn(changes, 'email')) project.email = structuredClone(changes.email);
   return project;
 }
 
@@ -98,7 +105,7 @@ function collectionChanges(before, after, kind) {
 export function projectChanges(before, after) {
   const changes = {};
   if (before?.schemaVersion !== after?.schemaVersion) throw new TypeError('The project version cannot be changed.');
-  const supported = new Set(['schemaVersion', 'pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent', 'sharedContentConflicts']);
+  const supported = new Set(['schemaVersion', 'pages', 'cards', 'runtime', 'theme', 'resources', 'sharedContent', 'sharedContentConflicts', 'email']);
   for (const key of new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])) {
     if (!supported.has(key) && !equal(before?.[key], after?.[key])) throw new TypeError(`Unsupported project change: ${key}.`);
   }
@@ -106,7 +113,7 @@ export function projectChanges(before, after) {
     const group = collectionChanges(before?.[key], after?.[key], key);
     if (group) changes[key] = group;
   }
-  for (const key of ['runtime', 'theme', 'resources', 'sharedContent']) {
+  for (const key of ['runtime', 'theme', 'resources', 'sharedContent', 'email']) {
     if (Object.hasOwn(before ?? {}, key) !== Object.hasOwn(after ?? {}, key) || !equal(before?.[key], after?.[key])) changes[key] = structuredClone(after?.[key] ?? null);
   }
   return changes;

@@ -346,11 +346,9 @@ test('A1b over the API: the cases through positional keys on preview, validate a
     }
   }
   const r1 = edit(oldTab, '/om/', E => { const [d, a] = consent(E); swap(d, a, 'data-consent'); });
-  for (const name of ['resource-usage', 'asset-usage']) {
-    const accepted = await admin(name, { id: seed.assets[0].id, project: oldTab });
-    assert.equal(accepted.status, 200, `${name}: ${await accepted.clone().text()}`);
-    const rejected = await admin(name, { id: seed.assets[0].id, project: r1 });
-    assert.equal(rejected.status, 422, name);
-    assert.match(await rejected.text(), ATTRIBUTE);
-  }
+  const rejected = await admin('asset-lifecycle', { id: seed.assets[0].id, project: r1, action: 'archive', baseVersion: 0 });
+  assert.equal(rejected.status, 422);
+  assert.match(await rejected.text(), ATTRIBUTE);
+  const history = await admin('asset-usage', { id: seed.assets[0].id });
+  assert.equal(history.status, 200, await history.clone().text());
 });

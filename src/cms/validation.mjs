@@ -2,11 +2,10 @@ import { parse, parseFragment, serialize, serializeOuter } from 'parse5';
 import * as css from 'css-tree';
 import { HttpError } from './http.mjs';
 import { ID_REFERENCES } from './id-references.mjs';
-import { validateEditorShape } from './editor-schema.mjs';
 import { attribute as attr, walk as traverse } from './html-tree.mjs';
 import { RESERVED } from './routes.mjs';
 
-export const VALIDATION_POLICY = 'cms-policy-5-html-namespace';
+export const VALIDATION_POLICY = 'cms-policy-6-generated-content';
 
 const TAGS = new Set('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup dd del details dfn dialog div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i img input kbd label legend li main mark nav noscript ol optgroup option output p picture pre progress q rp rt ruby s samp section select small source span strike strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var svg g path circle rect ellipse line polyline polygon defs lineargradient radialgradient stop clippath title desc mask pattern use'.split(' '));
 const ATTRS = new Set('id class title role lang dir tabindex hidden inert href target rel src srcset sizes alt width height loading decoding type name value checked disabled required readonly multiple min max step minlength maxlength autocomplete placeholder for rows cols method action novalidate open aria-label aria-labelledby aria-describedby aria-controls aria-live aria-atomic aria-hidden aria-expanded aria-pressed aria-current aria-disabled aria-invalid aria-busy scope colspan rowspan start reversed datetime cite download style viewbox fill fill-rule fill-opacity stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity d points x y x1 x2 y1 y2 cx cy r rx ry transform opacity offset stop-color stop-opacity gradientunits gradienttransform clip-path clip-rule preserveaspectratio xmlns'.split(' '));
@@ -18,7 +17,6 @@ const AT_RULES = new Set(['media', 'supports', 'keyframes', '-webkit-keyframes',
 const LOCKED_CLASSES = new Set(['fika-board', 'repeat-line', 'folded-line', 'eye', 'memory-card', 'memory-front', 'memory-back']);
 
 function invalid(message) { throw new HttpError(422, message); }
-function plainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
 
 export function validatePagePath(value) {
   if (typeof value !== 'string' || value.length > 160 || !/^\/(?:[a-z0-9]+(?:-[a-z0-9]+)*\/)*$/.test(value)) invalid('Sidans adress måste vara en ledig, vanlig sökväg, till exempel /projekt/nytt/.');
@@ -62,6 +60,10 @@ export function validateCss(source, context = 'stylesheet') {
       }
     }
     if (node.type === 'Declaration' && ['behavior', '-moz-binding'].includes(css.ident.decode(node.property).toLowerCase())) invalid('Exekverbar CSS är inte tillåten.');
+    if (node.type === 'Declaration' && css.ident.decode(node.property).toLowerCase() === 'content') {
+      const value = css.generate(node.value);
+      if (!/^(?:none|normal|""|'')$/i.test(value)) invalid('CSS får inte ändra etiketter med genererat innehåll.');
+    }
   });
   return css.generate(tree);
 }
@@ -257,68 +259,6 @@ export function validateHtml(source, contracts = [], includeNodes = false, fallb
   const html = serialize(tree);
   if (serialize(parseFragment(html, { scriptingEnabled: true })) !== html) invalid('HTML ändrar betydelse när webbläsaren läser den.');
   return includeNodes ? { html, nodes: elements } : html;
-}
-
-export function validateEditorData(data, contracts = []) {
-  validateEditorShape(data);
-  if (!plainObject(data) || JSON.stringify(data).length > 1000000) invalid('Editorprojektet är ogiltigt eller för stort.');
-  let count = 0;
-  function inspect(value, depth = 0, key = '') {
-    if (depth > 80 || ++count > 100000) invalid('Editorprojektet är för komplext.');
-    if (Array.isArray(value)) { value.forEach(item => inspect(item, depth + 1, key)); return; }
-    if (!value || typeof value !== 'object') return;
-    if (!plainObject(value)) invalid('Editorprojektet innehåller en ogiltig datatyp.');
-    if (value.tagName?.toLowerCase() === 'noscript') {
-      const fallback = contracts.find(item => item.key === value.attributes?.['data-cms-node'] && item.fallback);
-      if (!fallback) invalid('Editorprojektets fallback saknar en skyddad källmall.');
-      const node = parseFragment(fallback.fallback, { scriptingEnabled: true }).childNodes[0];
-      value.attributes = Object.fromEntries(node.attrs.map(item => [item.name, item.value]));
-      value.components = [];
-      value.content = node.childNodes.map(child => child.value ?? '').join('');
-    }
-    // Editor controls are reconstructed by trusted code. Never persist custom
-    // toolbar markup or trait configuration supplied inside a document.
-    delete value.toolbar;
-    delete value.traits;
-    for (const name of ['label', 'icon', 'custom-name', ...(key === 'selectors' ? [] : ['name'])]) {
-      if (typeof value[name] === 'string' && value[name].includes('<')) invalid('Editorns etiketter får inte innehålla HTML.');
-    }
-    for (const name of Object.keys(value)) if (['__proto__', 'prototype', 'constructor', 'script', 'script-export', 'scripts', 'script-props'].includes(name)) invalid('Exekverbar kod eller osäkra projektfält är inte tillåtna.');
-    const documentShell = key === 'docEl' && value.tagName === 'html';
-    if (value.tagName && !TAGS.has(String(value.tagName).toLowerCase()) && value.tagName !== 'body' && !documentShell) invalid('Otillåten elementtyp i editorprojektet.');
-    if (['script', 'iframe', 'video', 'map', 'object', 'embed'].includes(value.type)) invalid('Aktiva inbäddningar är inte tillåtna.');
-    if (value.src !== undefined && !resourceUrl(value.src)) invalid('Editorbilden måste komma från mediebiblioteket.');
-    if (value.href !== undefined && !linkUrl(value.href)) invalid('Editorlänken har en otillåten adress.');
-    if (value.atRuleType && !AT_RULES.has(css.ident.decode(String(value.atRuleType)).toLowerCase())) invalid('Projektet innehåller en otillåten CSS-regel.');
-    if (value.mediaText) validateCss(`@media ${value.mediaText}{.cms-check{color:inherit}}`);
-    if (value.selectors) {
-      if (!Array.isArray(value.selectors)) invalid('Stilens väljare är ogiltiga.');
-      for (const selector of value.selectors) {
-        const name = typeof selector === 'string' ? selector : selector?.name;
-        if (typeof name !== 'string' || name.length > 1000 || /[<\u0000-\u001f]/.test(name)) invalid('Stilens väljare är ogiltiga.');
-        try { css.parse(name, { context: 'selectorList' }); } catch { invalid('Stilens väljare är ogiltiga.'); }
-      }
-    }
-    if (value.selectorsAdd) {
-      if (typeof value.selectorsAdd !== 'string' || /[<\u0000-\u001f]/.test(value.selectorsAdd)) invalid('Stilens extra väljare är ogiltig.');
-      try { css.parse(value.selectorsAdd, { context: 'selectorList' }); } catch { invalid('Stilens extra väljare är ogiltig.'); }
-    }
-    if (value.dataSources?.length) invalid('Externa datakällor får inte läggas till i editorn.');
-    // GrapesJS text nodes hold literal text and escape it on export. Treating
-    // them as HTML would double-encode ampersands on each save/reload cycle.
-    if (typeof value.content === 'string' && value.type !== 'textnode') value.content = validateHtml(value.content, [], false, contracts);
-    if (typeof value.components === 'string') value.components = validateHtml(value.components, [], false, contracts);
-    if (plainObject(value.attributes)) for (const [name, attribute] of Object.entries(value.attributes)) checkAttribute(name, String(attribute), String(value.tagName ?? 'div').toLowerCase());
-    if (plainObject(value.style)) {
-      for (const [name, rule] of Object.entries(value.style)) {
-        if (!/^--?[a-zA-Z][\w-]*$|^[a-zA-Z][\w-]*$/.test(name) || typeof rule !== 'string' && typeof rule !== 'number') invalid('Ogiltig stilegenskap i editorprojektet.');
-        validateCss(`${name}:${rule}`, 'declarationList');
-      }
-    }
-    for (const [name, child] of Object.entries(value)) if (name !== 'attributes' && name !== 'style') inspect(child, depth + 1, name);
-  }
-  inspect(data);
-  return data;
 }
 
 // Signature keys start with "k"; older builds wrote only positional "n" keys.

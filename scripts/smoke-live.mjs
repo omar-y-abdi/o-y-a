@@ -7,6 +7,13 @@ for (const [path, expected] of [['/',200],['/verkstad/',200],['/om/',200],['/kon
   if (path === '/') assert.ok((await response.text()).includes('Glädjeverkstaden'));
   console.log('PASS',path,expected);
 }
+const markdown = await fetch(origin+'/',{headers:{Accept:'text/markdown','Accept-Encoding':'gzip'},redirect:'manual',signal:AbortSignal.timeout(12000)});
+assert.equal(markdown.status,200);
+assert.match(markdown.headers.get('content-type'),/^text\/markdown/);
+assert.equal(markdown.headers.get('content-encoding'),'gzip');
+assert.ok(markdown.headers.get('vary')?.toLowerCase().split(',').map(value=>value.trim()).includes('accept'));
+assert.ok((await markdown.text()).startsWith('# '));
+console.log('PASS markdown gzip');
 const www = await fetch('https://www.omaryusuf.se/verkstad/?kort=k01',{redirect:'manual',signal:AbortSignal.timeout(12000)});
 assert.equal(www.status,308);
 assert.equal(www.headers.get('location'),origin+'/verkstad/?kort=k01');

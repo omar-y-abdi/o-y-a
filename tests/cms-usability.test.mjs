@@ -161,8 +161,8 @@ test('current and retained history references block destructive media deletion',
   clean.pages[0].html=clean.pages[0].html.replace(`<img src="${asset.src}" alt="Used">`,'');
   const save2=await post('save',{project:clean,baseVersion:state.version+1,requestId:crypto.randomUUID()});
   assert.equal(save2.status,200,await save2.clone().text());
-  const usage=await (await post('asset-usage',{id:asset.id,project:clean})).json();
-  assert.equal(usage.currentReferences,0); assert.ok(usage.historyReferences>=1);
+  const usage=await (await post('asset-usage',{id:asset.id})).json();
+  assert.equal(Object.hasOwn(usage,'currentReferences'),false); assert.ok(usage.historyReferences>=1);
   const trashed=await post('asset-lifecycle',{id:asset.id,action:'trash',baseVersion:asset.version,baseSiteVersion:state.version+2,project:clean});
   assert.equal(trashed.status,200,await trashed.clone().text());
   const trashedAsset=(await trashed.json()).asset;
