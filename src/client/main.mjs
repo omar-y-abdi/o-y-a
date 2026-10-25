@@ -22,18 +22,23 @@ export function toast(message) {
 
 const menuButton = document.querySelector('[data-menu-toggle]');
 const menu = document.querySelector('#mobile-menu');
+async function updateMenuLabel() {
+  await copyLoaded;
+  menuButton?.setAttribute('aria-label', t(menuButton.getAttribute('aria-expanded') === 'true' ? 'runtime.nav.menu.close' : 'runtime.nav.menu.open'));
+}
 function closeMenu(returnFocus = false) {
   menu.hidden = true;
   menuButton.setAttribute('aria-expanded', 'false');
-  menuButton.setAttribute('aria-label', t('runtime.nav.menu.open'));
+  updateMenuLabel();
   if (returnFocus) menuButton.focus();
 }
 menuButton?.addEventListener('click', () => {
   const open = menuButton.getAttribute('aria-expanded') !== 'true';
   menuButton.setAttribute('aria-expanded', String(open));
-  menuButton.setAttribute('aria-label', t(open ? 'runtime.nav.menu.close' : 'runtime.nav.menu.open'));
+  updateMenuLabel();
   menu.hidden = !open;
 });
+copyLoaded.then(updateMenuLabel);
 menu?.addEventListener('click', event => { if (event.target.closest('a')) closeMenu(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu && !menu.hidden) closeMenu(true); });
 matchMedia('(min-width: 1001px)').addEventListener('change', event => { if (event.matches && menu) closeMenu(); });
@@ -41,7 +46,8 @@ matchMedia('(min-width: 1001px)').addEventListener('change', event => { if (even
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const motionButton = document.querySelector('[data-motion-toggle]');
 let motionChoice = /(?:^|;\s*)oy_motion=off(?:;|$)/.test(document.cookie);
-function applyMotion() {
+async function applyMotion() {
+  await copyLoaded;
   const off = reduced.matches || motionChoice;
   root.dataset.motion = off ? 'off' : 'auto';
   const label = reduced.matches ? t('runtime.motion.label.systemPaused') : off ? t('runtime.motion.label.enable') : t('runtime.motion.label.pause');
@@ -50,7 +56,8 @@ function applyMotion() {
   if (motionButton) { motionButton.title = label; motionButton.disabled = reduced.matches; }
   window.dispatchEvent(new Event('oy:motionchange'));
 }
-motionButton?.addEventListener('click', () => {
+motionButton?.addEventListener('click', async () => {
+  await copyLoaded;
   motionChoice = !motionChoice;
   document.cookie = `oy_motion=${motionChoice ? 'off' : 'on'}; Path=/; Max-Age=15552000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
   applyMotion();
@@ -94,15 +101,18 @@ function updatePrivacyStatus() {
     : t('runtime.privacy.status.unset');
   document.querySelectorAll('[data-consent="allow"]').forEach(button => { button.disabled = !analyticsAvailable || privacySignal(); });
 }
-function openPrivacy(event) {
-  returnTo = event.currentTarget;
+async function openPrivacy(event) {
+  const trigger = event.currentTarget;
+  await copyLoaded;
+  returnTo = trigger;
   updatePrivacyStatus();
   dialog?.showModal();
 }
 document.querySelectorAll('[data-privacy-open]').forEach(button => button.addEventListener('click', openPrivacy));
 document.querySelector('[data-dialog-close]')?.addEventListener('click', () => dialog.close());
 dialog?.addEventListener('close', () => { returnTo?.focus(); });
-document.querySelectorAll('[data-consent]').forEach(button => button.addEventListener('click', () => {
+document.querySelectorAll('[data-consent]').forEach(button => button.addEventListener('click', async () => {
+  await copyLoaded;
   const choice = button.dataset.consent;
   if (choice === 'allow' && (!analyticsAvailable || privacySignal())) return;
   if (choice === 'deny') {
@@ -138,7 +148,8 @@ copyLoaded.then(updatePrivacyStatus);
 
 document.querySelectorAll('a[href="/projekt/furl/"]').forEach(link => link.addEventListener('click', () => track('project_open')));
 const fold = document.querySelector('[data-fold]');
-fold?.addEventListener('click', () => {
+fold?.addEventListener('click', async () => {
+  await copyLoaded;
   const folded = fold.getAttribute('aria-pressed') !== 'true';
   fold.setAttribute('aria-pressed', String(folded));
   fold.childNodes[0].textContent = t(folded ? 'runtime.fold.button.expand' : 'runtime.fold.button.collapse');

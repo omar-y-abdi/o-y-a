@@ -1,7 +1,7 @@
 import { access } from 'node:fs/promises';
 
 export async function testPython() {
-  if (process.env.PYTHON !== undefined) return process.env.PYTHON;
+  if (process.env.PYTHON) return process.env.PYTHON;
   const python = '.test-venv/bin/python';
   try {
     await access(python);

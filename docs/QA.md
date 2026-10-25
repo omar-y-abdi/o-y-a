@@ -107,12 +107,12 @@ CI's `verify` job builds through `quality` before the dry-run and browser steps.
 
 Public JavaScript has a combined 14,500-byte gzip cap. Home/workshop CSS has an 18,400-byte cap. Actual current headroom requires a build. Other page CSS remains capped at 14,000 bytes. The separate lazy win renderer/export cap stays 8,000 bytes and the current isolated admin cap stays 375,000 bytes. Static HTML budgets remain enforced in `tests/assets.test.mjs`; the published Worker home budget is checked by `tests/http-checks.test.mjs`. These are transfer-size contracts, not latency or field Core Web Vitals.
 
-The public esbuild graph has separate hashed main and SKIFT bootstrap entries with shared copy state; the existing win renderer remains external and lazy. `tests/public-runtime.test.mjs` covers inert JSON escaping, preview precedence, missing-block fallback and failed copy loads. `tests/cms-store.test.mjs` checks one-query page/runtime reads and revision consistency; `tests/cms-api.test.mjs` checks the embedded data and retained API endpoint through the real Worker.
+The public esbuild graph has separate hashed main and SKIFT bootstrap entries with shared copy state; the existing win renderer remains external and lazy. `tests/public-runtime.test.mjs` covers inert JSON escaping, preview precedence, missing/malformed-block fallback and failed copy loads. `tests/cms-store.test.mjs` checks one-query HTML/runtime reads, raw JSON preservation, data-read isolation and revision consistency; `tests/cms-api.test.mjs` checks the embedded data and retained API endpoint through the real Worker. `tests/public-render.test.mjs` checks the Worker-rendered v185 home against the 9,000-byte gzip HTML budget, including embedded copy, and isolates corrupt runtime rows from unrelated endpoints.
 
 The public gate includes startup checks. To run them alone after building:
 
 ```sh
-npx playwright test tests/public-startup.spec.mjs --project=chromium --workers=1
+npx playwright test tests/public-startup.spec.mjs --project=chromium --project=firefox --project=webkit --workers=1
 ```
 
 The Firefox and WebKit projects also select this file; run `npx playwright test --project=firefox --no-deps`, then the equivalent WebKit command, for the complete configured selections. Startup checks cover embedded-copy requests and CSP violations, real HTTP fallback, initialization while copy is delayed, and the SKIFT shell before its game import. Delayed-copy cases control only the fetch promise; they do not measure wall-clock latency or AbortSignal deadlines.
@@ -136,7 +136,7 @@ Screenshots are review inputs, not an automatic assertion of visual correctness.
 - `output/visual/studio/`: main studio states and section captures.
 - `output/visual/cms/`: timestamped scenario evidence, including Shift+Enter.
 - `artifacts/screenshots/`: public responsive captures.
-- `output/card-export/`: original card PNGs, dimensions and layout report.
+- `output/playwright/artifacts/`: Playwright failure artifacts and retained card-export screenshots. PNG dimensions and layout are asserted by `tests/card-export.spec.mjs`; no separate card-export JSON report is written.
 - `output/logs/`: complete test logs, kept outside Git.
 - `output/perf/`: Lighthouse JSON and measured admin readiness/contrast data.
 

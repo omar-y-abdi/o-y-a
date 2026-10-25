@@ -6,5 +6,6 @@ if [[ "${SKIP_CHECK:-0}" != "1" ]]; then
 else
   node --test tests/http-checks.test.mjs
 fi
-python -m unittest discover -s tests -p test_revision_scroll.py
+python=$(node --input-type=module -e 'import { testPython } from "./scripts/test-python.mjs"; console.log(await testPython());')
+"$python" -m unittest discover -s tests -p test_revision_scroll.py
 node scripts/run-quality-browser.mjs

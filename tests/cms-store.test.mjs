@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { publishSite, publicationMedia, readSite, readPublicPage, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';
+import { publishSite, publicationMedia, readSite, readPublicPage, readPublicData, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/project.mjs';
 import { fontCss } from '../src/cms/theme.mjs';
 import { migrateCmsDb } from './helpers/cms-runtime.mjs';
@@ -29,7 +29,7 @@ test('a durable publication is immediately visible to a separate public read', a
   let queries = 0;
   const page = await readPublicPage({ prepare(sql) { queries++; return db.prepare(sql); } }, '/');
   assert.match(page.html, /Första/);
-  assert.deepEqual(page.runtime, published.runtime);
+  assert.equal(page.runtimeJson, JSON.stringify(published.runtime));
   assert.equal(page.version, result.version);
   assert.equal(queries, 1, 'Page and runtime must use one D1 round trip');
 });
@@ -42,7 +42,7 @@ test('simultaneous tabs cannot both overwrite the same base revision', async () 
   assert.equal(failure.reason.status, 409);
   revision = (await readSite(db)).version;
   assert.equal(revision, baseVersion + 1);
-  assert.deepEqual((await readPublicPage(db, '/')).runtime, {}, 'Current page must not reuse an older revision\'s runtime');
+  assert.equal((await readPublicPage(db, '/')).runtimeJson, '{}', 'Current page must not reuse an older revision\'s runtime');
 });
 
 test('retrying a committed request is idempotent but reusing its ID for different content fails', async () => {
@@ -63,7 +63,7 @@ test('history restore produces a new revision and preserves intervening history'
   const page = await readPublicPage(db, '/');
   assert.match(page.html, /Första/);
   assert.equal(page.version, revision);
-  assert.deepEqual(page.runtime, old.project.runtime);
+  assert.equal(page.runtimeJson, JSON.stringify(old.project.runtime));
   const history = await readHistory(db);
   assert.equal(history.items.length, revision);
   assert.equal(history.items[0].version, revision);
@@ -99,6 +99,33 @@ test('an absent page in a published revision is distinct from an unpublished sit
   const page = await readPublicPage(db, '/missing/');
   assert.equal(page.version, revision);
   assert.equal(page.page, null);
+});
+
+test('only HTML reads join runtime, preserving its stored JSON bytes even when corrupt', async () => {
+  const stored = await db.prepare("SELECT html FROM cms_rendered WHERE version=? AND path='@runtime'").bind(revision).first();
+  const queries = [];
+  const traced = { prepare(sql) { queries.push(sql); return db.prepare(sql); } };
+  try {
+    for (const raw of ['{\n  "runtime.nav.menu.open": "Ägarens <meny>"\n}', 'broken </script><!--']) {
+      await db.prepare("UPDATE cms_rendered SET html=? WHERE version=? AND path='@runtime'").bind(raw, revision).run();
+      queries.length = 0;
+      assert.equal((await readPublicPage(traced, '/')).runtimeJson, raw);
+      assert.equal(queries.length, 1);
+      assert.match(queries[0], /LEFT JOIN cms_rendered r /);
+      for (const path of ['@cards', '@card/k01', '@manifest', '@runtime']) {
+        queries.length = 0;
+        const row = await readPublicPage(traced, path);
+        assert.ok(row.html);
+        assert.ok(!Object.hasOwn(row, 'runtimeJson'), path);
+        assert.equal(queries.length, 1);
+        assert.doesNotMatch(queries[0], /JOIN cms_rendered r |r\.html|@runtime/);
+      }
+      assert.equal((await readPublicData(traced, 'cards')).value[0].id, 'k01');
+      assert.equal((await readPublicData(traced, 'manifest')).value[0].path, '/');
+    }
+  } finally {
+    await db.prepare("UPDATE cms_rendered SET html=? WHERE version=? AND path='@runtime'").bind(stored.html, revision).run();
+  }
 });
 
 test('publication media and page fonts reuse a trusted reference index without rescanning the project', async () => {

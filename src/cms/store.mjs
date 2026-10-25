@@ -40,10 +40,11 @@ export async function replaySave(db, { requestId, actor, payloadHash }) {
 }
 
 export async function readPublicPage(db, path) {
-  const row = await db.prepare("SELECT h.version, p.html, p.css, p.meta, r.html AS runtime FROM cms_head h LEFT JOIN cms_rendered p ON p.version = h.version AND p.path = ? LEFT JOIN cms_rendered r ON r.version = h.version AND r.path = '@runtime' WHERE h.id = 1").bind(path).first();
+  const htmlPage = path.startsWith('/');
+  const row = await db.prepare(`SELECT h.version, p.html, p.css, p.meta${htmlPage ? ', r.html AS runtime' : ''} FROM cms_head h LEFT JOIN cms_rendered p ON p.version = h.version AND p.path = ?${htmlPage ? " LEFT JOIN cms_rendered r ON r.version = h.version AND r.path = '@runtime'" : ''} WHERE h.id = 1`).bind(path).first();
   if (!row || row.version === 0) return null;
   if (row.html === null) return { version: row.version, page: null };
-  return { version: row.version, html: row.html, css: row.css, ...JSON.parse(row.meta), runtime: row.runtime ? JSON.parse(row.runtime) : undefined };
+  return { version: row.version, html: row.html, css: row.css, ...JSON.parse(row.meta), ...(htmlPage ? { runtimeJson: row.runtime ?? undefined } : {}) };
 }
 
 export async function readPublicData(db, key) {

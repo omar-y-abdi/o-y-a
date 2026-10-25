@@ -55,7 +55,6 @@ jobs:
             output/revision/browser/revision-browser.json
             output/logs/footer-*.log
             output/visual/footer/**/*.png
-            output/card-export/card-export-report.json
             output/playwright/artifacts/**
           retention-days: 14
 
