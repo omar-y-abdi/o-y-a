@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
+import { parseFragment, serialize } from 'parse5';
 import { preparePage, validateCss, validateHtml } from '../src/cms/validation.mjs';
 import { splitPage } from '../src/cms/frame.mjs';
+import { elements } from '../src/cms/html-tree.mjs';
 
 // The studio's own createEditor runs in a bare page, so the tests reach the
 // GrapesJS editor (window.__ed) and the studio handle (window.__studio) without
@@ -203,6 +205,12 @@ test('main text capture preserves the trusted noscript source across native edit
   const prepared = preparePage('<body><header><p id="frame-heading">Sidram</p></header><main id="main"><h1 id="heading">Före</h1><noscript><p class="noscript-note">JavaScript är avstängt. Rävar &amp; kaffe. &lt;em&gt;ord&lt;/em&gt; &amp;lt;bevara&amp;gt; &quot;citat&quot; <a href="/om/" title="ett &quot;citat&quot; &amp; värde">Läs mer</a></p></noscript></main><footer><p>Avslutning</p></footer></body>');
   const split = splitPage(prepared.html), frame = { html: split.html, css: '' };
   const fallback = prepared.contracts.find(contract => contract.fallback).fallback;
+  const fallbackSources = html => html.match(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi) ?? [];
+  const canonical = source => {
+    const tree = parseFragment(source, { scriptingEnabled: false });
+    for (const node of elements(tree)) node.attrs.sort((left, right) => left.name.localeCompare(right.name));
+    return serialize(tree);
+  };
   expect(() => validateHtml(prepared.html, prepared.contracts)).not.toThrow();
   expect(() => validateHtml(prepared.html.replace(fallback, fallback.replace('JavaScript', 'Ändrat innehåll')), prepared.contracts)).toThrow('JavaScript-fallback får bara komma från den skyddade källmallen.');
   await openStudio(page, { html: split.page, frame });
@@ -222,13 +230,14 @@ test('main text capture preserves the trusted noscript source across native edit
   await heading.press('ControlOrMeta+A');
   await heading.pressSequentially('Efter');
   const after = await capture();
-  let rejection;
-  try { validateHtml(after.html, prepared.contracts); } catch (error) { rejection = error.message; }
+  let rejection, validated;
+  try { validated = validateHtml(after.html, prepared.contracts); } catch (error) { rejection = error.message; }
   if (rejection || JSON.stringify(before.stages.composed) !== JSON.stringify(before.stages.original)) await info.attach('trusted-fallback-capture.json', { contentType: 'application/json', body: JSON.stringify({ browserName, rejection, before: before.stages, after: after.stages }, null, 2) });
   expect(before.stages.composed).toEqual(before.stages.original);
   expect(after.html).toContain('Efter');
   expect(rejection, 'A native main edit must retain the original trusted fallback; inspect trusted-fallback-capture.json for the first changed stage').toBeUndefined();
-  expect(after.stages.snapshot).toEqual(before.stages.original);
+  expect(fallbackSources(after.html).map(canonical)).toEqual([canonical(fallback)]);
+  expect(fallbackSources(validated), 'The server emits the exact trusted fallback bytes after a main edit').toEqual([fallback]);
   const frameHeading = page.frameLocator('iframe.gjs-frame').locator('#frame-heading');
   await frameHeading.dblclick();
   await expect(frameHeading).toHaveAttribute('contenteditable', 'true');
@@ -237,8 +246,9 @@ test('main text capture preserves the trusted noscript source across native edit
   const frameEdit = await capture();
   expect(frameEdit.html).toContain('Efter');
   expect(frameEdit.html).toContain('Ändrad sidram');
-  expect(() => validateHtml(frameEdit.html, prepared.contracts)).not.toThrow();
-  expect(frameEdit.stages.snapshot).toEqual(before.stages.original);
+  const validatedFrame = validateHtml(frameEdit.html, prepared.contracts);
+  expect(fallbackSources(frameEdit.html).map(canonical)).toEqual([canonical(fallback)]);
+  expect(fallbackSources(validatedFrame), 'The server emits the exact trusted fallback bytes after a frame edit').toEqual([fallback]);
 });
 
 test('framed capture preserves incoming fallback tampering for authoritative rejection', async ({ page }) => {
