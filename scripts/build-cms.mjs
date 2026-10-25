@@ -11,7 +11,7 @@ import { validateProject, defaultTheme } from '../src/cms/project.mjs';
 import { FOOTER_VERSION } from '../src/cms/footer.mjs';
 import { adminPage, loginPage } from '../src/cms/templates.mjs';
 import { defaultCopy } from '../src/client/copy.mjs';
-import { skiftCopy } from '../src/content/skift-copy.mjs';
+import { skiftCopy } from '../games/skift/src/copy.mjs';
 import { resourceSlots } from '../src/content/resources.mjs';
 import { sanitizeManagedSvg } from '../src/cms/svg.mjs';
 import { parseFragment } from 'parse5';

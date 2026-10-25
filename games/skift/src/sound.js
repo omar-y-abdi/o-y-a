@@ -4,7 +4,7 @@ export class Sound {
   ensure(){
     if(this.ready){Howler.ctx?.resume().catch(()=>{});return;}
     this.ready=true;
-    const base=new URL('./audio/',document.baseURI).href;
+    const base=new URL('/play/skift/audio/',document.baseURI).href;
     for(const name of ['dash','pulse','hit','strike','scrap','cell','shot','clear','fail','boss'])this.fx[name]=new Howl({src:[`${base}${name}.wav`],volume:name==='shot'?.13:.3,preload:true});
     this.music=new Howl({src:[`${base}shift.mp3`],loop:true,volume:.17,preload:true});
     this.apply();

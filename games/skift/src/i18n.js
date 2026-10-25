@@ -1,3 +1,4 @@
+export const COPY_KEYS=['workshop','line1','line2','intro','start','resumeRun','newRun','noInstall','saving','loading','ready','footer'];
 export const STRINGS={
   sv:{
     workshop:'ETT SPEL FRÅN VERKSTADEN',portfolio:'Till portfolion',how:'Så spelar du',settings:'Inställningar',

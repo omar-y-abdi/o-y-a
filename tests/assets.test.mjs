@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { parse } from 'parse5';
 import * as css from 'css-tree';
 import { routes, site } from '../src/content/site.mjs';
@@ -39,7 +40,10 @@ test('native module imports resolve to content-hashed files with no source maps'
     for (const match of code.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["']\.\/([^"']+)["']/g)) {
       assert.ok(files.includes(match[1]), `Missing imported module ${match[1]}`);
     }
-    for (const match of code.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["'](\/(?:cms-public|play\/skift\/assets)\/[^"']+)["']/g)) assert.ok((await stat('dist' + match[1])).isFile(), `Missing lazy module ${match[1]}`);
+    for (const match of code.matchAll(/(?:from\s*|import\s*(?:\(\s*)?)["'](\/(?:cms-public|play\/skift\/assets)\/[^"']+)["']/g)) {
+      const path = match[1].startsWith('/play/skift/assets/') ? new URL(match[1], site.origin).pathname : match[1];
+      assert.ok((await stat('dist' + path)).isFile(), `Missing lazy module ${match[1]}`);
+    }
   }
 });
 
@@ -56,7 +60,10 @@ test('public shell has one shared dependency and a separate lazy SKIFT entry', a
   assert.deepEqual(imports(bootstrapCode), shared, 'Both entries must share one copy loader/cache');
   assert.deepEqual(imports(await readFile(join('dist/assets', shared[0]), 'utf8')), []);
   assert.ok(mainCode.includes(`import("./${bootstrap}")`), 'SKIFT stays a dynamic import');
-  assert.ok(bootstrapCode.includes('/play/skift/assets/app.js'));
+  const app = bootstrapCode.match(/import\(["'](\/play\/skift\/assets\/app\.js\?v=[a-f0-9]{12})["']\)/)?.[1];
+  assert.ok(app, 'The lazy game import must carry its content hash');
+  const appHash = createHash('sha256').update(await readFile('dist/play/skift/assets/app.js')).digest('hex').slice(0, 12);
+  assert.equal(new URL(app, site.origin).searchParams.get('v'), appHash);
   assert.doesNotMatch(mainCode, /\/play\/skift\/assets\/app\.js/);
 });
 
@@ -75,6 +82,13 @@ test('built home CSS keeps the focused dialog closer absolutely positioned', asy
     });
   } });
   assert.equal(position, 'absolute', 'Focus styling must not move the dialog pointer target before release');
+});
+
+test('SKIFT caches versioned assets and daily audio without shipping duplicate CSS', async () => {
+  const headers = await readFile('dist/_headers', 'utf8');
+  assert.ok(headers.includes('/play/skift/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n'));
+  assert.ok(headers.includes('/play/skift/audio/*\n  Cache-Control: public, max-age=86400\n'));
+  assert.ok(!(await readdir('dist/play/skift/assets')).includes('app.css'));
 });
 
 test('public CSP constants permit external scripts and inert data blocks only', async () => {

@@ -84,7 +84,7 @@ The following entry points do not run the site build themselves. Run `npm run bu
 
 `SKIP_CHECK=1 npm run quality` skips its build and checks: use it only after a successful `npm run check` on the same source. `scripts/build-cms.mjs` is an internal build stage, called after public output exists by `scripts/build.mjs`; it is not a standalone build command.
 
-Two tools read another project's output: `scripts/import-skift.mjs` needs a built standalone release as described in [SKIFT.md](SKIFT.md). The one-off `scripts/legacy-keys.mjs` needs the supplied `e5592bc` checkout built with that checkout's own source; a current build cannot replace that frozen input. Ordinary builds and verification do not regenerate the committed legacy map.
+One tool reads another project's output: the one-off `scripts/legacy-keys.mjs` needs the supplied `e5592bc` checkout built with that checkout's own source; a current build cannot replace that frozen input. Ordinary builds and verification do not regenerate the committed legacy map.
 
 CI's `verify` job builds through `quality` before the dry-run and browser steps. The `editor-compatibility` and `stored-revisions` jobs each have an explicit build before their consumers. No CI step needs a tracked copy of `dist/`.
 
