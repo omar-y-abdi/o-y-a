@@ -195,6 +195,45 @@ async function fillCompose(page) {
   await page.locator('[data-email-chip-input="to"]').press('Enter');
   await page.locator('[data-email-path="subject"]').fill('Samma utskick');
 }
+
+test('compose and account tabs cannot undo a hidden page draft; template history still works', async ({ page, context }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
+  await page.goto(runtime.url + '/admin/');
+  await waitCanvas(page);
+  const description = page.locator('#page-description');
+  const original = await description.inputValue();
+  const changed = 'Beskrivning som inte får ångras från ett osparat mejl.';
+  await description.fill(changed);
+  await expect(page.locator('[data-action="undo"]')).toBeEnabled();
+  await page.locator('button[data-special="email"]').click();
+  await expect(page.locator('.email-view[data-email-ready="true"]')).toBeVisible();
+  await fillCompose(page);
+  for (const tab of ['compose', 'settings', 'sent']) {
+    await selectEmailTab(page, tab);
+    await expect(page.locator('[data-action="undo"]')).toBeDisabled();
+    await expect(page.locator('[data-action="redo"]')).toBeDisabled();
+    await page.locator(`[data-email-tab="${tab}"]`).focus();
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+  }
+  await selectEmailTab(page, 'compose');
+  await expect(page.locator('[data-email-path="subject"]')).toHaveValue('Samma utskick');
+  await page.locator('[data-page-id="home"]').click();
+  await waitCanvas(page);
+  await expect(description).toHaveValue(changed);
+  await page.locator('[data-action="undo"]').click();
+  await expect(description).toHaveValue(original);
+  await page.locator('[data-action="redo"]').click();
+  await expect(description).toHaveValue(changed);
+  await page.locator('button[data-special="email"]').click();
+  await selectEmailTab(page, 'receipt');
+  const subject = subjectField(page), saved = await subject.inputValue();
+  await subject.fill('Mallens eget utkast');
+  await page.locator('[data-action="undo"]').click();
+  await expect(subject).toHaveValue(saved);
+});
 async function confirmSend(page) {
   await page.locator('[data-email-send]').click();
   await page.locator('[data-confirm="yes"]').click();

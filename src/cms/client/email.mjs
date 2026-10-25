@@ -600,6 +600,7 @@ function syncTabs() {
     tab.tabIndex = on ? 0 : -1;
   }
   panel().setAttribute('aria-labelledby', `email-tab-${state.tab}`);
+  ctx.history(Boolean(KINDS[state.tab]));
 }
 
 // `focus` picks the element to refocus after the panel is rebuilt.
@@ -869,7 +870,8 @@ const shell = () => `<div class="special-heading"><div><p class="special-kicker"
 <aside class="email-preview" data-email-preview-pane aria-label="Förhandsvisning"><div class="email-preview-top"><div class="email-device" role="group" aria-label="Förhandsvisningens storlek"><button type="button" data-email-device="desktop" aria-pressed="${state.device === 'desktop'}">Dator</button><button type="button" data-email-device="mobile" aria-pressed="${state.device === 'mobile'}">Mobil</button></div><span class="email-preview-note" data-email-preview-note></span></div><div class="email-subject" data-email-subject-row><strong>Ämne:</strong> <span data-email-preview-subject></span><small data-email-preview-from></small></div><p class="inline-error" role="alert" data-email-preview-error hidden></p><div class="email-frame"><iframe sandbox="" title="Förhandsvisning av mejlet" data-email-preview-frame></iframe></div></aside>
 </div>`;
 
-// Called by showSpecial('email'). `context`: { project(), change(project, group), assets(), back() }.
+// Called by showSpecial('email'). Context owns project edits and reports whether
+// the visible tab participates in that project's Undo/Redo history.
 export function mountEmail(stage, context) {
   ctx = context;
   restoreFrozen();

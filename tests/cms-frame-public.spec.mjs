@@ -8,8 +8,9 @@ import { normalizeStoredProject } from '../src/cms/legacy-project.mjs';
 import { toFrameProject } from '../src/cms/frame-converter.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { attribute, elements } from '../src/cms/html-tree.mjs';
-import { publishSite } from '../src/cms/store.mjs';
+import { publishSite, readSite } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
+import { waitCanvas } from './helpers/cms-browser-qa.mjs';
 
 // Keep raster/compositing off the host GPU and pin color/text rendering.
 // File scope is required: launchOptions changes Playwright's worker fixture.
@@ -20,6 +21,54 @@ test.use({ launchOptions: {
     '--disable-gpu', '--force-color-profile=srgb', '--disable-lcd-text',
   ],
 } });
+
+test('raw v185 opens the authenticated studio, previews, first-saves and reloads without preconversion', async ({ page, context }) => {
+  test.setTimeout(90_000);
+  const raw = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
+  const runtime = await cmsRuntime({ project: raw });
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  try {
+    expect((await readSite(runtime.db, undefined, { raw: true })).project).toEqual(raw);
+    await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const stateResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/admin/api/state');
+    await page.goto(runtime.url + '/admin/');
+    const state = await stateResponse;
+    expect(state.status(), await state.text()).toBe(200);
+    expect((await state.json()).project.schemaVersion).toBe(2);
+    await waitCanvas(page);
+    await expect(page.locator('[data-page-id]')).toHaveCount(raw.pages.length);
+    await expect(page.locator('#page-description')).toHaveValue(raw.pages.find(item => item.id === 'home').description);
+    // The real read path converts only its response, not persisted history.
+    expect((await readSite(runtime.db, undefined, { raw: true })).project).toEqual(raw);
+    const description = 'Första webbläsarsparningen från den råa v185-versionen.';
+    await page.locator('#page-description').fill(description);
+    const previewResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/admin/api/preview');
+    await page.locator('[data-action=lock]').click();
+    const preview = await previewResponse;
+    expect(preview.status(), await preview.text()).toBe(200);
+    const frame = page.frameLocator('#preview-stage iframe');
+    await expect(frame.locator('main h1')).toBeVisible();
+    await expect(frame.locator('meta[name=description]')).toHaveAttribute('content', description);
+    const saveResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/admin/api/save' && response.request().method() === 'POST');
+    await page.locator('[data-action=save]').click();
+    const saved = await saveResponse;
+    expect(saved.status(), await saved.text()).toBe(200);
+    await expect(page.locator('#save-status')).toHaveText('Alla ändringar sparade · v2');
+    const stored = await readSite(runtime.db);
+    expect(stored.project.schemaVersion).toBe(2);
+    expect(stored.project.pages.map(item => item.id)).toEqual(raw.pages.map(item => item.id));
+    expect(stored.project.pages.find(item => item.id === 'home').description).toBe(description);
+    await page.reload();
+    await waitCanvas(page);
+    await expect(page.locator('#page-description')).toHaveValue(description);
+    await page.goto(runtime.url + '/');
+    await expect(page.locator('meta[name=description]')).toHaveAttribute('content', description);
+    await expect(page.locator('main h1')).toBeVisible();
+    expect(errors).toEqual([]);
+  } finally { await runtime.close(); }
+});
 
 // Independent baseline applies only the named owner decisions to legacy data.
 function approvedBaseline(project) {

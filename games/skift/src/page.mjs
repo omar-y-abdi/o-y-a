@@ -17,6 +17,10 @@ walk(body, node => {
     const nav = parseFragment('<nav class="skift-tools" data-skift-menu aria-label="Spelmeny"><button data-action="how" data-t="how">Så spelar du</button><button data-action="settings" data-t="settings">Inställningar</button></nav>').childNodes[0];
     nav.parentNode = node; node.childNodes.unshift(nav);
   }
+  if (node.attrs?.some(attr => attr.name === 'class' && attr.value.split(/\s+/).includes('hero-copy'))) {
+    const failure = parseFragment('<p data-skift-load-error role="alert" hidden>Spelet kunde inte laddas. <a href="/play/skift/">Ladda om</a>. <span lang="en">The game could not load. Reload to try again.</span></p>').childNodes[0];
+    failure.parentNode = node; node.childNodes.unshift(failure);
+  }
   if (id === 'modal') {
     const heading = parseFragment('<h2 id="modal-title" hidden>Spelmeny</h2>').childNodes[0];
     heading.parentNode = node; node.childNodes.push(heading);

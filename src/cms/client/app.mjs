@@ -25,6 +25,7 @@ let library = 'pages', device = matchMedia('(max-width:760px)').matches ? 'mobil
 let winFilter = 'all', winState = 'active', winQuery = '', winLimit = 60, winSelection = new Set(), history, reviewVersion = null, replacement = null, mediaState = 'active', mediaKind = 'all';
 let backups, previewSequence = 0, inspectorTab = 'design', pendingViewRestore = null, svgDraft = null;
 let saveError = '';
+let emailHistory = false;
 let mediaItems = [], mediaNext = null, mediaSequence = 0, searchTimer;
 const cacheAssets = items => { assets = [...new Map([...assets, ...items].map(asset => [asset.id, asset])).values()]; };
 const saveInProgress = 'Sparar. Ändringarna finns kvar; försök igen.';
@@ -32,13 +33,14 @@ const page = () => draft.project.pages.find(item => item.id === lastPage) ?? dra
 const card = () => draft.project.cards.find(item => item.id === current.id);
 
 function hasUnsavedWork() { return Boolean(draft?.dirty || draft?.pendingSave || svgDraft?.dirty); }
+const canUseDraftHistory = () => current.type !== 'svg' && current.type !== 'email-error' && (current.type !== 'email' || emailHistory);
 
 function status() {
   if (!draft) return;
   $('[data-action=save]').disabled = saving || !hasUnsavedWork();
   $('[data-action=revert]').disabled = saving || !draft.dirty;
-  $('[data-action=undo]').disabled = saving || current.type === 'svg' || !draft.undoStack.length;
-  $('[data-action=redo]').disabled = saving || current.type === 'svg' || !draft.redoStack.length;
+  $('[data-action=undo]').disabled = saving || !canUseDraftHistory() || !draft.undoStack.length;
+  $('[data-action=redo]').disabled = saving || !canUseDraftHistory() || !draft.redoStack.length;
   $('#save-status').textContent = saving ? 'Sparar…' : saveError ? `Sparades inte · ${saveError}` : svgDraft?.dirty ? (svgDraft.operation?.state === 'committed' ? 'SVG-sparning · behöver slutföras' : 'SVG-utkast · inte sparat') : draft.dirty ? 'Utkast · inte publicerat' : draft.version ? `Alla ändringar sparade · v${draft.version}` : 'Originalversion · redo att redigera';
   $('[data-action=edit]').setAttribute('aria-pressed', String(!locked));
   $('[data-action=lock]').setAttribute('aria-pressed', String(locked));
@@ -267,6 +269,7 @@ function specialBase(type) {
 }
 
 async function showSpecial(type) {
+  if (type === 'email') emailHistory = false;
   specialBase(type);
   if (type === 'media') { library = 'assets'; $('#canvas-label').textContent = 'Bilder'; await loadMedia(); }
   if (type === 'wins') { library = 'wins'; $('#canvas-label').textContent = 'Små vinster'; renderWins(); }
@@ -292,7 +295,7 @@ async function showSpecial(type) {
       status();
       throw new Error('Mejlvyn kunde inte laddas. Ladda om sidan och öppna Mejl igen.');
     }
-    view.mountEmail($('#special-stage'), { project: () => draft.project, change, assets: () => assets, back: () => openPage(lastPage) });
+    view.mountEmail($('#special-stage'), { project: () => draft.project, change, assets: () => assets, back: () => openPage(lastPage), history: allowed => { emailHistory = allowed; status(); } });
   }
   renderSidebar();
 }
@@ -647,6 +650,7 @@ async function submitAsset(item, patch) {
 
 async function perform(action) {
   if (!draft && action !== 'close-dialog') return;
+  if ((action === 'undo' || action === 'redo') && (saving || !canUseDraftHistory())) return;
   if (action === 'close-dialog') return $('#studio-dialog').close();
   if (['history','restore','undo','redo','theme','runtime','add-page','new-win','back-to-asset','revert','reconcile'].includes(action) && !await confirmManagedSvgNavigation()) return;
   if (action === 'save') return save();

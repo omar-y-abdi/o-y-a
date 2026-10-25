@@ -65,6 +65,40 @@ test.describe('public startup', () => {
   });
   test.afterAll(async () => runtime?.close());
 
+  for (const failed of [/\/assets\/skift-bootstrap\.[^/]+\.mjs$/, GAME_SCRIPT]) {
+    test(`SKIFT module failure exposes reload and keeps navigation usable: ${failed}`, async ({ page }) => {
+      await page.route(failed, route => route.abort());
+      await page.goto(runtime.url + '/play/skift/');
+      const failure = page.locator('[data-skift-load-error]');
+      await expect(failure).toBeVisible();
+      await expect(page.locator('#load-status')).toBeHidden();
+      await expect(page.locator('#start-button')).toBeDisabled();
+      await page.locator('[data-menu-toggle]').click();
+      await expect(page.locator('#mobile-menu')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await page.unroute(failed);
+      // Avoid requiring WebGL here: this is a real import/reload recovery gate.
+      await page.route(GAME_SCRIPT, route => route.fulfill({ contentType: 'text/javascript', body: 'document.querySelector("#start-button").disabled = false;' }));
+      await failure.getByRole('link', { name: 'Ladda om' }).click();
+      await expect(failure).toBeHidden();
+      await expect(page.locator('#start-button')).toBeEnabled();
+    });
+  }
+
+  for (const width of [390, 768, 1000]) {
+    test(`navigation remains available when main module fails at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.route(/\/assets\/main\.[^/]+\.mjs$/, route => route.abort());
+      await page.goto(runtime.url + '/');
+      await expect(page.locator('html')).not.toHaveClass(/js-ready/);
+      await expect(page.locator('[data-menu-toggle]')).toBeHidden();
+      const contact = page.locator('.primary-nav a[href="/kontakt/"]');
+      await expect(contact).toBeVisible();
+      await contact.click();
+      await expect(page).toHaveURL(runtime.url + '/kontakt/');
+    });
+  }
+
   test('SKIFT shell handlers wait for the shared pending runtime copy before producing text', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await holdCopy(page);

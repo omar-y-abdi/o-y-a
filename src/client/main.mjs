@@ -4,8 +4,11 @@ import { loadCopy, t } from './copy.mjs';
 const copyLoaded = loadCopy();
 
 // The 3D runtime is fetched only on its own page, including CMS previews.
-// Not awaited, so a failed load cannot block the shell; the browser logs the error.
-if (document.querySelector('[data-skift-root]')) import('./skift-bootstrap.mjs');
+// Keep the shell usable and give module-load failures a native reload action.
+if (document.querySelector('[data-skift-root]')) import('./skift-bootstrap.mjs').catch(() => {
+  document.querySelector('[data-skift-load-error]').hidden = false;
+  document.querySelector('#load-status').hidden = true;
+});
 
 document.documentElement.classList.add('js-ready');
 document.querySelectorAll('.js-only').forEach(element => { element.hidden = false; });
