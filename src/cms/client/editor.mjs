@@ -1,10 +1,11 @@
 import grapesjs from 'grapesjs';
 import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
-import { normalStyleSectors, applyStyleMode, configureVisualComponent } from './editor-policy.mjs';
+import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle, pastedTextHtml } from './editor-policy.mjs';
 import { ensureComponentIdentity } from './view-state.mjs';
+import { composeEditorPage, frameSnapshot } from './frame-project.mjs';
 
-export function createEditor({ page, cssPath, assets, onChange, onSelect, onReady, onAssetPick }) {
+export function createEditor({ page, frame, cssPath, assets, onChange, onBoundary = () => {}, onSelect, onReady, onAssetPick, onError = error => { throw error; } }) {
   let disposed = false;
   let loading = true;
   let timer, textView = null, typing = false, previousSnapshot = '';
@@ -23,12 +24,19 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   labels.observe(blocksPanel, { childList: true, subtree: true });
   const blockKeys = event => { if (['Enter', ' '].includes(event.key) && event.target.matches('.gjs-block')) { event.preventDefault(); event.target.click(); } };
   blocksPanel.addEventListener('keydown', blockKeys);
+  // GrapesJS Resizer hides its handles on any pointerdown in the main document that is not a handle
+  // (grapes.mjs Resizer.handleMouseDown), so using the inspector would lose the handles of the still
+  // selected component. Keep inspector pointerdowns away from that document listener.
+  const rightPanel = inspector.closest('#right-panel') ?? inspector;
+  const keepResizer = event => event.stopPropagation();
+  rightPanel.addEventListener('pointerdown', keepResizer);
   const editor = grapesjs.init({
     container: '#editor', height: '100%', width: '100%',
     telemetry: false, cssIcons: '',
     storageManager: { type: null, autosave: false, autoload: false }, noticeOnUnload: false, panels: { defaults: [] },
     fromElement: false, avoidInlineStyle: true, protectedCss: '',
     selectorManager: { componentFirst: true },
+    richTextEditor: { onPaste: ({ ev, rte }) => { ev.preventDefault(); rte.doc.execCommand('insertHTML', false, pastedTextHtml(ev.clipboardData.getData('text'))); } },
     parser: { optionsHtml: { allowScripts: false, allowUnsafeAttr: false, allowUnsafeAttrValue: false } },
     canvas: { styles: [cssPath], scripts: [], frameContent: '<!doctype html><html lang="sv"><head></head><body></body></html>' },
     canvasCss: 'html{scroll-behavior:auto!important}body{margin:0!important}.gjs-dashed *[data-cms-node]{outline-offset:0}.js-only[hidden]{display:initial!important}',
@@ -60,12 +68,16 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     if (mode === 'normal') applyFontOptions();
   };
   applyFontOptions();
-  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg }); component.on('component:clone', clone => remapClone(component, clone, editor)); });
+  let framed;
+  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg }); component.on('component:clone', clone => framed ? framed.clone(component, clone, () => remapClone(component, clone, editor)) : remapClone(component, clone, editor)); });
   // The same validated HTML/CSS powers editing, preview and publication.
   // Editor JSON is legacy import metadata, never a second content authority.
-  editor.setStyle(page.css);
+  if (frame) framed = frameSnapshot(editor, frame, page);
+  else editor.setStyle(page.css);
   // Importing components extracts inline styles; do not erase those afterward.
-  editor.setComponents(page.html);
+  editor.setComponents(composeEditorPage(page, frame).html);
+  framed?.bind();
+  framed?.capture(liveHtml(editor, null));
   const configureTree = component => { configureVisualComponent(component, { managedSvg }); component.components?.().forEach(configureTree); };
   editor.getWrapper().components().forEach(configureTree);
   editor.AssetManager.add(assets.filter(asset => asset.mime.startsWith('image/')).map(asset => ({ src: asset.src, name: asset.name, width: asset.width, height: asset.height })));
@@ -74,11 +86,13 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   editor.setDevice('Dator');
   function snapshot(force = false) {
     if (disposed || loading || !force && !typing && editor.getDirtyCount() === 0) return null;
-    return { html: liveHtml(editor, textView), css: editor.getCss(), project: null };
+    const html = liveHtml(editor, textView);
+    return framed ? framed.snapshot(html) : { html, css: editor.getCss(), project: null };
   }
-  function flush(force = false) {
+  function flush(force = false, reportOnly = false) {
     clearTimeout(timer);
-    const value = snapshot(force);
+    let value;
+    try { value = snapshot(force); } catch (error) { onError(error); if (!reportOnly) throw error; return false; }
     if (value) {
       const serialized = JSON.stringify(value);
       if (serialized !== previousSnapshot) { previousSnapshot = serialized; onChange(value); }
@@ -94,6 +108,13 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
       const textHistory = (event.metaKey || event.ctrlKey) && ['z', 'y'].includes(event.key.toLowerCase());
       if (!event.isComposing && event.target.isContentEditable && (['Backspace', 'Delete'].includes(event.key) || textHistory)) event.stopPropagation();
     }, true);
+    // Safari: delete a fully selected block through the editing command so native undo keeps it.
+    if (navigator.vendor === 'Apple Computer, Inc.') doc.addEventListener('keydown', event => {
+      if (!['Backspace', 'Delete'].includes(event.key) || event.isComposing) return;
+      const editable = event.target.closest?.('[contenteditable=true]'), selection = doc.getSelection();
+      if (!editable || !selection || selection.isCollapsed || selection.toString() !== editable.innerText) return;
+      event.preventDefault(); event.stopPropagation(); doc.execCommand('delete');
+    }, true);
     const fontStyle = doc.createElement('style');
     fontStyle.textContent = assetFontCss(assets);
     doc.head.append(fontStyle);
@@ -104,6 +125,8 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
     loading = false;
     editor.clearDirtyCount();
     onReady(editor);
+    // Initial selection can add export IDs; record the fully initialized editor.
+    previousSnapshot = JSON.stringify(snapshot(true));
   });
   editor.on('rte:enable', view => { textView = view; });
   editor.on('rte:disable', view => {
@@ -116,11 +139,27 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
   editor.on('update', () => {
     if (disposed || loading) return;
     clearTimeout(timer);
-    timer = setTimeout(flush, 250);
+    timer = setTimeout(() => flush(false, true), 250);
   });
-  editor.on('component:resize:end', ({ component }) => {
+  editor.on('component:resize:update', ({ component, el, style, updateStyle }) => {
+    const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
+    // A12b: a group scales through its transform (position.mjs). Claim the style update so no
+    // width/height reaches the group's rule, and keep that empty write out of the undo stack.
+    if (tag === 'g') editor.UndoManager.skip(() => updateStyle({}));
+    else updateStyle(responsiveResizeStyle(style, tag, el.ownerDocument.defaultView.getComputedStyle(el)));
+  });
+  // One resize gesture is exactly one studio undo step: close the previous step, then flush the
+  // result and close this step. Mid-drag style writes are partial (avoidStore), which GrapesJS
+  // handleUpdates ignores, so no 'update' fires until the final write and no gate is needed.
+  // GrapesJS also fires component:resize:start on every pointer move, so the once-per-gesture
+  // start is read from component:resize with type 'start'.
+  editor.on('component:resize', ({ type }) => { if (type !== 'start') return; flush(); onBoundary(); });
+  editor.on('component:resize:end', ({ component, moved }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
     if (['a', 'span'].includes(tag) && component.getStyle?.().width && !component.getStyle().display) component.addStyle({ display: 'inline-block' });
+    // GrapesJS raises its dirty count in a setTimeout(0), so it is still 0 here: force the snapshot.
+    // The deferred 'update' flush then sees an unchanged snapshot and adds no second Draft change.
+    flush(Boolean(moved)); onBoundary();
   });
   editor.on('component:selected', component => onSelect(component, editor));
   editor.on('component:deselected', () => { if (!editor.getSelected()) onSelect(null, editor); });
@@ -133,6 +172,7 @@ export function createEditor({ page, cssPath, assets, onChange, onSelect, onRead
       flush();
     });
   });
-  return { editor, flush, snapshot, setStyleMode, destroy() { flush(); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); editor.destroy(); } };
+  // Capture synchronous edits before GrapesJS's deferred dirty count on close.
+  return { editor, flush, snapshot, setStyleMode, destroy() { flush(true); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); rightPanel.removeEventListener('pointerdown', keepResizer); editor.destroy(); } };
 }
 import { remapClone } from './clone.mjs';

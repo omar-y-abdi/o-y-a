@@ -47,7 +47,8 @@ class LibraryNavigationTests(unittest.TestCase):
         # with the assertion budget (700 ms) races Firefox startup on CI.
         # Keep that strict budget for the library interaction assertions only.
         self.page.set_content('''<button data-library="pages" aria-selected="true">Sidor</button>
-            <button data-library="assets" aria-selected="false">Resurser</button>
+            <button data-library="assets" aria-selected="false">Bilder</button>
+            <button data-library="wins" data-special="wins" aria-selected="false">Vinster</button>
             <div id="library-list"></div><div id="special-stage"></div><div id="custom-inspector"></div>''',
             wait_until='domcontentloaded', timeout=5000)
         self.page.add_script_tag(path=str(self.bundle))
@@ -65,7 +66,7 @@ class LibraryNavigationTests(unittest.TestCase):
               media();
             }
             if(el.dataset.special==='media')media();
-            if(el.dataset.special==='wins'){
+            if(el.dataset.library==='wins'||el.dataset.special==='wins'){
               fixture.view='wins';libraryFixture.assetNavigation('wins',[],[]);libraryFixture.winGallery([]);
             }
           });
@@ -83,7 +84,7 @@ class LibraryNavigationTests(unittest.TestCase):
         self.assertEqual(self.page.evaluate('fixture.requests'), 1)
 
     def test_wins_opens_assets_from_initial_pages_tab(self):
-        self.assertEqual(self.page.locator('[data-special=wins]').count(), 0)
+        self.assertEqual(self.page.locator('[data-library=wins]').count(), 1)
         Q.open_assets(self.page, 'wins')
         expect(self.page.locator('#special-stage #win-search')).to_be_visible()
         self.assertEqual(self.page.evaluate('fixture.view'), 'wins')

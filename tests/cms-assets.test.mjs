@@ -2,10 +2,11 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { inspectAsset, uploadAsset, listAssets, assetResponse } from '../src/cms/assets.mjs';
+import { inspectAsset, uploadAsset, assetPage, assetResponse } from '../src/cms/assets.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/theme.mjs';
-import { migrateCmsDb } from './helpers/cms-runtime.mjs';
+import { cmsRuntime, migrateCmsDb } from './helpers/cms-runtime.mjs';
+import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 
 const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default { fetch() { return new Response("test"); } };', compatibilityDate: '2026-09-11', d1Databases: ['CMS_DB'], r2Buckets: ['CMS_MEDIA'], images: { binding: 'CMS_IMAGES' } }));
 after(() => mf.dispose());
@@ -26,7 +27,7 @@ test('upload stores an immutable R2 object and recoverable metadata', async () =
   const asset = await uploadAsset(env, { id, bytes: png, name: 'Testbild.png', alt: 'Gul figur på blå botten' });
   assert.equal(asset.src, `/media/${id}.png`);
   assert.equal(asset.width, 1200);
-  assert.equal((await listAssets(env.CMS_DB)).some(item => item.id === id), true);
+  assert.equal((await assetPage(env.CMS_DB)).items.some(item => item.id === id), true);
   const stored = await env.CMS_MEDIA.get(`${id}.png`);
   assert.deepEqual(new Uint8Array(await stored.arrayBuffer()), png);
   const retry = await uploadAsset(env, { id, bytes: png, name: 'Testbild.png', alt: 'Gul figur på blå botten' });
@@ -90,4 +91,32 @@ test('active and archived media pages keep lifecycle index query plans', async (
     assert.ok(details.some(detail => detail.includes('cms_media_lifecycle')), details.join('\n'));
     assert.ok(details.every(detail => !detail.startsWith('SCAN cms_media')), details.join('\n'));
   }
+});
+
+test('A18: a file the published head uses cannot be trashed until a saved draft drops it', async () => {
+  const runtime = await cmsRuntime();
+  try {
+    const cookie = 'CF_Authorization=' + await runtime.token();
+    const get = path => runtime.mf.dispatchFetch(runtime.url + '/admin/api/' + path, { headers: { Cookie: cookie } });
+    const post = (path, body) => runtime.mf.dispatchFetch(runtime.url + '/admin/api/' + path, { method: 'POST', headers: { Cookie: cookie, Origin: runtime.url, 'Content-Type': 'application/json', 'X-CMS-Request': '1' }, body: JSON.stringify(body) });
+    const id = crypto.randomUUID();
+    const uploaded = await runtime.mf.dispatchFetch(runtime.url + '/admin/api/upload', { method: 'POST', headers: { Cookie: cookie, Origin: runtime.url, 'X-CMS-Request': '1', 'Content-Type': 'application/octet-stream', 'X-CMS-Upload-Id': id, 'X-CMS-Filename': encodeURIComponent('Ikon.png') }, body: Buffer.from(rasterFixtures.png, 'base64') });
+    assert.equal(uploaded.status, 201, await uploaded.clone().text());
+    const asset = await uploaded.json();
+    const state = await (await get('state')).json();
+    const draft = structuredClone(state.project);
+    const head = structuredClone(state.project);
+    head.resources.icon = asset.src;
+    const published = await post('save', { project: head, baseVersion: state.version, requestId: crypto.randomUUID() });
+    assert.equal(published.status, 200, await published.clone().text());
+    const lifecycle = baseSiteVersion => post('asset-lifecycle', { id, action: 'trash', baseVersion: asset.version, baseSiteVersion, project: draft });
+    const blocked = await lifecycle(state.version + 1);
+    assert.equal(blocked.status, 409);
+    assert.equal((await blocked.json()).error, 'Filen används på den publicerade webbplatsen. Spara utkastet utan filen först.');
+    const cleaned = await post('save', { project: draft, baseVersion: state.version + 1, requestId: crypto.randomUUID() });
+    assert.equal(cleaned.status, 200, await cleaned.clone().text());
+    const trashed = await lifecycle(state.version + 2);
+    assert.equal(trashed.status, 200, await trashed.clone().text());
+    assert.equal((await trashed.json()).asset.trashed, true);
+  } finally { await runtime.close(); }
 });

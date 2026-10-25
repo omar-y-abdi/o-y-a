@@ -4,6 +4,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import { routes } from '../src/content/site.mjs';
 import { preparePage } from '../src/cms/validation.mjs';
 import { validateProject, defaultTheme, themeCss } from '../src/cms/project.mjs';
+import { normalizeStoredProject } from '../src/cms/legacy-project.mjs';
+import { initial, seed as generatedSeed } from '../.generated/cms-seed.mjs';
 
 const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...preparePage(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null })));
 const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
@@ -11,7 +13,8 @@ const seed = { schemaVersion: 1, pages, cards: JSON.parse(await readFile('public
 
 test('every existing source page and win card form a valid initial CMS project', () => {
   const result = validateProject(structuredClone(seed), seed);
-  assert.equal(result.pages.length, routes.length);
+  // A14: the code-owned SKIFT route is served from the build, not the CMS.
+  assert.equal(result.pages.length, routes.filter(page => page.path !== '/play/skift/').length);
   assert.equal(result.cards.length, seed.cards.length);
 });
 
@@ -76,4 +79,34 @@ test('required shared slot is enforced once per page rather than by global count
   const duplicate=broken.pages[0].html.match(/<p[^>]*data-cms-shared="footer.tagline"[^>]*>[\s\S]*?<\/p>/)[0].replaceAll(/\sdata-cms-node="[^"]+"/g,'');
   broken.pages[0].html=broken.pages[0].html.replace('</footer>',duplicate+'</footer>');
   assert.throws(()=>validateProject(broken,sharedSeed),/alla sidor/i);
+});
+
+test('A7: a rejected page names itself, and a message that already holds the path is left alone', () => {
+  const project = structuredClone(seed);
+  const page = project.pages.find(item => item.path === '/om/');
+  page.name = 'Människan';
+  page.html = page.html.replace('</main>', '<a href="javascript:alert(1)">x</a></main>');
+  assert.throws(() => validateProject(project, seed), error => error.status === 422 && error.message === 'Människan: Länken har en otillåten adress.');
+  page.name = '';
+  assert.throws(() => validateProject(project, seed), error => error.status === 422 && error.message === '/om/: Länken har en otillåten adress.');
+  const duplicate = structuredClone(seed);
+  duplicate.pages.push({ ...duplicate.pages[0], id: 'duplicate', name: 'Kopia' });
+  assert.throws(() => validateProject(duplicate, seed), error => error.status === 422 && error.message === `Adressen ${duplicate.pages[0].path} används redan.`);
+});
+
+test('A9: a page title of 160 characters validates and 161 is rejected', () => {
+  const project = structuredClone(seed);
+  project.pages[0].title = 'a'.repeat(160);
+  assert.doesNotThrow(() => validateProject(structuredClone(project), seed));
+  project.pages[0].title = 'a'.repeat(161);
+  assert.throws(() => validateProject(project, seed), error => error.status === 422 && /Sidtitel saknas eller har ogiltig längd/.test(error.message));
+});
+
+test('A3: deleting a page that others link to gives one 422 naming every linking page', async () => {
+  const stored = normalizeStoredProject(JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8')), generatedSeed, initial);
+  const project = structuredClone(stored);
+  project.pages = project.pages.filter(page => page.path !== '/integritet/');
+  const linking = project.pages.filter(page => page.html.includes('href="/integritet/"')).map(page => page.path);
+  assert.ok(linking.length >= 10, 'The legal page is linked from most pages');
+  assert.throws(() => validateProject(project, generatedSeed), error => error.status === 422 && linking.every(path => error.message.includes(` på ${path} går till en sida som saknas`)));
 });

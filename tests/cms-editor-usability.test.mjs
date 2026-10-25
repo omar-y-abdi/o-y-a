@@ -51,7 +51,7 @@ test('editor policy separates normal styling from color/effects mode and removes
   const values=new Map([['tagName','a'],['type','link'],['toolbar',null]]);
   const item={get:key=>values.get(key),set:(key,value)=>typeof key==='string'?values.set(key,value):Object.entries(key).forEach(([k,v])=>values.set(k,v)),getAttributes:()=>({href:'/kontakt/'}),parent:()=>({})};
   configureVisualComponent(item);
-  assert.equal(values.get('resizable'),true);
+  assert.deepEqual(values.get('resizable'),{currentUnit:0,unitWidth:'px',unitHeight:'px'});
   assert.deepEqual(values.get('toolbar'),[]);
 });
 
@@ -70,4 +70,11 @@ test('SVG group resize composes a geometry scale transform instead of CSS width 
   resize.onStart(null,{el:{getBoundingClientRect:()=>({width:40,height:20}),getBBox:()=>({x:10,y:5,width:40,height:20})}});
   resize.updateTarget(null,{w:80,h:40},{store:false});
   assert.match(group.getAttributes().transform,/rotate\(5\).*scale\(2 2\)/);
+});
+
+test('pasted text is escaped and keeps line breaks as <br>',async()=>{
+  const { pastedTextHtml }=await import('../src/cms/client/editor-policy.mjs');
+  assert.equal(pastedTextHtml('a\r\nb\nc\rd'),'a<br>b<br>c<br>d');
+  assert.equal(pastedTextHtml('1 < 2 & <o:p>'),'1 &lt; 2 &amp; &lt;o:p&gt;');
+  assert.equal(pastedTextHtml(''),'');
 });

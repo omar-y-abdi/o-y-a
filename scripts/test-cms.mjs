@@ -1,10 +1,10 @@
-import { mkdir, writeFile, access, rm } from 'node:fs/promises';
+import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { cmsRuntime } from '../tests/helpers/cms-runtime.mjs';
+import { testPython } from './test-python.mjs';
 
+const python = await testPython();
 const runtime = await cmsRuntime();
-let python = process.env.PYTHON ?? 'python3';
-try { await access('.test-venv/bin/python'); if (!process.env.PYTHON) python = '.test-venv/bin/python'; } catch { /* CI uses the configured Python installation. */ }
 await mkdir('output/cms-local', { recursive: true });
 const state = `output/cms-local/test-auth-${process.pid}.json`;
 await writeFile(state, JSON.stringify({ cookies: [{ name: 'CF_Authorization', value: await runtime.token(), domain: '127.0.0.1', path: '/', httpOnly: true, secure: false, sameSite: 'Lax' }], origins: [] }), { mode: 0o600 });

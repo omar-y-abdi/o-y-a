@@ -1,6 +1,6 @@
 # Historik från basversionen
 
-Detta dokument beskriver det ursprungliga bygget, inte den nuvarande leveransstatusen. Aktuell ändring: [revision/CHANGES.md](revision/CHANGES.md). Aktuella resultat: [QA.md](QA.md).
+Detta dokument beskriver det ursprungliga formspråket. Studions struktur beskrivs i [CMS-DESIGN.md](CMS-DESIGN.md), verifieringen i [QA.md](QA.md) och driften i [DEPLOYMENT.md](DEPLOYMENT.md).
 
 # Omar Yusuf: en seriöst lekfull verkstad
 

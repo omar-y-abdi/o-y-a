@@ -1,23 +1,11 @@
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { testPython } from './test-python.mjs';
+import { publicRuntime } from '../tests/helpers/cms-runtime.mjs';
 
-const publicUrl = process.env.BASE_URL || 'http://127.0.0.1:4173';
-const analyticsUrl = process.env.ANALYTICS_URL || 'http://127.0.0.1:4174';
-let python = process.env.PYTHON || 'python3';
-try {
-  await access('.test-venv/bin/python');
-  if (!process.env.PYTHON) python = '.test-venv/bin/python';
-} catch {}
-
-const jobs = [
-  ['web-e2e', 'npm', ['run', 'test:web:e2e'], { BASE_URL: publicUrl, PLAYWRIGHT_WORKERS: process.env.PLAYWRIGHT_WORKERS || '3' }],
-  ['interactions', python, ['tests/browser.py', '--base-url', publicUrl, '--analytics-url', analyticsUrl, '--screenshots', '--section', 'interactions']],
-  ['privacy', python, ['tests/browser.py', '--base-url', publicUrl, '--analytics-url', analyticsUrl, '--screenshots', '--section', 'privacy']],
-  ['revision', python, ['tests/revision_browser.py'], { BASE_URL: publicUrl }],
-];
+const python = await testPython();
 
 const children = new Set();
-let failed = false;
+let interrupted = false;
 
 function run([name, command, args, extraEnv = {}]) {
   return new Promise((resolve, reject) => {
@@ -30,18 +18,42 @@ function run([name, command, args, extraEnv = {}]) {
     });
     child.once('exit', code => {
       children.delete(child);
-      if (code) failed = true;
       resolve({ name, code: code ?? 1 });
     });
   });
 }
 
 function stopAll(signal) {
+  interrupted = true;
   for (const child of children) child.kill(signal);
 }
-process.once('SIGINT', () => stopAll('SIGINT'));
-process.once('SIGTERM', () => stopAll('SIGTERM'));
+const onInterrupt = () => stopAll('SIGINT');
+const onTerminate = () => stopAll('SIGTERM');
+process.once('SIGINT', onInterrupt);
+process.once('SIGTERM', onTerminate);
 
-const results = await Promise.all(jobs.map(run));
-for (const result of results) console.log(`${result.name}: ${result.code === 0 ? 'PASS' : `FAIL (${result.code})`}`);
-if (failed) process.exit(1);
+let runtime, analytics;
+try {
+  runtime = await publicRuntime();
+  analytics = await publicRuntime({ analytics: true });
+  const publicUrl = runtime.url, analyticsUrl = analytics.url;
+  const env = { BASE_URL: publicUrl, PLAYWRIGHT_PORT: '', PLAYWRIGHT_WORKERS: process.env.PLAYWRIGHT_WORKERS || '3' };
+  const jobs = [
+    ['web-e2e', 'npm', ['run', 'test:public-pages'], env],
+    ['interactions', python, ['tests/browser.py', '--base-url', publicUrl, '--analytics-url', analyticsUrl, '--screenshots', '--section', 'interactions']],
+    ['privacy', python, ['tests/browser.py', '--base-url', publicUrl, '--analytics-url', analyticsUrl, '--screenshots', '--section', 'privacy']],
+    ['revision', python, ['tests/revision_browser.py'], { BASE_URL: publicUrl }],
+  ];
+  for (const job of jobs) {
+    if (interrupted) break;
+    const result = await run(job);
+    console.log(`${result.name}: ${result.code === 0 ? 'PASS' : `FAIL (${result.code})`}`);
+    if (result.code !== 0) process.exitCode = 1;
+  }
+  if (interrupted) process.exitCode = 1;
+} finally {
+  process.removeListener('SIGINT', onInterrupt);
+  process.removeListener('SIGTERM', onTerminate);
+  try { await analytics?.close(); }
+  finally { await runtime?.close(); }
+}

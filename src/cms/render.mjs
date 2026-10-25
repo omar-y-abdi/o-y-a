@@ -1,11 +1,14 @@
-import { layout, structuredData } from '../templates/layout.mjs';
+import { layout } from '../templates/layout.mjs';
+import { CSP } from '../csp.mjs';
 import { escape } from '../templates/components.mjs';
 import { themeCss, fontCss } from './theme.mjs';
 import { readPublicPage, readPublicData } from './store.mjs';
 import { canonicalPagePath } from './routes.mjs';
 import { routes } from '../content/site.mjs';
-import { normalizeFooterPage, FOOTER_VERSION } from './footer.mjs';
-import { normalizeSkiftPage, isSkiftPath, skiftCsp } from './skift.mjs';
+import { normalizeFooterPage, normalizeSkiftPage, refreshDevelopersPage } from './legacy-project.mjs';
+import { isSkiftPath } from './skift.mjs';
+import { composePage, legacySeed } from './frame.mjs';
+import { reportFailure } from './diagnostics.mjs';
 
 export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const safeStyle = css => css.replaceAll('<', '\\3c ');
@@ -14,24 +17,18 @@ export function renderWinPreview(card, project, built) {
   return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
 }
 
-export function renderPage(page, built, { version, preview, project, resources = page.resources, resourceOrigin, migratedCss = false } = {}) {
+export function renderPage(page, built, { version, preview, project, runtimeJson = page.runtimeJson, resources = page.resources, resourceOrigin } = {}) {
   let base = layout(page, '', { css: built.styles[page.template] ?? built.styles.home, main: built.main, resources, resourceOrigin });
   if (preview) base = base.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
-  let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${page.html}</body>`);
-  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css${migratedCss ? `?footer=${FOOTER_VERSION}` : ''}">`;
-  const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : '';
-  return result.replace('</head>', `${styles}${fixture}</head>`);
+  const html = composePage(project?.frame, page).replace(/<footer\b[^>]*class="[^"]*\bsite-footer\b[^"]*"[^>]*>[\s\S]*?<\/footer>/g, footer => footer.replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + new Date().getUTCFullYear() + after));
+  let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${html}</body>`);
+  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + (project.frame?.css ?? '') + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
+  const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : runtimeJson === undefined ? '' : `<script type="application/json" id="cms-runtime">${runtimeJson.replaceAll('<', '\\u003c')}</script>`;
+  return result.replace('</head>', () => `${styles}${fixture}</head>`);
 }
 
-async function pageCsp(page, baseCsp) {
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(structuredData(page)));
-  const hash = btoa(String.fromCharCode(...new Uint8Array(bytes)));
-  const policy = baseCsp.replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`);
-  return page.template === 'skift' ? skiftCsp(policy) : policy;
-}
-
-export async function publicContent(request, env, built, csp, seed = {}) {
+export async function publicContent(request, env, built, seed = {}) {
   if (!env.CMS_DB) return null;
   const url = new URL(request.url);
   if (url.pathname === '/login' || url.pathname.startsWith('/login/')) return null;
@@ -42,13 +39,7 @@ export async function publicContent(request, env, built, csp, seed = {}) {
       env.CMS_DB.prepare("SELECT html FROM cms_rendered WHERE version = ? AND path = '@theme'").bind(Number(style[1])).first(),
     ]);
     if (!page || !theme) return new Response('Not found', { status: 404 });
-    // Old immutable URLs retain their original bytes. The new representation
-    // follows the same identity migration as HTML, including CSS selectors.
-    const meta = page.meta ? JSON.parse(page.meta) : {};
-    const definition = seed.pages?.find(item => item.id === meta.id || item.id === meta.sourceId) ?? seed.blank;
-    const normalized = url.searchParams.get('footer') === String(FOOTER_VERSION)
-      ? normalizeFooterPage({ ...page, ...meta }, definition) : page;
-    return new Response(themeCss(JSON.parse(theme.html)) + normalized.css, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' } });
+    return new Response(themeCss(JSON.parse(theme.html)) + page.css, { headers: { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=31536000, immutable' } });
   }
   const exactCard = url.pathname.match(/^\/data\/cards\/([a-z0-9-]{1,80})\.json$/);
   if (exactCard) {
@@ -74,10 +65,17 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   }
   const canonical = canonicalPagePath(url.pathname);
   if (!canonical) return null;
+  // The game is code-owned: its build is served even if a revision stored it.
+  if (isSkiftPath(canonical)) {
+    const frame = await readPublicPage(env.CMS_DB, '@frame');
+    if (!frame?.html || !seed.skiftPage) return null;
+    const page = { ...seed.skiftPage, html: composePage(frame, seed.skiftPage), resources: frame.resources, runtimeJson: frame.runtimeJson };
+    return new Response(renderPage(page, built, { version: frame.version, resourceOrigin: url.origin }), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-CMS-Version': String(frame.version) } });
+  }
   const state = await readPublicPage(env.CMS_DB, canonical);
   // An existing CMS database may not contain pages added in a later deploy.
   // Keep the new public documentation reachable via the built static asset.
-  if ((canonical === '/developers/' || isSkiftPath(canonical)) && state?.page === null) return null;
+  if (canonical === '/developers/' && state?.page === null) return null;
   if (!state) return null;
   if (state.page !== null && url.pathname !== canonical) {
     url.pathname = canonical;
@@ -86,7 +84,12 @@ export async function publicContent(request, env, built, csp, seed = {}) {
   const missing = state.page === null || url.pathname === '/404.html';
   const page = state.page === null ? await readPublicPage(env.CMS_DB, '/404.html') : state;
   if (!page || page.page === null) return new Response('Sidan finns inte.', { status: 404 });
-  const definition = seed.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? seed.blank;
-  const normalized = normalizeSkiftPage(normalizeFooterPage(page, definition), definition);
-  return new Response(renderPage(normalized, built, { version: state.version, resourceOrigin: url.origin, migratedCss: normalized.css !== page.css }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': await pageCsp(page, csp), 'X-CMS-Version': String(state.version) } });
+  const legacy = legacySeed(seed);
+  const definition = legacy.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? legacy.blank;
+  let normalized = page;
+  // Read-time migrations must not take a published page offline. Serve the
+  // stored page and report; Save and validation keep failing loudly.
+  try { if (page.frameVersion !== 2) normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, legacy.footerPage)), definition); }
+  catch (error) { reportFailure(error, 'public'); }
+  return new Response(renderPage(normalized, built, { version: page.version, resourceOrigin: url.origin }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': CSP, 'X-CMS-Version': String(page.version) } });
 }

@@ -1,17 +1,23 @@
-import { DEFAULT_SHARED_CONTENT } from '../src/cms/shared-content.mjs';
+import { DEFAULT_SHARED_CONTENT, FOOTER_VERSION } from '../src/cms/legacy-project.mjs';
+import { frameDefinitions } from '../src/cms/frame.mjs';
+import { toFrameProject } from '../src/cms/frame-converter.mjs';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { imageDimensionsFromData } from 'image-dimensions';
 import { routes } from '../src/content/site.mjs';
 import { layout } from '../src/templates/layout.mjs';
-import { prepareFooterSource } from './prepare-footer-migration.mjs';
+import { preparePage } from '../src/cms/validation.mjs';
 import { validateProject, defaultTheme } from '../src/cms/project.mjs';
+// Current templates already hold the developer link: only unmarked (pre-PR #10) pages get it.
 import { adminPage, loginPage } from '../src/cms/templates.mjs';
 import { defaultCopy } from '../src/client/copy.mjs';
-import { skiftCopy } from '../src/content/skift-copy.mjs';
+import { skiftCopy } from '../games/skift/src/copy.mjs';
 import { resourceSlots } from '../src/content/resources.mjs';
 import { sanitizeManagedSvg } from '../src/cms/svg.mjs';
+import { parseFragment } from 'parse5';
+import { attribute, elements } from '../src/cms/html-tree.mjs';
+import { SKIFT_PATH } from '../src/content/skift.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
 export async function buildCms({ styles, js }) {
@@ -36,8 +42,8 @@ export async function buildCms({ styles, js }) {
   }
   const output = entry => '/' + Object.entries(bundle.metafile.outputs).find(([, value]) => value.entryPoint === entry)[0].replace(/^dist\//, '');
   const built = { styles, main: `/assets/${js.main}`, studio: output('src/cms/client/app.mjs'), preview: output('src/cms/client/preview.mjs'), css, vendorCss, loginCss };
-  const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...prepareFooterSource(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null })));
-  const blank = { id: 'blank', path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida | Omar Yusuf', description: 'En ny idé från Omar Yusuf.', template: 'custom', css: '', project: null, ...prepareFooterSource(layout({ path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida', description: 'En ny idé.', template: 'custom' }, '<section class="section-wrap" style="padding-block:80px;min-height:560px"><span class="eyebrow">EN NY IDÉ</span><h1>Här börjar något.</h1><p>Dubbelklicka för att skriva din berättelse.</p></section>', { css: styles.home, main: built.main })) };
+  const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...preparePage(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null, footerVersion: FOOTER_VERSION })));
+  const blank = { id: 'blank', path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida | Omar Yusuf', description: 'En ny idé från Omar Yusuf.', template: 'custom', css: '', project: null, footerVersion: FOOTER_VERSION, ...preparePage(layout({ path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida', description: 'En ny idé.', template: 'custom' }, '<section class="section-wrap" style="padding-block:80px;min-height:560px"><span class="eyebrow">EN NY IDÉ</span><h1>Här börjar något.</h1><p>Dubbelklicka för att skriva din berättelse.</p></section>', { css: styles.home, main: built.main })) };
   const assets = await Promise.all(Object.entries(resourceSlots).map(async ([slot, definition]) => {
     const { src, name, alt, mime, editableSrc } = definition;
     let bytes;
@@ -49,13 +55,13 @@ export async function buildCms({ styles, js }) {
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
   const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
-  const seed = { pages: pages.map(({ html, css, project, ...page }) => page), blank, footerPage: pages.find(page => page.path === '/developers/'), runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT };
+  // Anchor targets of the code-owned game build, for links like /play/skift/#main.
+  const skiftIds = elements(parseFragment(pages.find(page => page.path === SKIFT_PATH).html)).map(node => attribute(node, 'id')).filter(Boolean);
+  const seed = frameDefinitions({ pages, blank, footerPage: pages.find(page => page.path === '/developers/'), skiftIds, runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT });
   await writeFile('dist/data/runtime.json', JSON.stringify(seed.runtime));
-  const initial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
-  // Introduced pages enter old drafts as ordinary persisted pages, without
-  // ephemeral source contracts leaking into incremental save payloads.
-  seed.skiftPage = initial.pages.find(page => page.id === 'skift');
-  await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const built = ${JSON.stringify(built)};\n`);
+  const legacyInitial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
+  const initial = validateProject(toFrameProject(legacyInitial, seed), seed);
+  await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const legacyInitial = ${JSON.stringify(legacyInitial)};\nexport const legacySeed = seed.legacy;\nexport const built = ${JSON.stringify(built)};\n`);
   await writeFile('dist/admin/index.html', adminPage({ css, vendorCss, js: built.studio }));
   await writeFile('dist/login/index.html', loginPage(loginCss));
   return built;

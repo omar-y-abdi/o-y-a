@@ -1,8 +1,10 @@
-import { test, expect } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { test, expect } from './helpers/public-test.mjs';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
-const PAGES = ['/', '/verkstad/', '/play/skift/', '/om/', '/projekt/furl/', '/projekt/blade-blend/', '/projekt/backhaul/', '/kontakt/', '/developers/', '/integritet/', '/kakor/', '/villkor/', '/tillganglighet/', '/404.html'];
+const project = JSON.parse(await readFile(new URL('./fixtures/cms-v185-project.json', import.meta.url), 'utf8'));
+const PAGES = [...new Set([...project.pages.map(page => page.path), '/play/skift/'])];
 const SIZES = [[320,780], [390,844], [768,1024], [1024,900], [1440,1000], [1920,1080]];
 const SCREENSHOTS = new URL('../artifacts/screenshots/', import.meta.url);
 
@@ -12,8 +14,8 @@ test.beforeAll(async () => mkdir(SCREENSHOTS, { recursive: true }));
 
 test.describe('public responsive matrix', () => {
   for (const path of PAGES) for (const [width, height] of SIZES) {
-    test(`${path} at ${width}px`, { tag: path === '/play/skift/' ? '@webgl' : [] }, async ({ browser }) => {
-      const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+    test(`${path} at ${width}px`, { tag: path === '/play/skift/' ? '@webgl' : [] }, async ({ browser, baseURL }) => {
+      const context = await browser.newContext({ baseURL, viewport: { width, height }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
       const page = await context.newPage();
       const errors = [];
       const gameRequests = [];
@@ -25,6 +27,7 @@ test.describe('public responsive matrix', () => {
       const response = await page.goto(path, { waitUntil: 'networkidle' });
       if (path === '/404.html') expect(response?.status()).toBe(404);
       else expect(response?.status()).toBe(200);
+      if (path !== '/play/skift/') expect(response.headers()['x-cms-version']).toBe('1');
       await expect(page.locator('h1')).toHaveCount(1);
       await expect(page.locator('html')).toHaveAttribute('lang', 'sv');
       await expect(page).toHaveTitle(/Omar Yusuf/);
@@ -58,8 +61,8 @@ test.describe('public responsive matrix', () => {
   }
 
   for (const width of [390, 1440]) {
-    test(`No JavaScript navigation and fallback ${width}px`, async ({ browser }) => {
-      const context = await browser.newContext({ viewport: { width, height: 844 }, javaScriptEnabled: false, reducedMotion: 'reduce' });
+    test(`No JavaScript navigation and fallback ${width}px`, async ({ browser, baseURL }) => {
+      const context = await browser.newContext({ baseURL, viewport: { width, height: 844 }, javaScriptEnabled: false, reducedMotion: 'reduce' });
       const page = await context.newPage();
       await page.goto('/', { waitUntil: 'load' });
       await expect(page.locator('h1')).toContainText('Omar');
@@ -70,4 +73,45 @@ test.describe('public responsive matrix', () => {
       await context.close();
     });
   }
+
+  test('published sitemap parses as XML and lists every indexable page', async ({ page }) => {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const sitemap = await page.evaluate(async () => {
+      const response = await fetch('/sitemap.xml');
+      const xml = new DOMParser().parseFromString(await response.text(), 'application/xml');
+      return { status: response.status, errors: xml.querySelectorAll('parsererror').length, namespace: xml.documentElement.namespaceURI, urls: [...xml.getElementsByTagNameNS('http://www.sitemaps.org/schemas/sitemap/0.9', 'loc')].map(node => node.textContent).sort() };
+    });
+    expect(sitemap.status).toBe(200);
+    expect(sitemap.errors).toBe(0);
+    expect(sitemap.namespace).toBe('http://www.sitemaps.org/schemas/sitemap/0.9');
+    expect(sitemap.urls).toEqual([...project.pages.filter(page => !page.noindex).map(page => 'https://omaryusuf.se' + page.path), 'https://omaryusuf.se/play/skift/'].sort());
+  });
+});
+
+test.describe('raw v185 public Home before the owner migrates', () => {
+  let runtime;
+  test.beforeAll(async () => { runtime = await cmsRuntime({ project }); });
+  test.afterAll(async () => { await runtime?.close(); });
+
+  for (const width of [320, 1280]) test(`raw Home smoke at ${width}px; only the known 388px overflow is expected`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width, height: 844 }, reducedMotion: 'reduce' });
+    try {
+      const page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(String(error)));
+      page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+      const response = await page.goto(runtime.url + '/', { waitUntil: 'networkidle' });
+      expect(response.status()).toBe(200);
+      expect(response.headers()['x-cms-version']).toBe('1');
+      await expect(page.locator('html')).toHaveClass(/js-ready/);
+      await expect(page.locator('html')).toHaveAttribute('lang', 'sv');
+      await expect(page).toHaveTitle(/Omar Yusuf/);
+      await expect(page.locator('main h1')).toHaveCount(1);
+      await expect(page.locator('footer.site-footer')).toHaveCount(1);
+      await expect(page.locator('[data-print]')).toBeEnabled();
+      expect((await page.locator('main').innerText()).trim()).not.toBe('');
+      const expected = width === 320 ? 388 : width;
+      expect(await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth }))).toEqual({ viewport: width, document: expected, body: expected });
+      expect(errors).toEqual([]);
+    } finally { await context.close(); }
+  });
 });

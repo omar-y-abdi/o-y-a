@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/public-test.mjs';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -64,8 +64,46 @@ function assertLayout(state) {
 
 test.beforeAll(async () => { await mkdir(OUTPUT, { recursive: true }); });
 
+for (const width of [320, 390, 768, 1024, 1440]) {
+  test(`translated workshop stage preserves real action and machine pointers at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/verkstad/?kort=k01', { waitUntil: 'domcontentloaded' });
+    await waitForCard(page, BANK.find(card => card.id === 'k01').text);
+    const stage = page.locator('.machine-stage--workshop');
+    // This is the real owner's saved offset, which puts the stage's empty box
+    // over the controls on narrow screens. Keep the layout in the regression.
+    await expect(stage).toHaveCSS('translate', '-30px -130px');
+    for (const selector of ['[data-save]', '[data-share]']) {
+      const control = page.locator(selector);
+      await expect(control).toBeEnabled();
+      await control.scrollIntoViewIfNeeded();
+      const hit = await control.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const target = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return { reachable: element.contains(target), target: target?.outerHTML.slice(0, 200) };
+      });
+      expect(hit.reachable, `${selector}: ${JSON.stringify(hit)}`).toBe(true);
+      if (selector === '[data-save]') {
+        const download = await waitForDownload(page, control);
+        const bytes = await readFile(await download.path());
+        expect(pngDimensions(bytes).width).toBeGreaterThanOrEqual(100);
+      } else {
+        await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Blocked'); } } }));
+        await control.click();
+        await expect(page.locator('[data-copy-fallback]')).toBeVisible();
+        await expect(page.locator('#share-url')).toHaveValue(/\/verkstad\/\?kort=k01$/);
+        await expect(page.locator('#share-url')).toBeFocused();
+      }
+    }
+    // The stage's own populated surfaces must remain interactive as well.
+    await page.locator('[data-receipt-close]').click();
+    await expect(page.locator('[data-receipt]')).toBeHidden();
+    await page.locator('[data-print]').click();
+    await expect(page.locator('[data-receipt]')).toBeVisible();
+  });
+}
+
 test.describe('all 240 production card exports', () => {
-  test.describe.configure({ retries: 1 });
   for (const card of BANK) {
     test(`${card.id} exports valid PNG`, async ({ page }, testInfo) => {
       const browserErrors = [];

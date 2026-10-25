@@ -1,11 +1,13 @@
-import { acknowledgment, notification, FROM } from './emails.mjs';
+import { DEFAULT_EMAIL, isEmailAddress, renderEmail } from './email-render.mjs';
+import { readContactSettings } from './contact-secrets.mjs';
 import { resourceSlots } from '../content/resources.mjs';
 const json=(body,status=200,headers={})=>Response.json(body,{status,headers:{'Cache-Control':'no-store',...headers}});
-const emailValid=value=>typeof value==='string' && value.length<=254 && /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/.test(value) && value.split('@')[0].length<=64 && !value.split('@')[0].includes('..') && !value.startsWith('.') && !value.split('@')[0].endsWith('.');
 export function contactReady(env) {
-  return emailValid(env.CONTACT_TO) && typeof env.RESEND_API_KEY==='string' && !!env.RESEND_API_KEY && typeof env.TURNSTILE_SECRET_KEY==='string' && !!env.TURNSTILE_SECRET_KEY && typeof env.TURNSTILE_SITE_KEY==='string' && !!env.TURNSTILE_SITE_KEY && typeof env.CONTACT_HASH_SECRET==='string' && env.CONTACT_HASH_SECRET.length>=32 && typeof env.CONTACT_RATE_LIMIT?.limit==='function';
+  return isEmailAddress(env.CONTACT_TO) && typeof env.RESEND_API_KEY==='string' && !!env.RESEND_API_KEY && typeof env.TURNSTILE_SECRET_KEY==='string' && !!env.TURNSTILE_SECRET_KEY && typeof env.TURNSTILE_SITE_KEY==='string' && !!env.TURNSTILE_SITE_KEY && typeof env.CONTACT_HASH_SECRET==='string' && env.CONTACT_HASH_SECRET.length>=32 && typeof env.CONTACT_RATE_LIMIT?.limit==='function';
 }
-export function contactConfig(env){return json({enabled:contactReady(env),sitekey:contactReady(env)?env.TURNSTILE_SITE_KEY:null});}
+// Saved settings override env per name; an unreadable saved value is undefined, never env.
+const withSettings=async env=>({...env,...(await readContactSettings(env)).values});
+export async function contactConfig(env){env=await withSettings(env);return json({enabled:contactReady(env),sitekey:contactReady(env)?env.TURNSTILE_SITE_KEY:null});}
 export async function contactDigest(value,secret) {
   const encoder=new TextEncoder();const key=await crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   return [...new Uint8Array(await crypto.subtle.sign('HMAC',key,encoder.encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');
@@ -20,6 +22,7 @@ async function readBody(request) {
   return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
 }
 export async function handleContact(request,env,transport=fetch) {
+  env=await withSettings(env);
   const policy=contactReady(env)?{'RateLimit-Policy':'"contact";q=5;w=60'}:{};
   const guidance={
     400:['INVALID_REQUEST','Check the form fields and send valid JSON from the webpage.'],
@@ -44,7 +47,7 @@ export async function handleContact(request,env,transport=fetch) {
   const contentVersion=data.contentVersion??0;
   if(!Number.isSafeInteger(contentVersion)||contentVersion<0)return fail('Kontrollera formulärets version.');
   if(typeof data.name!=='string'||!data.name.trim()||data.name.length>100||/[\u0000-\u001f\u007f]/.test(data.name))return fail('Skriv ditt namn på en rad.');
-  if(!emailValid(data.email))return fail('Kontrollera mejladressen.');
+  if(!isEmailAddress(data.email))return fail('Kontrollera mejladressen.');
   if(data.message!==undefined && (typeof data.message!=='string'||data.message.length>4000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(data.message)))return fail('Meddelandet får innehålla högst 4 000 tecken.');
   if(data.website!=='' || typeof data.token!=='string'||!data.token||data.token.length>2048||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.submission||''))return fail('Formuläret behöver kontrolleras igen.');
   if(!contactReady(env))return fail('Postluckan är tillfälligt stängd. Försök igen senare.',503);
@@ -59,20 +62,25 @@ export async function handleContact(request,env,transport=fetch) {
     const verified=await verification.json();
     if(verified.success!==true||verified.hostname!==url.hostname||verified.action!=='contact')return fail('Kontrollen behöver göras om. Försök igen.',403);
     const payload={name:data.name.trim(),email:data.email,message:data.message?.trim()||''};
-    // Pin receipt images to the loaded page version: retries keep the same
-    // immutable provider payload even when the owner publishes new resources.
-    let resources=resourceSlots;
+    // Pin receipt images and templates to the loaded page version: retries keep
+    // the same immutable provider payload even when the owner publishes again.
+    // A revision without an @email row (or with null) uses the default mails.
+    let resources=resourceSlots,email;
     if(contentVersion){
-      const row=await env.CMS_DB?.prepare("SELECT p.html FROM cms_rendered p JOIN cms_revisions r ON r.version = p.version WHERE p.version = ? AND p.path = '@resources'").bind(contentVersion).first();
-      if(row)resources=JSON.parse(row.html);
+      const rows=(await env.CMS_DB?.prepare("SELECT p.path, p.html FROM cms_rendered p JOIN cms_revisions r ON r.version = p.version WHERE p.version = ? AND p.path IN ('@resources','@email')").bind(contentVersion).all())?.results??[];
+      const pinned=path=>rows.find(row=>row.path===path);
+      if(pinned('@resources'))resources=JSON.parse(pinned('@resources').html);
       else if(!await env.CMS_DB?.prepare('SELECT version FROM cms_revisions WHERE version = ?').bind(contentVersion).first())return fail('Sidans version saknas. Ladda om formuläret.',409);
+      email=JSON.parse(pinned('@email')?.html??'null')??undefined;
     }
     const id=await contactDigest(JSON.stringify([data.submission,payload,...(contentVersion?[contentVersion]:[])]),env.CONTACT_HASH_SECRET);
-    const emails=[{from:FROM,to:[env.CONTACT_TO],reply_to:data.email,...notification(payload)},{from:FROM,to:[data.email],...acknowledgment({resources,origin:url.origin})}];
+    // Only the notification sees visitor input; the receipt never reflects it.
+    const message=(kind,head,visitor)=>{const {from,subject,html,text}=renderEmail(email,kind,{resources,origin:url.origin,...visitor});return {from,...head,subject,html,text};};
+    const emails=[message('notification',{to:[env.CONTACT_TO],reply_to:data.email},{visitor:payload}),...((email??DEFAULT_EMAIL).templates.receipt.enabled?[message('receipt',{to:[data.email]})]:[])];
     const response=await transport('https://api.resend.com/emails/batch',{method:'POST',headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`,'Content-Type':'application/json','Idempotency-Key':`contact/${id}`},body:JSON.stringify(emails),signal:AbortSignal.timeout(12000)});
     if(!response.ok)return fail('Vi kunde inte bekräfta utskicket. Dina rader finns kvar här. Försök igen.',503);
     const result=await response.json();
-    if(!Array.isArray(result.data)||result.data.length!==2||result.data.some(item=>typeof item?.id!=='string'||!item.id))return fail('Vi kunde inte bekräfta utskicket. Försök igen.',503);
+    if(!Array.isArray(result.data)||result.data.length!==emails.length||result.data.some(item=>typeof item?.id!=='string'||!item.id))return fail('Vi kunde inte bekräfta utskicket. Försök igen.',503);
     return json({ok:true});
   } catch {return fail('Posten kom inte hela vägen. Dina rader finns kvar. Försök igen.',503);}
 }

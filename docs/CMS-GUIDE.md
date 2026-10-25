@@ -1,8 +1,8 @@
 # Portfolio Studio
 
-## Logga in och välj miljö
+## Logga in
 
-Öppna `/login/`. Cloudflare skickar en kod till den enda tillåtna ägaradressen. Sessionen varar högst en timme. Profilknappen loggar ut. En utgången session raderar inte utkastet: logga in i en ny flik och försök Save igen. **Testmiljö** i sidhuvudet betyder att Save bara ändrar staging.
+Öppna `/login/`. Cloudflare skickar en kod till den enda tillåtna ägaradressen. Sessionen varar högst en timme. Profilknappen loggar ut. En utgången session raderar inte utkastet: logga in i en ny flik och försök Save igen. Den driftsatta studion publicerar till produktion. En förhandsversion från en gren använder också produktionens D1 och R2; den är ingen isolerad testmiljö.
 
 ## Arbetsytan
 
@@ -33,7 +33,7 @@ Små vinster har sökning, kategorier och **Aktiva / Arkiverade / Papperskorg**.
 
 Lekarnas texter samlar JavaScript-styrda meddelanden för maskin, memory, fika, bubblor, SKIFT och kontakt. SKIFT-gruppen innehåller starttexter på svenska och engelska. Behåll dynamiska värden inom klamrar, exempelvis `{number}`. Servern avvisar ändringar som tar bort eller skapar sådana värden.
 
-**SKIFT** finns under Sidor med sidmetadata, visuell redigering, Dator/Mobil, Lock view och samma Save-/historik-/backupflöde som övriga sidor. Spelet använder webbplatsens gemensamma sidhuvud och sidfot. Spelkontroller och funktionskopplingar skyddas; språk, ljud, musik, rörelse, kvalitet och svårighetsgrad väljs av spelaren i spelets egna inställningar. [Integrationsguiden](SKIFT.md) beskriver sidan och uppdateringar.
+**SKIFT** är inte en redigerbar sida i studion. Sidan serveras alltid från bygget. Spelet använder webbplatsens gemensamma sidhuvud och sidfot. Spelkontroller och funktionskopplingar ligger kvar i koden; språk, ljud, musik, rörelse, kvalitet och svårighetsgrad väljs av spelaren i spelets egna inställningar. [Integrationsguiden](SKIFT.md) beskriver sidan och uppdateringar.
 
 Memorykortens grundmarkup finns i editorn. Kort, fram-/baksida och SVG-behållare behåller sina stilar efter omblandning. Spelets sex symboler och matchningslogik styrs av koden. Funktionselement får inte flyttas ut ur sin funktion; flytta hela gruppen. Vanliga komponenter kan flyttas, dupliceras och tas bort. Direkt nudge ändrar bara visuell `translate` och byter aldrig komponentens parent/index; strukturell omordning görs uttryckligen i Lager.
 

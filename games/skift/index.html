@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fff0b3"><meta name="description" content="SKIFT — ett mekaniskt actionäventyr från Omar Yusufs verkstad. Tre distrikt. Ett maskinhjärta. Bara du.">
+  <title>SKIFT — Omar Yusuf</title>
+  <link rel="icon" type="image/svg+xml" href="./icon.svg"><link rel="stylesheet" href="./assets/app.css">
+</head>
+<body>
+  <div id="world" aria-label="Spelvärld"></div>
+  <div id="title-screen">
+    <header class="site-header">
+      <a class="brand" href="https://omaryusuf.se/" aria-label="Omar Yusufs portfolio"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 1l4 10 9-5-2 11 9 3-9 4 3 10-10-4-4 10-4-10-10 4 3-10-9-4 10-3-3-11 9 5z" fill="#ffda44" stroke="#20261e" stroke-width="1.2"/></svg>Omar Yusuf<span>.</span></a>
+      <nav data-skift-menu aria-label="Spelmeny"><button data-action="how" data-t="how">Så spelar du</button><button data-action="settings" data-t="settings">Inställningar</button><a class="back-link" href="https://omaryusuf.se/"><span data-t="portfolio">Till portfolion</span> ↗</a></nav>
+    </header>
+    <main class="hero-copy">
+      <div class="eyebrow"><span class="small-star">✳</span><span data-t="workshop">ETT SPEL FRÅN VERKSTADEN</span></div>
+      <h1>SKIFT<span class="title-period">.</span><span class="edition">01—03</span></h1>
+      <h2><span data-t="line1">Sista skiftet.</span><br><span data-t="line2">Full fart.</span></h2>
+      <p class="intro" data-t="intro">En liten robot. En stor kortslutning. Växla upp, slå tillbaka och få verkstaden att leva igen.</p>
+      <div class="start-group"><button class="primary start-button" id="start-button" data-action="start" disabled><span data-t="start">Starta skiftet</span><span aria-hidden="true">↗</span></button><button class="new-run text-button" id="new-button" data-action="new" hidden data-t="newRun">Börja från början</button></div>
+      <p class="footnote" data-t="noInstall">Tre distrikt. Ett maskinhjärta. Bara du.</p>
+      <div class="input-legend"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span data-t="move">RÖR DIG</span></span><span><kbd>␣</kbd> <span data-t="dash">DASH</span></span><span><kbd>J</kbd> <span data-t="pulse">PULS</span></span></div>
+    </main>
+    <div class="world-caption" aria-hidden="true"><span class="orbit-star">✳</span><span>SKIFT<br><b>POWER WORKS</b></span><span class="caption-line"></span><span>EST.<br><b>20:26</b></span></div>
+    <footer class="title-footer"><span><i class="status-dot"></i><span id="load-status" data-t="loading">Bygger upp verkstaden</span></span><span data-t="saving">Framsteg sparas på den här enheten.</span><button data-action="language" id="language-button" aria-label="Switch language">SV / EN</button></footer>
+  </div>
+  <main id="game-screen" hidden>
+    <div class="hud-top">
+      <div class="district-card"><div class="eyebrow"><span data-t="sector">DISTRIKT</span> <span id="sector-number">01 / 03</span></div><h2 id="sector-title">Växelhuset</h2><p id="objective-text">Samla tre energiceller.</p><div class="cells"><span id="cell-icons" aria-hidden="true"><i></i><i></i><i></i></span><span id="cell-count">0 / 3</span><span data-t="cells">ENERGICELLER</span></div></div>
+      <div class="hud-right"><div class="run-card"><div class="health-row"><span data-t="hull">SKROV</span><div id="health" role="meter" aria-label="Skrov" aria-valuemin="0"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><div class="score-row"><div><span class="eyebrow" data-t="score">POÄNG</span><strong id="score">00000</strong></div><span id="clock">00:00</span></div></div><button class="icon-button" data-action="pause" id="pause-button" aria-label="Pausa">Ⅱ</button></div>
+    </div>
+    <div id="boss-hud" hidden><span>REGULATOR</span><div><i id="boss-health"></i></div><span id="boss-state"></span></div>
+    <div id="waypoint" aria-hidden="true"><i>◆</i><span id="waypoint-label">1</span></div>
+    <div id="combo" hidden><b id="combo-number">×2</b><span>CHAIN</span></div>
+    <div class="hud-bottom"><div class="control-guide"><span><kbd>WASD</kbd> / <kbd>↑←↓→</kbd></span><span><kbd>␣</kbd> DASH</span><span><kbd>J</kbd> PULS</span></div><div id="tutorial" role="status"></div><div class="abilities"><button id="dash-control" class="ability" aria-label="Dash"><span class="ability-icon">↗</span><b data-t="dash">DASH</b><small id="dash-ready">Redo</small></button><button id="pulse-control" class="ability pulse" aria-label="Puls"><span class="ability-icon">◎</span><b data-t="pulse">PULS</b><small id="pulse-ready">Redo</small></button></div></div>
+    <div id="joystick" aria-label="Styrspak"><span></span><i></i></div>
+  </main>
+  <dialog id="modal" aria-labelledby="modal-title"></dialog>
+  <div id="toast" role="status" hidden></div><div id="announcer" class="sr-only" aria-live="polite"></div>
+  <noscript><div class="no-script">SKIFT behöver JavaScript för att fungera. / SKIFT needs JavaScript to run.</div></noscript>
+  <script type="module" src="./assets/app.js"></script>
+</body></html>

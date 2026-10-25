@@ -5,8 +5,10 @@ the shipped UI. Fault injection changes transport/storage outcomes, not code.
 """
 import copy
 import importlib.util
+import hashlib
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -157,7 +159,7 @@ with sync_playwright() as pw:
             page.route('**/admin/api/save', lose)
             page.locator('#page-description').fill('Committed but response lost')
             page.locator('[data-action=save]').click()
-            expect(page.locator('#studio-toast')).to_contain_text('Kontakten bröts')
+            expect(page.locator('#studio-toast')).to_contain_text('Anslutningen bröts')
             page.locator('#studio-dialog [data-action=close-dialog]').click()
             page.locator('#page-description').fill('Newer correction after unknown outcome')
             save(page)
@@ -171,6 +173,7 @@ with sync_playwright() as pw:
         ctx=context()
         try:
             page=admin(ctx); requests=[]
+            original=next(item for item in api(ctx,'state').json()['project']['pages'] if item.get('id')=='home')
             def capture(route):
                 requests.append(route.request.post_data_json)
                 route.continue_()
@@ -208,6 +211,14 @@ with sync_playwright() as pw:
                 'saveStatus':page.locator('#save-status').inner_text(),
                 'backupStatus':page.locator('#backup-status').inner_text(),
             },ensure_ascii=False))
+            if result.status!=200:
+                def fallbacks(value):
+                    matches=re.findall(r'<noscript\b[^>]*>[\s\S]*?</noscript>',value.get('html',''),re.I)
+                    return {'count':len(matches),'nodes':[{'bytes':len(source.encode()),'sha256':hashlib.sha256(source.encode()).hexdigest(),'source':source[:512]} for source in matches[:2]]}
+                print('RAPID_SAVE_FALLBACK_DIAGNOSTIC '+json.dumps({
+                    'browser':ENGINE,'original':fallbacks(original),'submitted':fallbacks(submitted),
+                    'server':fallbacks(current),'backup':fallbacks(backup),
+                },ensure_ascii=False))
             assert len(requests)==1 and result.status==200, 'Expected one successful immediate Save request.'
             assert not (backup and [key for key in fields if backup.get(key)!=submitted.get(key)]), 'A canvas/editor flush changed the draft after Save despite no further user input.'
             assert 'Utkast' not in page.locator('#save-status').inner_text(), 'A single immediate Save should leave this no-further-input draft clean.'
@@ -311,7 +322,162 @@ with sync_playwright() as pw:
                 shot(page,'resource-slot-'+slot)
         finally: ctx.close()
 
+    TAGLINE = '[data-cms-shared="footer.tagline"]'
+    def set_tagline(page, text):
+        node = Q.frame(page).locator(TAGLINE)
+        node.scroll_into_view_if_needed(); node.click(); node.dblclick()
+        page.keyboard.press('ControlOrMeta+a'); page.keyboard.type(text)
+        page.wait_for_timeout(600)
+
+    def shared_everywhere(ctx, text):
+        project = api(ctx, 'state').json()['project']
+        assert text in project['frame']['html'], project['frame']
+        assert all('data-cms-shared="footer.tagline"' not in item['html'] for item in project['pages']), project['pages']
+        return project
+
+    def tagline_then_new_page():
+        # A3 phase 0: a changed tagline and a page created from the blank template save with 200.
+        ctx = context()
+        try:
+            page = admin(ctx)
+            set_tagline(page, 'Ny tagline före ny sida')
+            page.locator('[data-action=add-page]').click()
+            page.locator('#new-page-name').fill('Tagline-test'); page.locator('#new-page-path').fill('/tagline-test/')
+            page.locator('#create-page').click(); Q.wait_canvas(page)
+            save(page)
+            project = shared_everywhere(ctx, 'Ny tagline före ny sida')
+            assert any(item['path'] == '/tagline-test/' for item in project['pages'])
+        finally: ctx.close()
+
+    def two_tabs_keep_mine():
+        # A3 phase 0: stale tab saves 409, Sammanför + Behåll mina, then Spara is 200 with one tagline on every page.
+        ctx = context()
+        try:
+            a, b = admin(ctx), admin(ctx)
+            set_tagline(a, 'Flik A:s tagline'); save(a)
+            set_tagline(b, 'Flik B:s tagline')
+            b.locator('[data-action=save]').click()
+            expect(b.locator('#dialog-content')).to_contain_text('En nyare version finns')
+            b.locator('[data-action=reconcile]').click()
+            expect(b.locator('#dialog-content')).to_contain_text('Välj dina ändringar')
+            Q.confirm_yes(b); Q.wait_canvas(b)
+            save(b)
+            shared_everywhere(ctx, 'Flik B:s tagline')
+        finally: ctx.close()
+
+    def save_error_stays():
+        # A7: the last save error stays in #save-status past the 12 s toast until a 200 clears it.
+        ctx = context()
+        try:
+            page = admin(ctx); message = 'Människan: Länken har en otillåten adress.'
+            def reject(route): route.fulfill(status=422, content_type='application/json', body=json.dumps({'error': message}))
+            page.route('**/admin/api/save', reject)
+            page.locator('#page-description').fill('Ett utkast som sparas fel')
+            page.locator('[data-action=save]').click()
+            expect(page.locator('#save-status')).to_contain_text(message)
+            page.wait_for_timeout(13000)
+            expect(page.locator('#studio-toast')).to_be_hidden()
+            expect(page.locator('#save-status')).to_contain_text(message)
+            page.locator('#page-description').fill('Ett utkast som sparas fel igen')
+            expect(page.locator('#save-status')).to_contain_text(message)
+            page.unroute('**/admin/api/save')
+            save(page)
+            expect(page.locator('#save-status')).not_to_contain_text(message)
+            expect(page.locator('#save-status')).to_contain_text('Alla ändringar sparade')
+        finally: ctx.close()
+
+    def empty_link_blocks_save():
+        # A4: a link without an address stops Save with the node selected and focus in #element-href; with /om/ Save is 200.
+        ctx = context()
+        try:
+            page = admin(ctx); calls = []
+            page.route('**/admin/api/save', lambda route: (calls.append(1), route.continue_()))
+            node = Q.frame(page).locator('main p').first
+            node.scroll_into_view_if_needed(); node.click(); node.dblclick()
+            node.evaluate("""el => { const doc = el.ownerDocument, selection = doc.getSelection(), range = doc.createRange(); el.focus(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range); }""")
+            page.locator('.gjs-rte-action[title="Link"]').click()
+            page.locator('[data-action=save]').click()
+            expect(page.locator('#studio-toast')).to_contain_text('Länken saknar adress.')
+            expect(page.locator('#element-href')).to_be_focused()
+            assert not calls, 'Save must not reach the server with an empty link'
+            page.locator('#element-href').fill('/om/'); page.locator('#element-href').press('Tab')
+            save(page)
+            assert len(calls) == 1
+        finally: ctx.close()
+
+    def resize_is_one_undo_step():
+        # Batch 2 review: every resize gesture is exactly one toolbar Undo step, never merged with neighbouring edits.
+        ctx = context()
+        try:
+            state = api(ctx, 'state').json(); project = state['project']
+            box = '<div id="rbox" style="width:200px;height:100px;background-color:rgb(10,20,30)"></div>'
+            project['pages'].append({**state['blank'], 'id': 'review-resize', 'sourceId': 'blank', 'path': '/review-resize/', 'html': state['blank']['html'].replace('</main>', box+'</main>')})
+            publish(ctx, project)
+            page = admin(ctx); page.locator('[data-page-id=review-resize]').click(); ready(page)
+            node = Q.frame(page).locator('#rbox')
+            node.scroll_into_view_if_needed(); node.click()
+            def width(): return round(node.evaluate('el => el.getBoundingClientRect().width'))
+            def resize(dx):
+                handle = page.locator('.gjs-resizer-h-br'); expect(handle).to_be_visible()
+                box = handle.bounding_box(); x, y = box['x']+box['width']/2, box['y']+box['height']/2
+                page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x+dx/2, y, steps=4); page.mouse.move(x+dx, y, steps=4); page.mouse.up()
+            def undo():
+                page.locator('[data-action=undo]').click(); Q.wait_canvas(page)
+                nonlocal node
+                node = Q.frame(page).locator('#rbox'); node.scroll_into_view_if_needed(); node.click()
+            original = width()
+            page.locator('summary', has_text='Fler stilegenskaper').click()
+            page.locator('#extra-property').fill('background-color'); page.locator('#extra-value').fill('rgb(200,10,10)')
+            page.locator('#apply-property').click()
+            expect(page.locator('.gjs-resizer-h-br')).to_be_visible()
+            page.wait_for_timeout(100)
+            resize(80)
+            page.wait_for_timeout(400)
+            first = width(); assert first > original, (original, first)
+            undo()
+            assert width() == original, ('resize must revert alone', original, width())
+            assert node.evaluate('el => getComputedStyle(el).backgroundColor') == 'rgb(200, 10, 10)', 'colour edit must survive the undo'
+            resize(60); mid = width(); resize(60)
+            second = width(); assert original < mid < second, (original, mid, second)
+            page.wait_for_timeout(300)
+            undo()
+            assert width() == mid, ('only the second resize reverts', original, mid, second, width())
+        finally: ctx.close()
+
+    def resize_then_immediate_edit(page, locate, select_target):
+        # Resize, then at once (no wait) an inspector colour edit: Undo reverts only the colour, a second Undo the size.
+        def width(): return round(locate().evaluate('el => el.getBoundingClientRect().width'))
+        def colour(): return locate().evaluate('el => getComputedStyle(el).backgroundColor')
+        select_target()
+        original, original_colour = width(), colour()
+        handle = page.locator('.gjs-resizer-h-br'); expect(handle).to_be_visible()
+        box = handle.bounding_box(); x, y = box['x']+box['width']/2, box['y']+box['height']/2
+        page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x+40, y, steps=4); page.mouse.move(x+80, y, steps=4); page.mouse.up()
+        page.locator('summary', has_text='Fler stilegenskaper').click()
+        page.locator('#extra-property').fill('background-color'); page.locator('#extra-value').fill('rgb(200,10,10)')
+        page.locator('#apply-property').click()
+        expect(page.locator('.gjs-resizer-h-br')).to_be_visible()  # handles survive an inspector edit without re-clicking
+        resized = width(); assert resized > original, (original, resized)
+        page.locator('[data-action=undo]').click(); Q.wait_canvas(page); select_target()
+        assert width() == resized and colour() == original_colour, ('first Undo reverts only the colour', original, resized, width(), colour())
+        page.locator('[data-action=undo]').click(); Q.wait_canvas(page); select_target()
+        assert width() == original, ('second Undo reverts the size', original, width())
+
+    def resize_then_immediate_edit_page():
+        ctx = context()
+        try:
+            state = api(ctx, 'state').json(); project = state['project']
+            box = '<div id="rbox2" style="width:200px;height:100px;background-color:rgb(10,20,30)"></div>'
+            project['pages'].append({**state['blank'], 'id': 'review-resize2', 'sourceId': 'blank', 'path': '/review-resize2/', 'html': state['blank']['html'].replace('</main>', box+'</main>')})
+            publish(ctx, project)
+            page = admin(ctx); page.locator('[data-page-id=review-resize2]').click(); ready(page)
+            locate = lambda: Q.frame(page).locator('#rbox2')
+            def select_target(): locate().scroll_into_view_if_needed(); locate().click()
+            resize_then_immediate_edit(page, locate, select_target)
+        finally: ctx.close()
+
     cases=[('independent-tabs-save-revert-reload',independent_tabs),('incomplete-recovery-export-unsafe-import',incomplete_and_export),('expired-session-keeps-backup',failed_recovery_keeps_original),('definitive-rejection-and-unknown-replay',save_outcomes),('rapid-inline-save-diagnostic',rapid_inline_save_diagnostic),('metadata-cas-explicit-retry',metadata_conflict),('clone-anchor-aria-svg-style-delete-original',linked_clone),('builtin-resource-publication',resource_slots)]
+    cases+=[('tagline-then-new-page',tagline_then_new_page),('two-tabs-keep-mine',two_tabs_keep_mine),('save-error-stays',save_error_stays),('empty-link-blocks-save',empty_link_blocks_save),('resize-is-one-undo-step',resize_is_one_undo_step),('resize-then-immediate-edit-page',resize_then_immediate_edit_page)]
     selected=os.environ.get('CMS_REVIEW_CASE')
     for name,run in cases:
         if not selected or selected in name: report.run(name,run)

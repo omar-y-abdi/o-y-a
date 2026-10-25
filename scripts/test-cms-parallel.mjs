@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { testPython } from './test-python.mjs';
 
 const suites = process.argv.slice(2);
 const files = suites.length ? suites : [
@@ -9,8 +9,7 @@ const files = suites.length ? suites : [
   'tests/cms-review-final-browser.py',
 ];
 const limit = Math.max(1, Math.min(Number(process.env.CMS_BROWSER_WORKERS || 4), files.length));
-let python = process.env.PYTHON ?? 'python3';
-try { await access('.test-venv/bin/python'); if (!process.env.PYTHON) python = '.test-venv/bin/python'; } catch {}
+const python = await testPython();
 let index = 0;
 let failed = false;
 const children = new Set();

@@ -1,6 +1,7 @@
 import './prepare-cms-modules.mjs';
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { testPython } from './test-python.mjs';
 
 const source = await readFile('tests/cms-modules.py', 'utf8');
 const registered = [...source.matchAll(/^\s*run\('([^']+)'/gm)].map(match => match[1]);
@@ -27,8 +28,7 @@ const resultsDir = process.env.CMS_MODULE_RESULTS_DIR || 'output/cms-modules/res
 const aggregatePath = process.env.CMS_MODULE_RESULTS_FILE || 'output/cms-modules/results.json';
 await rm(resultsDir, { recursive: true, force: true });
 await mkdir(resultsDir, { recursive: true });
-let python = process.env.PYTHON ?? 'python3';
-try { await access('.test-venv/bin/python'); if (!process.env.PYTHON) python = '.test-venv/bin/python'; } catch {}
+const python = await testPython();
 let index = 0;
 let failed = false;
 const running = new Set();
