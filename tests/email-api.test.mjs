@@ -79,18 +79,19 @@ beforeEach(async () => {
 });
 
 test('owner-only, write-guarded, bounded', async () => {
-  // Match the HTTP checks harness's fresh connections instead of dispatchFetch's
-  // pooled transport. Oversized bodies can be rejected before upload completes.
-  const call = (path, { method = 'GET', headers = {}, body } = {}, check = 'request') => new Promise((resolve, reject) => {
+  const call = (path, { method = 'GET', headers = {}, body, headersOnly = false } = {}, check = 'request') => new Promise((resolve, reject) => {
     const fail = error => reject(new Error(`${method} ${path}: ${check}`, { cause: error }));
     const req = request(new URL(path, runtime.url), { method, headers, agent: false }, response => {
       response.once('error', fail);
-      response.once('end', () => resolve({ status: response.statusCode }));
+      response.once('end', () => { req.destroy(); resolve({ status: response.statusCode }); });
       response.resume();
     });
     req.once('error', fail);
     req.setTimeout(5_000, () => req.destroy(new Error('HTTP timeout')));
-    req.end(body);
+    if (headersOnly) {
+      req.once('continue', () => req.destroy(new Error('Oversized upload unexpectedly accepted with HTTP 100 Continue')));
+      req.flushHeaders();
+    } else req.end(body);
   });
   const auth = { 'Cf-Access-Jwt-Assertion': authorization, Origin: runtime.url, 'X-CMS-Request': '1', 'Content-Type': 'application/json' };
   const routes = [['GET', '/admin/api/contact'], ['POST', '/admin/api/contact', 8192], ['POST', '/admin/api/mail/test', 1048576], ['POST', '/admin/api/mail/send', 1048576], ['GET', '/admin/api/mail/sent'], ['GET', '/admin/api/mail/status?id=x'], ['POST', '/admin/api/mail/cancel', 1024], ['POST', '/admin/api/mail/attachment'], ['POST', '/admin/api/mail/attachment-remove', 1024]];
@@ -99,7 +100,36 @@ test('owner-only, write-guarded, bounded', async () => {
     assert.equal(anonymous.status, 401, `${method} ${path}: anonymous`);
     if (method !== 'POST') continue;
     for (const [check, headers] of [['missing write marker', { ...auth, 'X-CMS-Request': '' }], ['foreign origin', { ...auth, Origin: 'https://evil.example' }], ['cross-site fetch', { ...auth, 'Sec-Fetch-Site': 'cross-site' }]]) assert.equal((await call(path, { method, headers, body: '{}' }, check)).status, 403, `${method} ${path}: ${check}`);
-    if (limit) assert.equal((await call(path, { method, headers: auth, body: 'x'.repeat(limit + 1) }, `${limit + 1}-byte body`)).status, 413, `${method} ${path}: ${limit + 1}-byte body`);
+    if (limit) {
+      const bytes = new TextEncoder().encode('x'.repeat(limit + 1));
+      const label = `${method} ${path}: ${bytes.byteLength}-byte body`;
+      // Like cms-save-boundaries: observe the real Worker's early rejection
+      // before uploading. A full upload races workerd closing its unread body.
+      assert.equal((await call(path, { method, headers: { ...auth, 'Content-Length': String(bytes.byteLength), Expect: '100-continue' }, headersOnly: true }, 'declared ' + label)).status, 413, 'declared ' + label);
+      // Exercise these exact routes with the full original oversized payload
+      // independently of that socket cancellation, including no length header.
+      for (const declared of [true, false]) {
+        let pulls = 0, cancelled = false;
+        const stream = new ReadableStream({
+          pull(controller) { pulls++; controller.enqueue(bytes); },
+          cancel() { cancelled = true; },
+        }, { highWaterMark: 0 });
+        const request = new Request(origin + path, { method, headers: { ...auth, Origin: origin, ...(declared ? { 'Content-Length': String(bytes.byteLength) } : {}) }, body: stream, duplex: 'half' });
+        const transport = provider();
+        const response = await run(request, env(), transport.fetch);
+        const check = `${declared ? 'declared' : 'streamed'} ${label}`;
+        assert.equal(response.status, 413, check);
+        assert.equal(transport.calls.length, 0, `${check}: provider must not be called`);
+        if (declared) {
+          assert.equal(pulls, 0, `${check}: reject before reading`);
+          await request.body.cancel();
+        } else {
+          assert.equal(pulls, 1, `${check}: stop at the first overflowing chunk`);
+          assert.equal(cancelled, true, `${check}: cancel the oversized stream`);
+        }
+      }
+      assert.equal((await run(post(path, 'x'.repeat(limit)), env())).status, 400, `${method} ${path}: exactly ${limit} bytes reach JSON parsing`);
+    }
   }
   assert.equal((await run(uploadRequest('a.pdf', new Uint8Array(1), { 'Content-Length': '31457281' }), env())).status, 413);
   const unsized = uploadRequest('a.pdf', new Uint8Array(1)); unsized.headers.delete('Content-Length');
