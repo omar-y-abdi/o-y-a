@@ -25,15 +25,16 @@ test('a clean site build compiles changed SKIFT source without an imported relea
     const source = join(scratch, 'games/skift/src/i18n.js');
     const original = await readFile(source, 'utf8');
     assert.ok(original.includes("intro:'En liten robot."));
-    await writeFile(source, original.replace(/intro:'En liten robot\.[^']*'/, "intro:'Källbyggets provtext.'"));
+    await writeFile(source, original.replace(/intro:'En liten robot\.[^']*'/, "intro:'Source build probe.'"));
     const result = spawnSync(process.execPath, ['scripts/build.mjs'], { cwd: scratch, encoding: 'utf8', timeout: 120000 });
     assert.equal(result.status, 0, result.error?.message ?? result.stderr);
     const game = join(scratch, 'dist/play/skift');
     await assert.rejects(readFile(join(scratch, 'public/play/skift/RELEASE.json')), { code: 'ENOENT' });
+    // esbuild escapes non-ASCII text in the bundle, so the probe stays ASCII.
     const code = await readFile(join(game, 'assets/app.js'), 'utf8');
-    assert.ok(code.includes('Källbyggets provtext.'), 'Runtime must come from the edited source');
+    assert.ok(code.includes('Source build probe.'), 'Runtime must come from the edited source');
     const copy = JSON.parse(await readFile(join(scratch, 'dist/data/runtime.json'), 'utf8'));
-    assert.equal(copy['runtime.skift.sv.intro'], 'Källbyggets provtext.', 'CMS defaults must come from the same source');
+    assert.equal(copy['runtime.skift.sv.intro'], 'Source build probe.', 'CMS defaults must come from the same source');
     const release = JSON.parse(await readFile(join(game, 'RELEASE.json'), 'utf8'));
     assert.equal(release.bundleSha256, sha256(code));
     assert.ok(Object.hasOwn(release.sources, 'games/skift/src/i18n.js'));
@@ -45,7 +46,8 @@ test('a clean site build compiles changed SKIFT source without an imported relea
     assert.deepEqual(inputs.filter(path => path.startsWith('games/skift/src/')).sort(), [
       'art.js', 'game.js', 'i18n.js', 'input.js', 'levels.js', 'main.js', 'physics.js', 'rules.js', 'sound.js', 'style.css', 'ui.js', 'view.js',
     ].map(name => 'games/skift/src/' + name).sort());
-    const libraries = [...new Set(inputs.filter(path => path.startsWith('node_modules/')).map(path => path.split('/')[1]))].sort();
+    // The scratch checkout links node_modules, so esbuild reports the resolved path.
+    const libraries = [...new Set(inputs.map(path => path.match(/(?:^|\/)node_modules\/([^/]+)\//)?.[1]).filter(Boolean))].sort();
     assert.deepEqual(libraries, ['cannon-es', 'howler', 'three']);
     const pins = JSON.parse(await readFile(join(scratch, 'games/skift/package.json'), 'utf8')).dependencies;
     const site = JSON.parse(await readFile(join(scratch, 'package.json'), 'utf8'));
