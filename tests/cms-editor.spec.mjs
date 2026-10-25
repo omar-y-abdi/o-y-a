@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
-import { validateCss, validateHtml } from '../src/cms/validation.mjs';
+import { preparePage, validateCss, validateHtml } from '../src/cms/validation.mjs';
+import { splitPage } from '../src/cms/frame.mjs';
 
 // The studio's own createEditor runs in a bare page, so the tests reach the
 // GrapesJS editor (window.__ed) and the studio handle (window.__studio) without
@@ -18,13 +19,13 @@ const SHELL = `<!doctype html><link rel="stylesheet" href="/grapes.css"><link re
 const PIC = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#369"/></svg>';
 let harness, gjsCss, studioCss;
 test.beforeAll(async () => {
-  const out = await build({ stdin: { contents: "import { createEditor } from './src/cms/client/editor.mjs'; import { Draft } from './src/cms/client/draft.mjs'; window.createEditor = createEditor; window.Draft = Draft;", resolveDir: process.cwd() }, bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022' });
+  const out = await build({ stdin: { contents: "import { createEditor } from './src/cms/client/editor.mjs'; import { Draft } from './src/cms/client/draft.mjs'; import { liveHtml } from './src/cms/client/live-text.mjs'; import { composeEditorPage } from './src/cms/client/frame-project.mjs'; window.createEditor = createEditor; window.Draft = Draft; window.liveHtml = liveHtml; window.composeEditorPage = composeEditorPage;", resolveDir: process.cwd() }, bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022' });
   harness = out.outputFiles[0].text;
   gjsCss = await readFile('node_modules/grapesjs/dist/css/grapes.min.css', 'utf8');
   studioCss = await readFile('src/cms/styles.css', 'utf8');
 });
 
-async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
+async function openStudio(page, { html, css = '', bodyClass = 'page-test', frame }) {
   await page.setViewportSize({ width: 1600, height: 1400 });
   await page.route(`${ORIGIN}/**`, route => {
     const files = { '/': ['text/html', SHELL], '/harness.js': ['text/javascript', harness], '/grapes.css': ['text/css', gjsCss], '/studio.css': ['text/css', studioCss], '/canvas.css': ['text/css', CANVAS_CSS], '/pic.svg': ['image/svg+xml', PIC] };
@@ -33,8 +34,8 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
   });
   await page.goto(`${ORIGIN}/`);
   expect(await page.evaluate(() => ({ secure: isSecureContext, uuid: typeof crypto.randomUUID })), 'The harness uses the production studio secure context').toEqual({ secure: true, uuid: 'function' });
-  await page.evaluate(([html, css, bodyClass]) => new Promise(resolve => {
-    window.__studio = window.createEditor({ page: { html, css, path: '/t/', bodyClass }, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onAssetPick: null,
+  await page.evaluate(([html, css, bodyClass, frame]) => new Promise(resolve => {
+    window.__studio = window.createEditor({ page: { html, css, path: '/t/', bodyClass }, frame, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onAssetPick: null,
       onReady: editor => {
         window.__ed = editor; window.__resizes = [];
         editor.on('component:resize', ({ type }) => window.__resizes.push(type));
@@ -42,7 +43,7 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test' }) {
         editor.Canvas.setCoords(0, 24);
         resolve();
       } });
-  }), [html, css, bodyClass]);
+  }), [html, css, bodyClass, frame]);
   // A coords change hides the tools and restarts select-comp 300 ms later
   // (grapes.mjs:31774-31781). Wait for that before any click or drag.
   await expect.poll(() => page.evaluate(() => window.__ed.Canvas.getCanvasView().toolsWrapper.style.display), { message: 'tools shown again after setCoords' }).toBe('');
@@ -196,6 +197,36 @@ test('A2 an SVG icon shrinks to 50x50 and an image keeps its proportions', async
   expect(pic.height).toBeCloseTo(50, 0);
   expect(pic.style.height).toBe('auto');
   expect(pic.style['min-height']).toBeUndefined();
+});
+
+test('main text capture preserves the trusted noscript source across native editing', async ({ page, browserName }, info) => {
+  const prepared = preparePage('<body><header><p>Sidram</p></header><main id="main"><h1 id="heading">Före</h1><noscript><p class="noscript-note">JavaScript är avstängt. Rävar &amp; kaffe. <a href="/om/">Läs mer</a></p></noscript></main><footer><p>Avslutning</p></footer></body>');
+  const split = splitPage(prepared.html), frame = { html: split.html, css: '' };
+  const fallback = prepared.contracts.find(contract => contract.fallback).fallback;
+  expect(() => validateHtml(prepared.html, prepared.contracts)).not.toThrow();
+  expect(() => validateHtml(prepared.html.replace(fallback, fallback.replace('JavaScript', 'Ändrat innehåll')), prepared.contracts)).toThrow('JavaScript-fallback får bara komma från den skyddade källmallen.');
+  await openStudio(page, { html: split.page, frame });
+  const capture = () => page.evaluate(([html, frame]) => {
+    const wrapper = window.__ed.getWrapper().getInnerHTML();
+    const inert = new DOMParser().parseFromString(`<template>${wrapper}</template>`, 'text/html').querySelector('template').innerHTML;
+    const live = window.liveHtml(window.__ed, null), snapshot = window.__studio.snapshot(true);
+    const combined = snapshot.frame.html.replace('<main></main>', snapshot.html);
+    const sources = { original: html, composed: window.composeEditorPage({ html, path: '/t/' }, frame).html, wrapper, inert, live, snapshot: combined };
+    const fallback = source => [...source.matchAll(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi)].slice(0, 4).map(match => ({ bytes: new TextEncoder().encode(match[0]).byteLength, source: match[0].slice(0, 2048) }));
+    return { html: combined, stages: Object.fromEntries(Object.entries(sources).map(([name, source]) => [name, fallback(source)])) };
+  }, [split.page, frame]);
+  const before = await capture();
+  const heading = page.frameLocator('iframe.gjs-frame').locator('#heading');
+  await heading.dblclick();
+  await expect(heading).toHaveAttribute('contenteditable', 'true');
+  await heading.press('ControlOrMeta+A');
+  await heading.pressSequentially('Efter');
+  const after = await capture();
+  let rejection;
+  try { validateHtml(after.html, prepared.contracts); } catch (error) { rejection = error.message; }
+  if (rejection) await info.attach('trusted-fallback-capture.json', { contentType: 'application/json', body: JSON.stringify({ browserName, rejection, before: before.stages, after: after.stages }, null, 2) });
+  expect(after.html).toContain('Efter');
+  expect(rejection, 'A native main edit must retain the original trusted fallback; inspect trusted-fallback-capture.json for the first changed stage').toBeUndefined();
 });
 
 const WORD = '<html xmlns:o="urn:schemas-microsoft-com:office:office"><body><!--StartFragment--><p class=MsoNormal style="margin:0cm"><span style="font-size:12.0pt">Rad ett<o:p></o:p></span></p><p class=MsoNormal><span style="font-size:12.0pt">Rad två<o:p></o:p></span></p><!--EndFragment--></body></html>';

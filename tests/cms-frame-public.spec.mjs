@@ -76,7 +76,7 @@ async function mainLayout(page) {
       }
       return true;
     };
-    const nodes = [], painted = [], defects = {};
+    const nodes = [], painted = [], textFragments = [], defects = {};
     const record = (key, fraction) => { if (fraction > 0) defects[key] = Math.max(defects[key] ?? 0, fraction); };
     function clipping(key, node, rect) {
       const area = rect.width * rect.height;
@@ -99,15 +99,53 @@ async function mainLayout(page) {
       const parent = node.parentElement, parentStyle = styles.get(parent);
       nodes.push({ key, tag: node.localName, viewBox: node.getAttribute('viewBox'), box: box(rect), width: style.width, height: style.height, minHeight: style.minHeight, right: style.right, translate: style.translate, transform: style.transform, padding: style.padding, overflow: style.overflow, parent: parentStyle ? { key: keys.get(parent), width: parentStyle.width, padding: parentStyle.padding, box: box(parent.getBoundingClientRect()) } : null });
       clipping(key, node, rect);
-      if (node.matches('img,svg')) painted.push({ key, rects: [box(rect)] });
-      [...node.childNodes].forEach((child, index) => {
-        if (child.nodeType !== Node.TEXT_NODE || !child.textContent.trim() || node.matches('script,style,noscript')) return;
+      if (node.matches('img,svg')) painted.push({ key, owner: key, rects: [box(rect)] });
+      const text = [...node.childNodes].flatMap((child, index) => {
+        if (child.nodeType !== Node.TEXT_NODE || !child.textContent.trim() || node.matches('script,style,noscript')) return [];
         const range = document.createRange();
         range.selectNodeContents(child);
         const rects = [...range.getClientRects()].filter(rect => rect.width && rect.height).map(box), textKey = `${key}/text[${index}]`;
         rects.forEach(rect => clipping(textKey, node, rect));
-        painted.push({ key: textKey, rects });
+        painted.push({ key: textKey, owner: key, rects });
+        return [{ key: textKey, range, world: rects }];
       });
+      if (!text.length) continue;
+      // Same-owner text uses its layout plane: rotated axis-aligned world boxes
+      // overlap even when the underlying lines do not. Keep every world box for
+      // clipping and collisions with other owners. Identity preserves the
+      // containing block while neutralizing only this owner's transform.
+      const originalStyle = node.getAttribute('style');
+      const neutralize = style.transform !== 'none';
+      const originalTransform = style.transform, transformValue = node.style.getPropertyValue('transform'), transformPriority = node.style.getPropertyPriority('transform');
+      const dimensions = () => [getComputedStyle(node).width, getComputedStyle(node).height, node.offsetWidth, node.offsetHeight];
+      const beforeDimensions = dimensions();
+      try {
+        if (neutralize) {
+          node.style.setProperty('transition', 'none', 'important');
+          // Flush the disabled transition before changing its target value.
+          if (getComputedStyle(node).transitionProperty !== 'none') throw new Error(`Could not disable text transition for ${key}`);
+          node.style.setProperty('transform', 'matrix(1,0,0,1,0,0)', 'important');
+          if (getComputedStyle(node).transform !== 'matrix(1, 0, 0, 1, 0, 0)') throw new Error(`Could not neutralize text transform for ${key}`);
+        }
+        const origin = node.getBoundingClientRect(), fragments = [];
+        for (const item of text) {
+          const local = [...item.range.getClientRects()].filter(rect => rect.width && rect.height).map(rect => ({ x: rect.x - origin.x, y: rect.y - origin.y, width: rect.width, height: rect.height }));
+          if (local.length !== item.world.length || JSON.stringify(dimensions()) !== JSON.stringify(beforeDimensions)) throw new Error(`Local text measurement changed layout for ${key}`);
+          textFragments.push({ key: item.key, world: item.world, local });
+          fragments.push(...local.map(rect => ({ key: item.key, rect })));
+        }
+        for (let index = 0; index < fragments.length; index++) for (const right of fragments.slice(index + 1)) overlap(`${fragments[index].key} / ${right.key}`, fragments[index].rect, right.rect);
+      } finally {
+        if (neutralize) {
+          if (transformValue) node.style.setProperty('transform', transformValue, transformPriority);
+          else node.style.removeProperty('transform');
+          // Restore and flush the original target while transitions remain off.
+          const restoredTransform = getComputedStyle(node).transform;
+          if (originalStyle === null) node.removeAttribute('style');
+          else node.setAttribute('style', originalStyle);
+          if (restoredTransform !== originalTransform || getComputedStyle(node).transform !== originalTransform) throw new Error(`Local text measurement changed the restored transform for ${key}`);
+        }
+      }
     }
     function overlap(key, left, right) {
       const width = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
@@ -116,6 +154,7 @@ async function mainLayout(page) {
     }
     for (let index = 0; index < painted.length; index++) for (const right of painted.slice(index + 1)) {
       const left = painted[index];
+      if (left.owner === right.owner) continue;
       for (const a of left.rects) for (const b of right.rects) overlap(`${left.key} / ${right.key}`, a, b);
     }
     for (const parent of elements) {
@@ -123,7 +162,7 @@ async function mainLayout(page) {
       const siblings = [...parent.children].filter(node => (node instanceof HTMLElement || node.localName === 'svg') && visible(node) && !['absolute', 'fixed'].includes(styles.get(node).position) && styles.get(node).float === 'none').map(node => ({ key: keys.get(node), rect: node.getBoundingClientRect() })).filter(({ rect }) => rect.width && rect.height);
       for (let index = 0; index < siblings.length; index++) for (const right of siblings.slice(index + 1)) overlap(`flow ${siblings[index].key} / ${right.key}`, siblings[index].rect, right.rect);
     }
-    return { viewport: innerWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth, nodes, defects };
+    return { viewport: innerWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth, nodes, textFragments, defects };
   });
 }
 
@@ -153,6 +192,34 @@ test('Q9: geometry guard rejects new or increased defects against raw at the sam
   expect(layoutIncreases(after, raw)).toEqual([]);
   raw.defects[defect] = fraction - 2e-6;
   expect(layoutIncreases(after, raw)).toEqual([{ defect, fraction, previous: fraction - 2e-6 }]);
+});
+
+test('Q9: rotated text retains local defects after translation while tighter lines and other owners still collide', async ({ page }) => {
+  await page.setContent('<style>body{margin:0}#label{position:absolute;left:100px;top:1963px;width:68px;height:68px;transform:rotate(15deg);font:12px/16px Arial}#other{position:absolute;left:300px;top:2055px}</style><main><span id="label">SNÄLL<br>INTERNET</span><span id="other">ANNAN</span></main>');
+  const before = await mainLayout(page);
+  await page.locator('#label').evaluate(node => { node.style.top = '2055px'; });
+  const translated = await mainLayout(page);
+  const self = layout => Object.fromEntries(Object.entries(layout.defects).filter(([key]) => key.startsWith('overlap #label/text[') && !key.includes('#other')));
+  expect(self(translated)).toEqual(self(before));
+  expect(translated.textFragments.filter(item => item.key.startsWith('#label/')).map(item => item.local)).toEqual(before.textFragments.filter(item => item.key.startsWith('#label/')).map(item => item.local));
+  expect(await page.locator('#label').getAttribute('style')).toBe('top: 2055px;');
+  await page.locator('#label').evaluate(node => { node.style.lineHeight = '2px'; });
+  const tighter = await mainLayout(page);
+  expect(layoutIncreases(tighter, translated).some(item => item.defect.startsWith('overlap #label/text['))).toBe(true);
+  await page.locator('#other').evaluate(node => { node.style.left = '100px'; node.style.top = '2055px'; });
+  const collision = await mainLayout(page);
+  expect(layoutIncreases(collision, tighter).some(item => item.defect.includes('#label/text[') && item.defect.includes('#other/text['))).toBe(true);
+});
+
+test('Q9: local text measurement restores transitioned transforms without starting an animation', async ({ page }) => {
+  await page.setContent('<style>#label{display:block;width:68px;height:68px;transform:rotate(15deg);transition:transform 60s linear}</style><main><span id="label" style="color:blue">SNÄLL<br>INTERNET</span></main>');
+  const state = () => page.locator('#label').evaluate(node => ({ style: node.getAttribute('style'), transform: getComputedStyle(node).transform, transition: getComputedStyle(node).transition, animations: node.getAnimations().map(animation => animation.playState) }));
+  const before = await state();
+  expect(before.animations).toEqual([]);
+  await mainLayout(page);
+  expect(await state()).toEqual(before);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await state()).toEqual(before);
 });
 
 function compareCapture(actual, expected, label, failures) {
@@ -311,7 +378,8 @@ test('Q9: Home keeps raw dimensions at 390/414/600/760/1440; 320/360 add no meas
         if (!sticker || sticker.box.x < 0 || sticker.box.x + sticker.box.width > width) failures.push(`${label}: sticker crosses viewport: ${JSON.stringify(sticker)}`);
         const present = new Set(actual.nodes.map(node => node.key));
         for (const node of rawNarrow.nodes) if (!present.has(node.key)) failures.push(`${label}: visible main node lost versus raw ${width}: ${node.key}`);
-        // Compare axis-aligned boxes, text line fragments and img/svg roots.
+        // World boxes retain clipping/cross-owner collisions; same-owner text
+        // fragments use the owner's untransformed layout plane.
         // Raw at this width is authoritative; 414 only diagnoses narrow layouts.
         const diagnostics = layoutIncreases(actual, reference).map(({ defect, fraction, previous }) => `${defect}: fraction ${fraction}, 414 ${previous}, raw ${width} ${rawNarrow.defects[defect] ?? 0}`);
         for (const node of reference.nodes) if (!present.has(node.key)) diagnostics.push(`visible main node absent versus 414: ${node.key}`);
@@ -320,7 +388,8 @@ test('Q9: Home keeps raw dimensions at 390/414/600/760/1440; 320/360 add no meas
           const names = new Set(defect.match(/#[\w-]+|[a-z]+\[\d+\]/g) ?? []);
           const causes = actual.nodes.filter(node => names.has(node.key));
           const rawCauses = rawNarrow.nodes.filter(node => names.has(node.key));
-          failures.push(`${label}: ${defect}: fraction ${fraction} exceeds raw ${width} fraction ${previous}; migrated boxes/CSS ${JSON.stringify(causes)}; raw boxes/CSS ${JSON.stringify(rawCauses)}`);
+          const fragments = layout => layout.textFragments.filter(item => defect.includes(item.key));
+          failures.push(`${label}: ${defect}: fraction ${fraction} exceeds raw ${width} fraction ${previous}; migrated boxes/CSS ${JSON.stringify(causes)}; raw boxes/CSS ${JSON.stringify(rawCauses)}; migrated world/local text ${JSON.stringify(fragments(actual))}; raw world/local text ${JSON.stringify(fragments(rawNarrow))}`);
         }
       }
     }

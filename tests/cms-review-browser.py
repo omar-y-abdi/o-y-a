@@ -5,8 +5,10 @@ the shipped UI. Fault injection changes transport/storage outcomes, not code.
 """
 import copy
 import importlib.util
+import hashlib
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -171,6 +173,7 @@ with sync_playwright() as pw:
         ctx=context()
         try:
             page=admin(ctx); requests=[]
+            original=next(item for item in api(ctx,'state').json()['project']['pages'] if item.get('id')=='home')
             def capture(route):
                 requests.append(route.request.post_data_json)
                 route.continue_()
@@ -208,6 +211,14 @@ with sync_playwright() as pw:
                 'saveStatus':page.locator('#save-status').inner_text(),
                 'backupStatus':page.locator('#backup-status').inner_text(),
             },ensure_ascii=False))
+            if result.status!=200:
+                def fallbacks(value):
+                    matches=re.findall(r'<noscript\b[^>]*>[\s\S]*?</noscript>',value.get('html',''),re.I)
+                    return {'count':len(matches),'nodes':[{'bytes':len(source.encode()),'sha256':hashlib.sha256(source.encode()).hexdigest(),'source':source[:512]} for source in matches[:2]]}
+                print('RAPID_SAVE_FALLBACK_DIAGNOSTIC '+json.dumps({
+                    'browser':ENGINE,'original':fallbacks(original),'submitted':fallbacks(submitted),
+                    'server':fallbacks(current),'backup':fallbacks(backup),
+                },ensure_ascii=False))
             assert len(requests)==1 and result.status==200, 'Expected one successful immediate Save request.'
             assert not (backup and [key for key in fields if backup.get(key)!=submitted.get(key)]), 'A canvas/editor flush changed the draft after Save despite no further user input.'
             assert 'Utkast' not in page.locator('#save-status').inner_text(), 'A single immediate Save should leave this no-further-input draft clean.'
