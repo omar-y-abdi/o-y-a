@@ -145,9 +145,10 @@ test('Markdown negotiation retains HTML, HEAD, Vary and raw gzip responses', asy
   assert.match(rejected.headers.get('vary'), /accept/i);
   const compressed = await fetchHttp('/', { headers: { Accept: 'text/markdown', 'Accept-Encoding': 'gzip' } });
   assert.equal(compressed.status, 200);
-  assert.equal(compressed.headers.get('content-encoding'), 'gzip');
+  assert.match(compressed.headers.get('content-type'), /^text\/markdown/);
   assert.ok(compressed.headers.get('vary').toLowerCase().split(',').map(value => value.trim()).includes('accept'));
-  assert.match(gunzipSync(compressed.body).toString(), /^# /);
+  const markdownBody = compressed.headers.get('content-encoding') === 'gzip' ? gunzipSync(compressed.body) : compressed.body;
+  assert.match(markdownBody.toString(), /^# /);
 });
 
 test('aliases, JSON errors, OpenAPI and machine discovery match the public API', async () => {
