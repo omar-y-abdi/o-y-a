@@ -3,10 +3,12 @@ import { createHash } from 'node:crypto';
 import { build, version as esbuildVersion } from 'esbuild';
 import * as css from 'css-tree';
 import { gameBuildOptions } from './build-options.mjs';
+import { gameNotices } from './notices.mjs';
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 
 export async function buildSkift() {
+  const notices = await gameNotices('games/skift', 'node_modules');
   const target = 'dist/play/skift';
   await rm(target, { recursive: true, force: true });
   await mkdir(`${target}/assets`, { recursive: true });
@@ -22,15 +24,11 @@ export async function buildSkift() {
   } });
   await writeFile(`${target}/assets/app.css`, css.generate(stylesheet));
   await cp('games/skift/public/audio', `${target}/audio`, { recursive: true });
-  const licenses = [];
-  for (const [name, file] of [['three', 'LICENSE'], ['cannon-es', 'LICENSE'], ['howler', 'LICENSE.md'], ['esbuild', 'LICENSE.md']]) {
-    licenses.push(`## ${name}\n\n${await readFile(`node_modules/${name}/${file}`, 'utf8')}`);
-  }
-  await writeFile(`${target}/THIRD-PARTY-LICENSES.txt`, licenses.join('\n\n').replace(/[\t ]+$/gm, ''));
+  await writeFile(`${target}/THIRD-PARTY-LICENSES.txt`, notices);
   const legal = `${target}/assets/app.js.LEGAL.txt`;
   await writeFile(legal, (await readFile(legal, 'utf8')).replace(/[\t ]+$/gm, ''));
   const { version, dependencies } = JSON.parse(await readFile('games/skift/package.json', 'utf8'));
-  const paths = [...Object.keys(bundle.metafile.inputs).filter(path => path.startsWith('games/skift/')), 'games/skift/index.html', 'games/skift/src/page.mjs', 'games/skift/src/copy.mjs', 'games/skift/scripts/build-options.mjs', 'games/skift/scripts/build-portfolio.mjs'].sort();
+  const paths = [...Object.keys(bundle.metafile.inputs).filter(path => path.startsWith('games/skift/')), 'games/skift/index.html', 'games/skift/src/page.mjs', 'games/skift/src/copy.mjs', 'games/skift/scripts/build-options.mjs', 'games/skift/scripts/build-portfolio.mjs', 'games/skift/scripts/notices.mjs', 'games/skift/THIRD-PARTY-LICENSES.txt'].sort();
   const sources = Object.fromEntries(await Promise.all(paths.map(async path => [path, sha256(await readFile(path))])));
   const code = await readFile(`${target}/assets/app.js`);
   await writeFile(`${target}/RELEASE.json`, JSON.stringify({

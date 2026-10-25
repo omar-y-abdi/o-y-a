@@ -18,6 +18,7 @@ import { sanitizeManagedSvg } from '../src/cms/svg.mjs';
 import { parseFragment } from 'parse5';
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { SKIFT_PATH } from '../src/content/skift.mjs';
+import { verifyBundleNotices } from './third-party-notices.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
 export async function buildCms({ styles, js }) {
@@ -36,6 +37,8 @@ export async function buildCms({ styles, js }) {
     stylesheet('src/cms/login.css', 'login', 'cms-public'),
   ]);
   const bundle = await build({ entryPoints: { studio: 'src/cms/client/app.mjs', preview: 'src/cms/client/preview.mjs' }, outdir: 'dist/admin/assets', entryNames: '[name].[hash]', chunkNames: '[name].[hash]', outExtension: { '.js': '.mjs' }, bundle: true, splitting: true, format: 'esm', minify: true, sourcemap: false, target: ['es2022'], metafile: true, legalComments: 'linked' });
+  await verifyBundleNotices(bundle.metafile);
+  await writeFile('.generated/cms-metafile.json', JSON.stringify(bundle.metafile));
   for (const name of await readdir('dist/admin/assets')) if (name.endsWith('.LEGAL.txt')) {
     const path = `dist/admin/assets/${name}`;
     await writeFile(path, (await readFile(path, 'utf8')).replace(/[ \t]+$/gm, ''));

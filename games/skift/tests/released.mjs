@@ -2,7 +2,7 @@
 import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 const root = process.cwd();
@@ -21,7 +21,7 @@ try {
     server.on('error', reject); server.on('exit', code => { clearTimeout(timer); reject(new Error(`Server exited ${code}`)); });
     server.stdout.on('data', data => { out += data; const m = out.match(/http:\/\/127\.0\.0\.1:\d+\/play\/skift\//); if (m) { clearTimeout(timer); resolve(m[0]); } });
   });
-  browser = await chromium.launch({ channel: 'chrome', headless: true });
+  browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   page.on('pageerror', e => errors.push(String(e)));
   const responses = [];
@@ -48,6 +48,7 @@ try {
   assert.deepEqual(errors, []); assert.deepEqual(responses, []);
   checks.push('No JavaScript errors or failed asset requests');
   const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
+  await mkdir('evidence', { recursive: true });
   await writeFile('evidence/released-archive.json', JSON.stringify({ date: new Date().toISOString(), archive: path.basename(archive), sha256: digest, browser: browser.version(), checks, errors }, null, 2));
   console.log('PASS released ZIP:', digest); checks.forEach(c => console.log('PASS', c));
 } finally {

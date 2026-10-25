@@ -14,13 +14,14 @@ const sha256 = value => createHash('sha256').update(value).digest('hex');
 test('a clean site build compiles changed SKIFT source without an imported release', async () => {
   const scratch = await mkdtemp(join(tmpdir(), 'skift-build-'));
   try {
-    for (const directory of ['scripts', 'src', 'games', 'public']) {
+    for (const directory of ['scripts', 'src', 'games', 'public', 'licenses']) {
       await cp(join(root, directory), join(scratch, directory), { recursive: true, filter: path => {
         const name = relative(root, path);
         return !name.startsWith('public/play/skift') && !/(^|\/)(node_modules|dist|evidence)(\/|$)/.test(name);
       } });
     }
     await cp(join(root, 'package.json'), join(scratch, 'package.json'));
+    await cp(join(root, 'THIRD-PARTY-LICENSES.txt'), join(scratch, 'THIRD-PARTY-LICENSES.txt'));
     await symlink(join(root, 'node_modules'), join(scratch, 'node_modules'), 'dir');
     const source = join(scratch, 'games/skift/src/i18n.js');
     const original = await readFile(source, 'utf8');
@@ -59,6 +60,8 @@ test('a clean site build compiles changed SKIFT source without an imported relea
     assert.deepEqual(audio, ['boss.wav', 'cell.wav', 'clear.wav', 'dash.wav', 'fail.wav', 'hit.wav', 'pulse.wav', 'scrap.wav', 'shift.mp3', 'shot.wav', 'strike.wav']);
     for (const name of audio) assert.deepEqual(await readFile(join(game, 'audio', name)), await readFile(join(scratch, 'games/skift/public/audio', name)), name);
     for (const name of ['THIRD-PARTY-LICENSES.txt', 'assets/app.js.LEGAL.txt']) assert.ok((await readFile(join(game, name), 'utf8')).trim(), name);
+    assert.deepEqual(await readFile(join(game, 'THIRD-PARTY-LICENSES.txt')), await readFile(join(scratch, 'games/skift/THIRD-PARTY-LICENSES.txt')));
+    assert.deepEqual(await readFile(join(scratch, 'dist/THIRD-PARTY-LICENSES.txt')), await readFile(join(scratch, 'THIRD-PARTY-LICENSES.txt')));
     assert.doesNotMatch(code, /sourceMappingURL/);
     assert.ok(!(await readdir(join(game, 'assets'))).some(name => name.endsWith('.map')));
     assert.ok(!(await readdir(join(scratch, 'dist/play/skift/assets'))).includes('app.css'), 'CSS belongs only in the hashed page stylesheet');

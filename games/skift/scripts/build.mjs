@@ -1,10 +1,12 @@
 import * as esbuild from 'esbuild';
-import {mkdir,cp,copyFile,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdir,cp,copyFile,writeFile,rm} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {gameBuildOptions} from './build-options.mjs';
+import {gameNotices} from './notices.mjs';
 const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 process.chdir(root);
+const notices=await gameNotices(root,path.join(root,'node_modules'));
 const dest='dist/play/skift';
 await rm(dest,{recursive:true,force:true});
 await mkdir(`${dest}/assets`,{recursive:true});
@@ -12,11 +14,7 @@ await cp('public',dest,{recursive:true,filter:source=>!path.basename(source).sta
 await copyFile('index.html',`${dest}/index.html`);
 await writeFile('dist/index.html','<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=./play/skift/"><title>SKIFT</title><a href="./play/skift/">Spela SKIFT / Play SKIFT</a>');
 const options={...gameBuildOptions,entryPoints:['src/main.js'],sourcemap:true,outfile:`${dest}/assets/app.js`,logLevel:'info'};
-const licenses=[];
-for(const [name,files] of [['three',['LICENSE']],['cannon-es',['LICENSE']],['howler',['LICENSE.md','LICENSE']],['esbuild',['LICENSE.md']]]){
-  for(const f of files){try{licenses.push(`## ${name}\n\n${await readFile(`node_modules/${name}/${f}`,'utf8')}`);break;}catch{}}
-}
-await writeFile(`${dest}/THIRD-PARTY-LICENSES.txt`,licenses.join('\n\n'));
+await writeFile(`${dest}/THIRD-PARTY-LICENSES.txt`,notices);
 if(process.argv.includes('--serve')){
   const ctx=await esbuild.context(options);await ctx.watch();const server=await ctx.serve({host:'127.0.0.1',port:8787,servedir:'dist'});
   console.log(`SKIFT: http://${server.hosts[0]}:${server.port}/play/skift/`);

@@ -13,9 +13,10 @@ version = json.loads((ROOT / 'package.json').read_text())['version']
 output = args.output or ROOT / f'SKIFT-{version}.zip'
 
 roots = ['src', 'tests', 'docs', 'public', 'dist']
-files = [ROOT / name for name in ['README.md', 'CREDITS.md', 'index.html', 'package.json',
+files = [ROOT / name for name in ['README.md', 'CREDITS.md', 'THIRD-PARTY-LICENSES.txt', 'index.html', 'package.json',
          'package-lock.json', 'start.py', 'START.command', 'START.bat',
-         'scripts/audio.py', 'scripts/build.mjs', 'scripts/verify.mjs', 'scripts/release.py']]
+         'scripts/audio.py', 'scripts/build.mjs', 'scripts/build-options.mjs', 'scripts/notices.mjs',
+         'scripts/verify.mjs', 'scripts/release.py']]
 for name in roots:
     files.extend(p for p in (ROOT / name).rglob('*') if p.is_file() and not p.is_symlink()
                  and not any(part.startswith('.') or part == '__pycache__' for part in p.relative_to(ROOT).parts))
