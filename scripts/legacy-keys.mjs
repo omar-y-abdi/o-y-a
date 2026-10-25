@@ -14,7 +14,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { parseFragment, serialize } from 'parse5';
 import { preparePage, rekeyHtml, migrateKeys } from '../src/cms/validation.mjs';
-import { refreshDevelopersPage } from '../src/cms/shared-content.mjs';
+import { refreshDevelopersPage } from '../src/cms/legacy-project.mjs';
 import { attribute, walk } from '../src/cms/html-tree.mjs';
 
 export const LEGACY_BUILD = 'e5592bc';

@@ -35,7 +35,7 @@ async function fixture(run, bytes = legacyJpeg(), extension = 'jpg') {
     await bucket.put(key, bytes);
     await runtime.db.prepare('INSERT INTO cms_media(id,object_key,name,mime,bytes,width,height,alt,sha256,created_at,validation_version) VALUES(?,?,?,?,?,?,?,?,?,?,1)').bind(id, key, `Original.${extension}`, info.mime, bytes.length, info.width, info.height, 'Originalets alt', await digest(bytes), new Date().toISOString()).run();
     const project = structuredClone(initial);
-    project.pages[0].html += `<img src="/media/${key}" alt="Originalets alt">`;
+    project.pages[0].html = project.pages[0].html.replace('</main>', `<img src="/media/${key}" alt="Originalets alt"></main>`);
     await publishSite(runtime.db, { project, baseVersion: 0, requestId: crypto.randomUUID(), actor: runtime.email });
     const cookie = 'CF_Authorization=' + await runtime.token(), writes = [];
     const request = async (path, init = {}) => {

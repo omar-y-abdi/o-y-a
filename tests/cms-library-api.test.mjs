@@ -17,11 +17,13 @@ test('A11: whole-draft badges agree with authoritative destructive checks; histo
   const env = { CMS_DB: runtime.db, CMS_MEDIA: await runtime.mf.getR2Bucket('CMS_MEDIA'), CMS_IMAGES: await runtime.mf.getImagesBinding('CMS_IMAGES') };
   const image = await uploadAsset(env, { id: crypto.randomUUID(), name: 'Bild.png', bytes: Buffer.from(rasterFixtures.png, 'base64') });
   const font = await uploadAsset(env, { id: crypto.randomUUID(), name: 'Typsnitt.woff2', bytes: new Uint8Array(await readFile('tests/fixtures/dm-sans-latin-400-normal.woff2')) });
-  for (const kind of ['page', 'twice', 'css', 'link', 'win', 'theme', 'slot']) {
+  for (const kind of ['page', 'twice', 'css', 'link', 'frame', 'frameCss', 'win', 'theme', 'slot']) {
     const project = structuredClone(initial), asset = kind === 'theme' ? font : image;
-    if (kind === 'page' || kind === 'twice') project.pages[0].html += `<img src="${asset.src}" alt="">`.repeat(kind === 'twice' ? 2 : 1);
+    if (kind === 'page' || kind === 'twice') project.pages[0].html = project.pages[0].html.replace('</main>', `<img src="${asset.src}" alt="">`.repeat(kind === 'twice' ? 2 : 1) + '</main>');
     if (kind === 'css') project.pages[0].css = `#main{background:url(${asset.src})}`;
-    if (kind === 'link') project.pages[0].html += `<a href="${asset.src}">Bild</a>`;
+    if (kind === 'link') project.pages[0].html = project.pages[0].html.replace('</main>', `<a href="${asset.src}">Bild</a></main>`);
+    if (kind === 'frame') project.frame.html += `<img src="${asset.src}" alt="">`;
+    if (kind === 'frameCss') project.frame.css = `.site-footer{background:url(${asset.src})}`;
     if (kind === 'win') project.cards[0].design = { html: `<div><img src="${asset.src}" alt=""><span data-card-text>Vinst</span></div>`, css: '' };
     if (kind === 'theme') project.theme.fontFamily = `cms-font-${asset.id}`;
     if (kind === 'slot') project.resources.icon = asset.src;

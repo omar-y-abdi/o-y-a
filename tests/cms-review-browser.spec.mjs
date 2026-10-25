@@ -268,8 +268,8 @@ async function setTagline(page, text) {
 
 async function sharedEverywhere(context, text) {
   const project = (await state(context, runtime)).project;
-  expect(project.sharedContent['footer.tagline']).toBe(text);
-  expect(project.pages.filter(page => !page.html.includes(text)).map(page => page.path)).toEqual([]);
+  expect(project.frame.html).toContain(text);
+  expect(project.pages.filter(page => page.html.includes('data-cms-shared="footer.tagline"')).map(page => page.path)).toEqual([]);
   return project;
 }
 

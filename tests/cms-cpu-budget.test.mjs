@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { initial, seed } from '../.generated/cms-seed.mjs';
 import { defaultResources } from '../src/content/resources.mjs';
 import { validateProjectWithReferences } from '../src/cms/project.mjs';
-import { normalizeStoredProject } from '../src/cms/shared-content.mjs';
+import { normalizeStoredProject } from '../src/cms/frame-converter.mjs';
 import { normalizeClientProject } from '../src/cms/api.mjs';
 import { resourceReferences } from '../src/cms/resources.mjs';
 import { applyProjectChanges, projectChanges, validateProjectChanges } from '../src/cms/project-changes.mjs';
@@ -83,15 +83,17 @@ test('A16: one Save walks the whole project for resource references once', async
   } finally { globalThis.URL = NativeURL; }
 });
 
-test('A16: with a baseline, a changed page and a changed sharedContent are still checked against the shared text', () => {
+test('A16: with a baseline, frame contracts and the unique shared text slot remain authoritative', () => {
   const run = draft => validateProjectWithReferences(draft, seed, baseline, { origins: [ORIGIN] });
   assert.doesNotThrow(() => run(structuredClone(baseline)));
   const edited = structuredClone(baseline);
-  const page = edited.pages.find(item => item.path === '/om/');
-  page.html = page.html.replace(/(data-cms-shared="footer\.tagline"[^>]*>)/, '$1Egen text ');
-  assert.notEqual(page.html, baseline.pages.find(item => item.path === '/om/').html);
-  assert.throws(() => run(edited), error => error.status === 422 && /skiljer sig mellan sidor/.test(error.message));
+  edited.frame.html = edited.frame.html.replace('data-consent="deny"', 'data-consent="allow"');
+  assert.notEqual(edited.frame.html, baseline.frame.html);
+  assert.throws(() => run(edited), error => error.status === 422 && /skyddat funktionsattribut/.test(error.message));
   const reworded = structuredClone(baseline);
-  reworded.sharedContent = { 'footer.tagline': 'En ny rad' };
-  assert.throws(() => run(reworded), error => error.status === 422 && /skiljer sig mellan sidor/.test(error.message));
+  reworded.frame.html = reworded.frame.html.replace('data-cms-shared="footer.tagline"', 'data-cms-shared="footer.other"');
+  assert.throws(() => run(reworded), error => error.status === 422 && /okänd gemensam innehållsplats/.test(error.message));
+  const missing = structuredClone(baseline);
+  missing.frame.html = missing.frame.html.replace('data-cms-shared="footer.tagline"', '');
+  assert.throws(() => run(missing), error => error.status === 422 && /exakt en gång/.test(error.message));
 });

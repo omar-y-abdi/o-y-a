@@ -4,7 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { routes } from '../src/content/site.mjs';
 import { preparePage } from '../src/cms/validation.mjs';
 import { validateProject, defaultTheme, themeCss } from '../src/cms/project.mjs';
-import { normalizeStoredProject } from '../src/cms/shared-content.mjs';
+import { normalizeStoredProject } from '../src/cms/legacy-project.mjs';
 import { initial, seed as generatedSeed } from '../.generated/cms-seed.mjs';
 
 const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...preparePage(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null })));

@@ -438,16 +438,17 @@ test('cms-usability-selection-identity-structural-history', async ({ page, modul
 test('cms-client-shared-content-sync', async ({ page, modules }) => {
   await openModulePage(page, modules);
   const result = await page.evaluate(() => {
-    const project = { sharedContent: { 'footer.tagline': 'Old' }, pages: [
-      { id: 'a', html: '<footer><p data-cms-node="a-node" data-cms-shared="footer.tagline">Old</p></footer>' },
-      { id: 'b', html: '<footer><p data-cms-node="b-node" data-cms-shared="footer.tagline">Old</p></footer>' },
-    ] };
-    const next = { ...project.pages[0], html: '<footer><p data-cms-node="a-node" data-cms-shared="footer.tagline">New <strong>value</strong></p></footer>' };
-    return cmsTest.synchronizeSharedPageClient(project, 'a', next);
+    const frame = { html: '<main></main><footer><p data-cms-node="f-node" data-cms-shared="footer.tagline">New <strong>value</strong></p></footer>', css: '' };
+    const pages = [
+      { id: 'a', path: '/a/', html: '<main id="main"><h1>A</h1></main>' },
+      { id: 'b', path: '/b/', html: '<main id="main"><h1>B</h1></main>' },
+    ];
+    return { frame, pages: pages.map(page => cmsTest.composeEditorPage(page, frame)), stored: pages };
   });
-  expect(result.sharedContent['footer.tagline']).toBe('New <strong>value</strong>');
-  expect(result.pages[0].html).toContain('data-cms-node="a-node"'); expect(result.pages[1].html).toContain('data-cms-node="b-node"');
+  expect(result.frame.html).toContain('New <strong>value</strong>');
+  expect(result.pages[0].html).toContain('data-cms-node="f-node"'); expect(result.pages[1].html).toContain('data-cms-node="f-node"');
   expect(result.pages[1].html).toContain('New <strong>value</strong>');
+  expect(result.stored.every(page => !page.html.includes('<footer'))).toBe(true);
 });
 
 test('cms-locked-preview-mobile-center', async ({ page, modules }) => {

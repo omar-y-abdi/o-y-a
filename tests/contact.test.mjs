@@ -5,6 +5,8 @@ import { contactConfig, handleContact } from '../src/server/contact.mjs';
 import { encryptSecret } from '../src/server/contact-secrets.mjs';
 import { DEFAULT_EMAIL, renderEmail } from '../src/server/email-render.mjs';
 import { resourceSlots } from '../src/content/resources.mjs';
+import { publicationChunks } from '../src/cms/store.mjs';
+import { initial } from '../.generated/cms-seed.mjs';
 const valid={name:'Ada Lovelace',email:'ada@example.net',message:'En idé',website:'',token:'verified-token',submission:'6c77eb01-9260-4e9c-8a72-262b520ee1b1'};
 const env=()=>({CONTACT_TO:'owner@example.org',RESEND_API_KEY:'test-key',TURNSTILE_SECRET_KEY:'test-secret',TURNSTILE_SITE_KEY:'site-key',CONTACT_HASH_SECRET:'a'.repeat(64),CONTACT_RATE_LIMIT:{limit:async()=>({success:true})}});
 const request=(data=valid,headers={},method='POST')=>new Request('https://omaryusuf.se/api/contact',{method,headers:{Origin:'https://omaryusuf.se','Content-Type':'application/json','CF-Connecting-IP':'192.0.2.1',...headers},...(!['GET','HEAD'].includes(method)?{body:typeof data==='string'?data:JSON.stringify(data)}:{})});
@@ -60,6 +62,24 @@ test('a retry after a template change sends the same body and key',async()=>{
  assert.equal((await handleContact(request({...valid,contentVersion:2}),{...env(),CMS_DB:fakeDb({1:v1,2:v2})},fresh.fetch)).status,200);
  assert.equal(sentBodies(fresh.calls)[0].subject,'Ny mall B');
  assert.notEqual(first.calls[1].init.headers['Idempotency-Key'],fresh.calls[1].init.headers['Idempotency-Key']);
+});
+test('B8: a frame publication keeps contact retries pinned to the original custom letter image',async()=>{
+ const oldImage='/media/123e4567-e89b-42d3-a456-426614174000.png',newImage='/media/123e4567-e89b-42d3-a456-426614174001.png';
+ const resources=src=>({...resourceSlots,emailStatic:{...resourceSlots.emailStatic,src,alt:'Ägarens brevbild'}});
+ const project=structuredClone(initial),changed=structuredClone(initial);
+ assert.equal(project.schemaVersion,2);
+ changed.frame.html=changed.frame.html.replace('Thanks for stopping by.','En ny sidram.');
+ const rows=(project,assets)=>Object.fromEntries(publicationChunks(project,assets).flat().filter(row=>['@resources','@email'].includes(row.path)).map(row=>[row.path,JSON.parse(row.html)]));
+ const v1=rows(project,resources(oldImage)),v2=rows(changed,resources(newImage));
+ const first=provider(),retry=provider(),fresh=provider();
+ assert.equal((await handleContact(request({...valid,contentVersion:1}),{...env(),CMS_DB:fakeDb({1:v1})},first.fetch)).status,200);
+ assert.equal((await handleContact(request({...valid,contentVersion:1,token:'fresh-token'}),{...env(),CMS_DB:fakeDb({1:v1,2:v2})},retry.fetch)).status,200);
+ assert.equal(first.calls[1].init.body,retry.calls[1].init.body);
+ assert.equal(first.calls[1].init.headers['Idempotency-Key'],retry.calls[1].init.headers['Idempotency-Key']);
+ assert.ok(sentBodies(first.calls)[1].html.includes(oldImage));
+ assert.equal((await handleContact(request({...valid,contentVersion:2}),{...env(),CMS_DB:fakeDb({1:v1,2:v2})},fresh.fetch)).status,200);
+ assert.ok(sentBodies(fresh.calls)[1].html.includes(newImage));
+ assert.ok(!sentBodies(fresh.calls)[1].html.includes(oldImage));
 });
 test('contentVersion 0 uses default templates',async()=>{
  const payload={name:valid.name,email:valid.email,message:valid.message};

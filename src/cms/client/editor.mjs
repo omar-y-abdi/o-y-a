@@ -3,8 +3,9 @@ import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
 import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle, pastedTextHtml } from './editor-policy.mjs';
 import { ensureComponentIdentity } from './view-state.mjs';
+import { composeEditorPage, frameSnapshot } from './frame-project.mjs';
 
-export function createEditor({ page, cssPath, assets, onChange, onBoundary = () => {}, onSelect, onReady, onAssetPick }) {
+export function createEditor({ page, frame, cssPath, assets, onChange, onBoundary = () => {}, onSelect, onReady, onAssetPick, onError = error => { throw error; } }) {
   let disposed = false;
   let loading = true;
   let timer, textView = null, typing = false, previousSnapshot = '';
@@ -67,12 +68,16 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
     if (mode === 'normal') applyFontOptions();
   };
   applyFontOptions();
-  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg }); component.on('component:clone', clone => remapClone(component, clone, editor)); });
+  let framed;
+  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg }); component.on('component:clone', clone => framed ? framed.clone(component, clone, () => remapClone(component, clone, editor)) : remapClone(component, clone, editor)); });
   // The same validated HTML/CSS powers editing, preview and publication.
   // Editor JSON is legacy import metadata, never a second content authority.
-  editor.setStyle(page.css);
+  if (frame) framed = frameSnapshot(editor, frame, page);
+  else editor.setStyle(page.css);
   // Importing components extracts inline styles; do not erase those afterward.
-  editor.setComponents(page.html);
+  editor.setComponents(composeEditorPage(page, frame).html);
+  framed?.bind();
+  framed?.capture(liveHtml(editor, null));
   const configureTree = component => { configureVisualComponent(component, { managedSvg }); component.components?.().forEach(configureTree); };
   editor.getWrapper().components().forEach(configureTree);
   editor.AssetManager.add(assets.filter(asset => asset.mime.startsWith('image/')).map(asset => ({ src: asset.src, name: asset.name, width: asset.width, height: asset.height })));
@@ -81,11 +86,13 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
   editor.setDevice('Dator');
   function snapshot(force = false) {
     if (disposed || loading || !force && !typing && editor.getDirtyCount() === 0) return null;
-    return { html: liveHtml(editor, textView), css: editor.getCss(), project: null };
+    const html = liveHtml(editor, textView);
+    return framed ? framed.snapshot(html) : { html, css: editor.getCss(), project: null };
   }
-  function flush(force = false) {
+  function flush(force = false, reportOnly = false) {
     clearTimeout(timer);
-    const value = snapshot(force);
+    let value;
+    try { value = snapshot(force); } catch (error) { onError(error); if (!reportOnly) throw error; return false; }
     if (value) {
       const serialized = JSON.stringify(value);
       if (serialized !== previousSnapshot) { previousSnapshot = serialized; onChange(value); }
@@ -118,6 +125,8 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
     loading = false;
     editor.clearDirtyCount();
     onReady(editor);
+    // Initial selection can add export IDs; record the fully initialized editor.
+    previousSnapshot = JSON.stringify(snapshot(true));
   });
   editor.on('rte:enable', view => { textView = view; });
   editor.on('rte:disable', view => {
@@ -130,14 +139,14 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
   editor.on('update', () => {
     if (disposed || loading) return;
     clearTimeout(timer);
-    timer = setTimeout(flush, 250);
+    timer = setTimeout(() => flush(false, true), 250);
   });
-  editor.on('component:resize:update', ({ component, style, updateStyle }) => {
+  editor.on('component:resize:update', ({ component, el, style, updateStyle }) => {
     const tag = String(component?.get?.('tagName') ?? '').toLowerCase();
     // A12b: a group scales through its transform (position.mjs). Claim the style update so no
     // width/height reaches the group's rule, and keep that empty write out of the undo stack.
     if (tag === 'g') editor.UndoManager.skip(() => updateStyle({}));
-    else updateStyle(responsiveResizeStyle(style, tag));
+    else updateStyle(responsiveResizeStyle(style, tag, el.ownerDocument.defaultView.getComputedStyle(el)));
   });
   // One resize gesture is exactly one studio undo step: close the previous step, then flush the
   // result and close this step. Mid-drag style writes are partial (avoidStore), which GrapesJS
@@ -163,6 +172,7 @@ export function createEditor({ page, cssPath, assets, onChange, onBoundary = () 
       flush();
     });
   });
-  return { editor, flush, snapshot, setStyleMode, destroy() { flush(); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); rightPanel.removeEventListener('pointerdown', keepResizer); editor.destroy(); } };
+  // Capture synchronous edits before GrapesJS's deferred dirty count on close.
+  return { editor, flush, snapshot, setStyleMode, destroy() { flush(true); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); rightPanel.removeEventListener('pointerdown', keepResizer); editor.destroy(); } };
 }
 import { remapClone } from './clone.mjs';

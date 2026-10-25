@@ -26,5 +26,6 @@ export function mergeProjects(base, local, remote) {
   }
   // Mail settings merge as one value: a half-merged object would fail validation.
   const email = choose('email', base.email, local.email, remote.email);
-  return { project: { schemaVersion: 1, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime'), resources: properties('resources'), sharedContent: properties('sharedContent', {}), ...(email === undefined ? {} : { email }) }, conflicts };
+  const frame = choose('frame', base.frame, local.frame, remote.frame);
+  return { project: { schemaVersion: base.schemaVersion, pages: collection('pages'), cards: collection('cards'), theme: properties('theme'), runtime: properties('runtime'), resources: properties('resources'), ...(frame === undefined ? { sharedContent: properties('sharedContent', {}) } : { frame }), ...(email === undefined ? {} : { email }) }, conflicts };
 }

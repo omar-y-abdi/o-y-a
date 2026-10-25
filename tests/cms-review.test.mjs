@@ -74,10 +74,9 @@ test('R10: stale metadata writes cannot reverse another tab archive', async () =
 
 test('R11: removing a dialog label cannot leave a dangling accessible-name reference', () => {
   const project = structuredClone(initial);
-  const page = project.pages[0];
-  const before = page.html;
-  page.html = page.html.replace(/<h2\b[^>]*id="privacy-title"[^>]*>[\s\S]*?<\/h2>/, '');
-  assert.notEqual(page.html, before);
+  const before = project.frame.html;
+  project.frame.html = project.frame.html.replace(/<h2\b[^>]*id="privacy-title"[^>]*>[\s\S]*?<\/h2>/, '');
+  assert.notEqual(project.frame.html, before);
   assert.throws(() => validateProject(project, seed, initial), /privacy-title|referens|mål|namn/);
 });
 

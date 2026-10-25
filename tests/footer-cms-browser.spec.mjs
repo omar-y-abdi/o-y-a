@@ -99,7 +99,11 @@ for (const width of [390, 1440]) {
     try {
       await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url, httpOnly: true, secure: false, sameSite: 'Lax' }]);
       const page = await context.newPage(); page.on('dialog', dialog => dialog.accept());
-      await page.goto(runtime.url + '/admin/'); await waitCanvas(page);
+      await page.goto(runtime.url + '/admin/');
+      await page.locator('iframe.gjs-frame, [data-shared-content-repair]').first().waitFor({ state: 'attached', timeout: 20_000 });
+      const repair = page.locator('[data-shared-content-repair]');
+      if (await repair.count()) await repair.locator('button[type="submit"]').click();
+      await waitCanvas(page);
       const device = `[data-device=${width <= 760 ? 'mobile' : 'desktop'}]`;
       await page.locator(device).click();
       let canvas = frame(page);

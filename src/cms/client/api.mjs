@@ -1,6 +1,5 @@
 import { dialog, escape } from './dom.mjs';
-import { applySharedContentClient } from './shared-project.mjs';
-import { projectChanges } from '../project-changes.mjs';
+import { chooseFrameClient } from './frame-project.mjs';
 
 export class ApiError extends Error {
   constructor(message, status = 0, details) { super(message); this.status = status; this.details = details; }
@@ -25,19 +24,19 @@ export async function send(url, { headers, ...init }, failure) {
 
 const request = (path, data) => send(`/admin/api/${path}`, data === undefined ? { method: 'GET' } : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CMS-Request': '1' }, body: JSON.stringify(data) }, 'Åtgärden kunde inte slutföras.');
 
-async function repairSharedContent(state) {
-  const conflicts = state.project?.sharedContentConflicts;
+async function repairSharedContent(state, publish = true) {
+  const conflicts = state.project?.frameConflicts;
   if (!Array.isArray(conflicts) || !conflicts.length) return state;
   const modal = document.querySelector('#studio-dialog');
   const groups = conflicts.map((conflict, groupIndex) => {
-    const selected = Math.max(0, conflict.options.findIndex(option => option.value === state.project.sharedContent?.[conflict.key]));
-    const title = conflict.key === 'footer.tagline' ? 'Sidfotens gemensamma text' : conflict.key;
+    const selected = Math.max(0, conflict.options.findIndex(option => JSON.stringify(option.value) === JSON.stringify(state.project.frame)));
+    const title = conflict.key === 'footer.tagline' ? 'Sidfotens gemensamma text' : 'Webbplatsens gemensamma sidram';
     const options = conflict.options.map((option, optionIndex) => `<label class="inspector-field"><span><input type="radio" name="shared-conflict-${groupIndex}" value="${optionIndex}" ${optionIndex === selected ? 'checked' : ''}> <strong>${escape(option.label)}</strong></span><small>Används på: ${escape(option.pages.join(', '))}</small></label>`).join('');
     return `<fieldset class="inspector-section"><legend>${escape(title)}</legend>${options}</fieldset>`;
   }).join('');
 
   return new Promise(resolve => {
-    dialog(`<span class="dialog-eyebrow">GEMENSAM TEXT BEHÖVER ETT VAL</span><h2>Sidfoten skiljer sig mellan sidor.</h2><p>Den sparade versionen innehåller flera varianter av samma gemensamma text. Välj vilken variant som ska gälla överallt. Valet sparas som en ny version; den gamla versionen finns kvar i historiken.</p><form data-shared-content-repair>${groups}<p data-shared-content-error role="alert"></p><div class="dialog-buttons"><button type="submit" class="small-button primary">Använd vald text på alla sidor</button></div></form>`);
+    dialog(`<span class="dialog-eyebrow">GEMENSAMT INNEHÅLL BEHÖVER ETT VAL</span><h2>Sidramen skiljer sig mellan sidor.</h2><p>Den äldre versionen innehåller flera varianter. Välj vilken som ska gälla överallt. ${publish ? 'Valet sparas som en ny version; den gamla versionen finns kvar i historiken.' : 'Valet läses in som utkast. Save publicerar det.'}</p><form data-shared-content-repair>${groups}<p data-shared-content-error role="alert"></p><div class="dialog-buttons"><button type="submit" class="small-button primary">Använd valt innehåll på alla sidor</button></div></form>`);
     const form = modal.querySelector('[data-shared-content-repair]');
     const errorNode = modal.querySelector('[data-shared-content-error]');
     const submit = form.querySelector('button[type=submit]');
@@ -49,39 +48,37 @@ async function repairSharedContent(state) {
       submit.disabled = true;
       submit.textContent = 'Samordnar…';
       errorNode.textContent = '';
-      let project = state.project;
+      const choices = {};
       for (const [index, conflict] of conflicts.entries()) {
         const chosen = form.querySelector(`input[name="shared-conflict-${index}"]:checked`);
         const option = conflict.options[Number(chosen?.value)];
         if (!option) {
           submit.disabled = false;
-          submit.textContent = 'Använd vald text på alla sidor';
-          errorNode.textContent = 'Välj en variant för varje gemensam text.';
+          submit.textContent = 'Använd valt innehåll på alla sidor';
+          errorNode.textContent = 'Välj en variant för varje gemensam del.';
           return;
         }
-        project = applySharedContentClient(project, conflict.key, option.value);
+        choices[conflict.key] = Number(chosen.value);
       }
       try {
-        const changes = projectChanges(state.project, project);
-        // A legacy conflicting snapshot can already look normalized in the client; persisting its chosen shared value still canonicalizes the stored revision.
-        changes.sharedContent = structuredClone(project.sharedContent);
-        await request('save', { changes, baseVersion: state.version, requestId: crypto.randomUUID() });
-        const fresh = await request('state');
+        const project = chooseFrameClient(state.project, choices);
+        if (publish) await request('save', { project, baseVersion: state.version, requestId: crypto.randomUUID() });
+        const fresh = publish ? await request('state') : { ...state, project };
         cleanup();
         modal.close();
-        resolve(fresh.project?.sharedContentConflicts?.length ? await repairSharedContent(fresh) : fresh);
+        resolve(fresh.project?.frameConflicts?.length ? await repairSharedContent(fresh, publish) : fresh);
       } catch (error) {
         submit.disabled = false;
-        submit.textContent = 'Använd vald text på alla sidor';
+        submit.textContent = 'Använd valt innehåll på alla sidor';
         errorNode.textContent = error.message;
       }
     });
   });
 }
 
-export async function api(path, data) {
+export async function api(path, data, { choose = true } = {}) {
   const result = await request(path, data);
-  if (path === 'state' && data === undefined && result.project?.sharedContentConflicts?.length) return repairSharedContent(result);
+  if (choose && result.project?.frameConflicts?.length) return repairSharedContent(result, path === 'state' && data === undefined);
   return result;
 }
 

@@ -35,6 +35,17 @@ test('resize drag writes a responsive width and a height floor over auto', () =>
   assert.deepEqual(responsiveResizeStyle({ width: '10px' }, 'div'), { width: 'min(10px,100%)' });
 });
 
+test('resize subtracts padding and borders only for content-box CSS lengths', () => {
+  const box = { boxSizing: 'content-box', paddingLeft: '12px', paddingRight: '18px', borderLeftWidth: '3px', borderRightWidth: '4px', paddingTop: '10px', paddingBottom: '20px', borderTopWidth: '2px', borderBottomWidth: '3px' };
+  const style = { width: '521px', height: '571px' };
+  assert.deepEqual(responsiveResizeStyle(style, 'div', box), { width: 'min(484px,calc(100% - 37px))', 'min-height': '536px', height: 'auto' });
+  assert.deepEqual(responsiveResizeStyle(style, 'div', { ...box, boxSizing: 'border-box' }), { width: 'min(521px,100%)', 'min-height': '571px', height: 'auto' });
+  assert.deepEqual(responsiveResizeStyle({ height: '20px' }, 'div', box), { 'min-height': '0px', height: 'auto' });
+  assert.deepEqual(responsiveResizeStyle(style, 'img', box), { width: 'min(484px,calc(100% - 37px))', height: 'auto' });
+  assert.deepEqual(responsiveResizeStyle({ width: 'auto', height: 'auto' }, 'div', box), { width: 'auto', height: 'auto' });
+  assert.deepEqual(style, { width: '521px', height: '571px' });
+});
+
 test('resizable options are not set on non-resizable components', () => {
   const input = component('input');
   configureVisualComponent(input);
