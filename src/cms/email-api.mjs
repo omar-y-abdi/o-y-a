@@ -1,4 +1,5 @@
-import { reportFailure, reportMailOrphan } from './diagnostics.mjs';
+import { reportFailure } from './diagnostics.mjs';
+import { cleanupMailFiles, discardMailUpload, removeMailFile, MAIL_FILE_LIFETIME } from './mail-files.mjs';
 import { HttpError, errorResponse, json, readJson, requireWriteRequest } from './http.mjs';
 import { resolveResources } from './resources.mjs';
 import { validateCustomMail, validateEmailIdentity, validateEmailSettings } from './email-validate.mjs';
@@ -140,11 +141,8 @@ async function rateLimited(env, identity) {
 }
 
 async function cleanup(env, now) {
-  try {
-    const { results } = await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id IN (SELECT id FROM cms_mail_files WHERE expires_at < ? ORDER BY expires_at LIMIT 20) RETURNING object_key').bind(iso(now())).all();
-    if (!results.length) return;
-    await env.CMS_MEDIA.delete(results.map(row => row.object_key));
-  } catch (error) { reportFailure(error, 'mail'); }
+  try { await cleanupMailFiles(env, now); }
+  catch (error) { reportFailure(error, 'mail'); }
 }
 
 async function settingsView(env) {
@@ -217,7 +215,7 @@ async function attachmentFiles(env, list = [], nowMs, requestId) {
       files.push({ ...item, ...row });
     } else {
       // An immediate link expires with its upload row, so keep an hour of margin for Resend's fetch.
-      const row = await env.CMS_DB.prepare('SELECT name, mime, bytes, expires_at FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?) AND expires_at > ?').bind(item.id, requestId, iso(nowMs + 3600000)).first();
+      const row = await env.CMS_DB.prepare("SELECT name, mime, bytes, expires_at FROM cms_mail_files WHERE id = ? AND state = 'ready' AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?) AND expires_at > ?").bind(item.id, requestId, iso(nowMs + 3600000)).first();
       if (!row) throw reject('Bilagan har gått ut. Ladda upp den igen.', 'attachments');
       files.push({ ...item, ...row });
     }
@@ -322,7 +320,7 @@ async function sendMail(request, env, context) {
   // Claim every upload atomically with the intent. A scheduled send also keeps
   // its files until an hour after delivery, even if finalize fails.
   // Claims expire with their upload rows; they do not retain files indefinitely.
-  const reserve = uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET claimed_by = ?1, expires_at = MAX(expires_at, ?2) WHERE id IN (SELECT value FROM json_each(?3)) AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?1) AND expires_at > ?4 AND EXISTS (SELECT 1 FROM cms_sent_mail WHERE request_id = ?1 AND resend_id IS NULL)').bind(requestId, iso((scheduledExp ?? 0) * 1000), uploads, iso(nowMs + 3600000))] : [];
+  const reserve = uploadCount ? [env.CMS_DB.prepare("UPDATE cms_mail_files SET claimed_by = ?1, expires_at = MAX(expires_at, ?2) WHERE id IN (SELECT value FROM json_each(?3)) AND state = 'ready' AND sent_at IS NULL AND (claimed_by IS NULL OR claimed_by = ?1) AND expires_at > ?4 AND EXISTS (SELECT 1 FROM cms_sent_mail WHERE request_id = ?1 AND resend_id IS NULL)").bind(requestId, iso((scheduledExp ?? 0) * 1000), uploads, iso(nowMs + 3600000))] : [];
   const id = await deliver(env, existing, intent, () => resend(transport, values.RESEND_API_KEY, '', { method: 'POST', idempotency: requestId, body: {
     from: rendered.from, to: lists.to, ...(lists.cc.length ? { cc: lists.cc } : {}), ...(lists.bcc.length ? { bcc: lists.bcc } : {}),
     subject: rendered.subject, html: rendered.html, text: rendered.text,
@@ -389,29 +387,27 @@ async function uploadFile(request, env, { now }) {
   if (!mime) throw reject('Filtypen kan inte skickas som bilaga. Tillåtna: pdf, png, jpg, gif, webp, txt, csv, ics, zip, docx, xlsx, pptx.');
   await cleanup(env, now);
   const id = crypto.randomUUID(), key = 'mail-private/' + id;
-  // The body streams straight into R2; the Worker never holds the file.
-  const object = await env.CMS_MEDIA.put(key, request.body, { httpMetadata: { contentType: mime, contentDisposition: 'attachment' } });
-  if (object?.size !== size) {
-    await env.CMS_MEDIA.delete(key);
-    throw new HttpError(400, 'Filen kom inte fram hel. Försök igen.');
+  const createdAt = iso(now()), expiresAt = iso(now() + MAIL_FILE_LIFETIME);
+  // Register before R2 writes, but do not expose an incomplete upload. Cleanup
+  // can revoke this state while a slow PUT runs; promotion never recreates it.
+  await env.CMS_DB.prepare("INSERT INTO cms_mail_files(id,object_key,name,mime,bytes,created_at,expires_at,state) VALUES(?,?,?,?,?,?,?,'uploading')").bind(id, key, name, mime, size, createdAt, expiresAt).run();
+  try {
+    // The body streams straight into R2; the Worker never holds the file.
+    const object = await env.CMS_MEDIA.put(key, request.body, { httpMetadata: { contentType: mime, contentDisposition: 'attachment' } });
+    if (object?.size !== size) throw new HttpError(400, 'Filen kom inte fram hel. Försök igen.');
+    const promoted = await env.CMS_DB.prepare("UPDATE cms_mail_files SET state = 'ready' WHERE id = ? AND state = 'uploading' AND expires_at > ?").bind(id, iso(now())).run();
+    if (promoted.meta.changes !== 1) throw new HttpError(409, 'Bilagan gick ut under uppladdningen. Ladda upp den igen.');
+  } catch (error) {
+    await discardMailUpload(env, id, now);
+    throw error;
   }
-  const expiresAt = iso(now() + 86400000);
-  try { await env.CMS_DB.prepare('INSERT INTO cms_mail_files(id,object_key,name,mime,bytes,created_at,expires_at) VALUES(?,?,?,?,?,?,?)').bind(id, key, name, mime, size, iso(now()), expiresAt).run(); }
-  catch (error) { await env.CMS_MEDIA.delete(key); throw error; }
   return json({ id, name, size, mime, expiresAt }, 201);
 }
 
-async function removeFile(request, env) {
+async function removeFile(request, env, { now }) {
   requireWriteRequest(request);
   const id = (await readJson(request, 1024))?.id;
-  // A claimed or consumed upload cannot be removed; R2 follows D1 ownership.
-  const row = typeof id === 'string' && UUID.test(id) ? await env.CMS_DB.prepare('DELETE FROM cms_mail_files WHERE id = ? AND sent_at IS NULL AND claimed_by IS NULL RETURNING object_key').bind(id).first() : null;
-  if (!row) throw new HttpError(404, 'Bilagan finns inte.');
-  // Residual: a failed R2 delete leaves an orphan in the private prefix after
-  // its D1 row is gone. Log the server-made key separately because reportFailure
-  // redacts exception details; the owner still gets a successful removal.
-  try { await env.CMS_MEDIA.delete(row.object_key); }
-  catch (error) { reportMailOrphan(row.object_key); reportFailure(error, 'mail'); }
+  if (typeof id !== 'string' || !UUID.test(id) || !await removeMailFile(env, id, now)) throw new HttpError(404, 'Bilagan finns inte.');
   return json({ removed: true });
 }
 
@@ -456,7 +452,7 @@ export async function serveMailFile(request, env, now = Date.now) {
   const denied = () => json({ error: 'Länken gäller inte.' }, 403);
   if (extra !== undefined || url.searchParams.size !== 1 || !env.CMS_DB || !/^\d{1,12}$/.test(exp) || Number(exp) > nowSeconds + SCHEDULE_MAX_DAYS * 86400 + 3600 + 60) return denied();
   if (!await verifyFileLink(env, id, exp, sig, nowSeconds)) return denied();
-  const row = await env.CMS_DB.prepare('SELECT name, mime FROM cms_mail_files WHERE id = ?').bind(id).first();
+  const row = await env.CMS_DB.prepare("SELECT name, mime FROM cms_mail_files WHERE id = ? AND state = 'ready' AND expires_at >= ?").bind(id, iso(now())).first();
   if (!row) return denied();
   const key = 'mail-private/' + id;
   const object = request.method === 'HEAD' ? await env.CMS_MEDIA.head(key) : await env.CMS_MEDIA.get(key);

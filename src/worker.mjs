@@ -5,6 +5,7 @@ import { CSP, SKIFT_CSP } from './csp.mjs';
 import { seed, initial, built } from '../.generated/cms-seed.mjs';
 import { handleAdmin, assetResponse } from './cms/api.mjs';
 import { serveMailFile } from './cms/email-api.mjs';
+import { maintainMailFiles } from './cms/mail-files.mjs';
 import { ADMIN_CSP, publicContent } from './cms/render.mjs';
 import { isSkiftPath } from './cms/skift.mjs';
 import { errorResponse } from './cms/http.mjs';
@@ -85,6 +86,9 @@ async function eventResponse(request, env, url) {
   return new Response(null,{status:204,headers:{'Cache-Control':'no-store'}});
 }
 export default {
+  async scheduled(_controller, env) {
+    await maintainMailFiles(env);
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     const local = isLocalPreview(url,env);

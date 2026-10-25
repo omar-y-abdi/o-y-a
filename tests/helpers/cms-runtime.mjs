@@ -13,7 +13,7 @@ export async function migrateCmsDb(db) {
 
 // A real Worker, D1, R2 and signed JWT. Only the outbound JWKS origin is
 // replaced by a local identity fixture. No auth bypass exists in product code.
-export async function cmsRuntime({ port = 0, persist = false, project, analytics = false } = {}) {
+export async function cmsRuntime({ port = 0, persist = false, project, analytics = false, scheduled = false } = {}) {
   const { privateKey, publicKey } = await generateKeyPair('RS256', { extractable: true });
   const key = { ...await exportJWK(publicKey), kid: 'local-fixture', alg: 'RS256', use: 'sig' };
   const team = 'https://cms-test.cloudflareaccess.com';
@@ -21,7 +21,7 @@ export async function cmsRuntime({ port = 0, persist = false, project, analytics
   const audience = 'cms-local-tests';
   const bundle = await build({ entryPoints: ['src/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022' });
   const options = {
-    host: '127.0.0.1', port, modules: true, script: bundle.outputFiles[0].text,
+    host: '127.0.0.1', port, modules: true, script: bundle.outputFiles[0].text, unsafeTriggerHandlers: scheduled,
     compatibilityDate: '2026-09-11',
     bindings: { CMS_ACCESS_TEAM: team, CMS_ACCESS_AUD: audience, CMS_ADMIN_EMAIL: email, CMS_STAGE: 'true', PREVIEW_ORIGIN: `http://127.0.0.1:${port}`, ANALYTICS_ENABLED: String(analytics) },
     assets: { directory: 'dist', binding: 'ASSETS', run_worker_first: true, routerConfig: { has_user_worker: true }, assetConfig: { html_handling: 'force-trailing-slash', not_found_handling: '404-page' } },

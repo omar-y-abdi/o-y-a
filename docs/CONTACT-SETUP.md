@@ -44,7 +44,7 @@ De fyra värdena kan också sparas i **Mejl → Inställningar** efter att D1-mi
 
 ## 4. Publicera på din vanliga väg
 
-Vid uppgradering från bilagelänkar av formen `/mail-file/{id}/{exp}/{token}` behöver befintliga bilageutskick först avslutas eller avbrytas. Den här versionen utfärdar och accepterar endast `/mail-file/{id}/{exp}?token=…`. Äldre länkar avvisas, eftersom deras hemlighet ligger i sökvägen och inte kan döljas med query-redigering. Kontrollera schemalagda mejl och alla obekräftade utskick i Resend, även sådana som finns frysta i en öppen studioflik. Bekräfta leverans eller avbryt hos Resend innan uppgraderingen; skapa inte en ny identitet för ett utskick vars resultat fortfarande är okänt. Stäng gamla skrivflikar under övergången. Om inga sådana utskick finns, dokumentera den kontrollen i releaseunderlaget.
+Vid uppgradering från bilagelänkar av formen `/mail-file/{id}/{exp}/{token}` behöver befintliga bilageutskick först avslutas eller avbrytas. Den här versionen utfärdar och accepterar endast `/mail-file/{id}/{exp}?token=…`. Äldre länkar avvisas, eftersom deras hemlighet ligger i sökvägen och inte kan döljas med querymaskering. Kontrollera schemalagda mejl och alla obekräftade utskick i Resend, även sådana som finns frysta i en öppen studioflik. Bekräfta leverans eller avbryt hos Resend innan uppgraderingen; skapa inte en ny identitet för ett utskick vars resultat fortfarande är okänt. Stäng gamla skrivflikar under övergången. Om inga sådana utskick finns, dokumentera den kontrollen i releaseunderlaget.
 
 `wrangler.jsonc` aktiverar `observability.redact_query_string`, som enligt [Cloudflares inställningskontrakt](https://developers.cloudflare.com/api/typescript/resources/workers/subresources/scripts/subresources/settings/methods/get/) tar bort query-strängar från begäransadresser i loggar och traces. Efter publiceringen ska kontots effektiva inställning kontrolleras med en egen ofarlig test-token. Det ändrar inte historiska loggar eller andra tjänsters loggning. Dela aldrig fullständiga bilagelänkar i felrapporter.
 
@@ -86,6 +86,12 @@ GIF-filen är färdig och används inne i kvittot. En avsändarbild i Gmail, Out
 API:t accepterar bara samma origin, JSON, begränsad kroppsstorlek, tillåtna fält, giltiga kontaktuppgifter och ett serververifierat Turnstile-svar. Samma försök får en HMAC-baserad idempotensnyckel hos Resend. Inget vanligt inmatningsfel eller leverantörsfel ger ett låtsat lyckat utskick.
 
 Studions utskick har en separat beständig identitet och ett D1-register över varje försök innan Resend anropas. Ett 409-svar kan betyda att samma utskick fortfarande behandlas eller redan har accepterats med andra data; det får därför inte radera avsikten eller frigöra bilagor. En vägran får bara rensa en ny avsikt som inget annat försök har använt. Se [Resends idempotenskontrakt](https://resend.com/changelog/idempotency-keys).
+
+Privata bilagor registreras i D1 innan filen strömmas till R2. Först en slutförd uppladdning får användas i ett utskick. Normalt löper filen ut efter 24 timmar; en schemalagd sändning förlänger tiden till minst en timme efter sändningstiden. Borttagning spärrar filen i D1 innan R2 raderas. Om lagringen inte svarar behålls raderingsavsikten och nästa städning försöker igen.
+
+En schemalagd Worker-körning sker varje timme, minut 17 UTC, även när studion inte används. Varje körning behandlar högst 20 förfallna eller tidigare raderingsmarkerade D1-filer och läser högst 20 objekt i `mail-private/` med en beständig sidmarkör. Den senare genomgången tar endast bort objekt som är minst 24 timmar gamla och saknar D1-rad; den fångar även avbrutna uppladdningar och äldre övergivna objekt. Fel rapporteras och arbetet återkommer. En större kö eller lagringsstörning fördröjer den fysiska raderingen, men D1-status och utgångstid spärrar hämtning och nya utskick direkt.
+
+Migreringarna `0008_mail_send_attempts.sql` och `0009_mail_file_lifecycle.sql` måste vara tillämpade före denna Worker. Kontrollera efter publicering att cron-triggern finns och att schemalagda körningar lyckas. Vid återgång till en äldre Worker behöver även triggerkonfigurationen återställas; den gamla koden känner inte till de nya bilagestatusarna. Låt inte en gammal mail-Worker skriva samtidigt med denna version under en övergång.
 
 ## Kontrollerat byte av huvudnyckel
 

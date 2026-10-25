@@ -4,6 +4,7 @@ import { request } from 'node:http';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { handleEmailAdmin, serveMailFile, SCHEDULE_MAX_DAYS } from '../src/cms/email-api.mjs';
 import { signFileLink } from '../src/server/contact-secrets.mjs';
+import { cleanupMailFiles, sweepMailOrphans, MAIL_FILE_LIFETIME } from '../src/cms/mail-files.mjs';
 import { errorResponse } from '../src/cms/http.mjs';
 import { DEFAULT_EMAIL } from '../src/server/email-render.mjs';
 
@@ -905,29 +906,173 @@ test('unconfirmed intents older than 24 hours survive finalize, stay listed and 
   assert.equal(retry.calls.length, 0);
 });
 
-test('cleanup relinquishes D1 rows before deleting R2 objects', async () => {
+test('cleanup records a terminal D1 claim before deleting R2 objects', async () => {
   const old = await addFile(10, iso(START - 1));
   const remove = bucket.delete;
   bucket.delete = async keys => {
-    assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(old).first(), null);
+    assert.equal((await runtime.db.prepare('SELECT state FROM cms_mail_files WHERE id = ?').bind(old).first()).state, 'deleting');
     await remove(keys);
   };
   assert.equal((await upload()).status, 201);
   assert.ok(!bucket.objects.has('mail-private/' + old));
+  assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(old).first(), null);
 });
 
-test('remove succeeds and reports private orphan when R2 deletion fails', async t => {
+test('remove succeeds with a durable, unavailable deletion claim when R2 fails', async t => {
   const { id } = await (await upload()).json();
   const logs = [];
   t.mock.method(console, 'error', entry => logs.push(JSON.parse(entry)));
+  const link = await signFileLink(env(), id, Math.floor(clock / 1000) + 3600);
+  const remove = bucket.delete;
   bucket.delete = async () => { throw new Error('R2_ERROR: unavailable'); };
   const removed = await run(post('/admin/api/mail/attachment-remove', { id }), env());
   assert.equal(removed.status, 200);
   assert.deepEqual(await removed.json(), { removed: true });
-  assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(id).first(), null);
+  assert.equal((await runtime.db.prepare('SELECT state FROM cms_mail_files WHERE id = ?').bind(id).first()).state, 'deleting');
   assert.ok(bucket.objects.has('mail-private/' + id));
   assert.ok(logs.some(entry => entry.event === 'cms_failure' && entry.operation === 'mail' && entry.code === 'storage-r2'));
-  assert.ok(logs.some(entry => entry.event === 'mail_orphan' && entry.key === 'mail-private/' + id));
+  assert.equal((await serveMailFile(new Request(origin + link), env(), () => clock)).status, 403);
+  const p = provider();
+  assert.equal((await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id }] })), env(), p.fetch)).status, 422);
+  assert.equal(p.calls.length, 0);
+  bucket.delete = remove;
+  await cleanupMailFiles(env(), () => clock);
+  assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(id).first(), null);
+  assert.equal(bucket.objects.has('mail-private/' + id), false);
+});
+
+test('an incomplete upload is registered but cannot be served, sent or removed as ready', { timeout: 10000 }, async () => {
+  const entered = Promise.withResolvers(), resume = Promise.withResolvers(), put = bucket.put;
+  bucket.put = async (key, ...args) => {
+    const id = key.slice('mail-private/'.length);
+    assert.equal((await runtime.db.prepare('SELECT state FROM cms_mail_files WHERE id = ?').bind(id).first()).state, 'uploading');
+    entered.resolve(id);
+    await resume.promise;
+    return put(key, ...args);
+  };
+  const pending = upload();
+  const id = await entered.promise;
+  try {
+    const link = await signFileLink(env(), id, Math.floor(clock / 1000) + 3600);
+    assert.equal((await serveMailFile(new Request(origin + link), env(), () => clock)).status, 403);
+    const p = provider();
+    assert.equal((await run(post('/admin/api/mail/send', compose({ attachments: [{ kind: 'upload', id }] })), env(), p.fetch)).status, 422);
+    assert.equal(p.calls.length, 0);
+    assert.equal((await run(post('/admin/api/mail/attachment-remove', { id }), env())).status, 404);
+  } finally { resume.resolve(); }
+  assert.equal((await pending).status, 201);
+  assert.equal((await runtime.db.prepare('SELECT state FROM cms_mail_files WHERE id = ?').bind(id).first()).state, 'ready');
+});
+
+test('failed pre-upload registration writes no R2 object', async t => {
+  t.mock.method(console, 'error', () => {});
+  let puts = 0;
+  const put = bucket.put;
+  bucket.put = async (...args) => { puts++; return put(...args); };
+  const db = { prepare(sql) {
+    if (sql.startsWith('INSERT INTO cms_mail_files')) return { bind() { return this; }, async run() { throw new Error('D1_ERROR: unavailable'); } };
+    return runtime.db.prepare(sql);
+  } };
+  const response = await run(uploadRequest('failed.pdf', new TextEncoder().encode('file')), env({ CMS_DB: db }));
+  assert.equal(response.status, 503);
+  assert.equal(puts, 0);
+  assert.equal(bucket.objects.size, 0);
+});
+
+test('failed upload promotion and failed compensation retain a scheduled deletion key', async t => {
+  t.mock.method(console, 'error', () => {});
+  const remove = bucket.delete;
+  bucket.delete = async () => { throw new Error('R2_ERROR: unavailable'); };
+  const db = { prepare(sql) {
+    if (sql.startsWith("UPDATE cms_mail_files SET state = 'ready'")) return { bind() { return this; }, async run() { throw new Error('D1_ERROR: unavailable'); } };
+    return runtime.db.prepare(sql);
+  } };
+  const response = await run(uploadRequest('failed.pdf', new TextEncoder().encode('file')), env({ CMS_DB: db }));
+  assert.equal(response.status, 503);
+  const row = await runtime.db.prepare('SELECT id, object_key, state FROM cms_mail_files').first();
+  assert.equal(row.state, 'deleting');
+  assert.ok(bucket.objects.has(row.object_key));
+  bucket.delete = remove;
+  await cleanupMailFiles(env(), () => clock);
+  assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(row.id).first(), null);
+  assert.equal(bucket.objects.size, 0);
+});
+
+test('late PUT cannot publish a ready row after expiry cleanup and orphan sweep', { timeout: 10000 }, async () => {
+  const putEntered = Promise.withResolvers(), finishPut = Promise.withResolvers();
+  const promotionEntered = Promise.withResolvers(), finishPromotion = Promise.withResolvers();
+  const put = bucket.put;
+  let uploadedAt;
+  bucket.put = async (key, ...args) => {
+    putEntered.resolve(key.slice('mail-private/'.length));
+    await finishPut.promise;
+    const result = await put(key, ...args);
+    uploadedAt = clock;
+    return result;
+  };
+  bucket.list = async () => ({ objects: [...bucket.objects.keys()].map(key => ({ key, uploaded: new Date(uploadedAt) })), truncated: false });
+  const db = { prepare(sql) {
+    const statement = runtime.db.prepare(sql);
+    if (!sql.startsWith("UPDATE cms_mail_files SET state = 'ready'")) return statement;
+    return { bind(...values) { return { async run() { promotionEntered.resolve(); await finishPromotion.promise; return statement.bind(...values).run(); } }; } };
+  } };
+  const pending = run(uploadRequest('late.pdf', new TextEncoder().encode('file')), env({ CMS_DB: db }));
+  const id = await putEntered.promise;
+  try {
+    clock += MAIL_FILE_LIFETIME + 1;
+    await cleanupMailFiles(env(), () => clock);
+    assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(id).first(), null);
+    finishPut.resolve();
+    await promotionEntered.promise;
+    assert.ok(bucket.objects.has('mail-private/' + id));
+    clock += MAIL_FILE_LIFETIME + 1;
+    await sweepMailOrphans(env(), () => clock);
+    assert.equal(bucket.objects.has('mail-private/' + id), false);
+  } finally { finishPut.resolve(); finishPromotion.resolve(); }
+  const response = await pending;
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error, /gick ut under uppladdningen/);
+  assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(id).first(), null);
+  assert.equal(bucket.objects.has('mail-private/' + id), false);
+});
+
+test('a deletion claim between eligibility and send reservation cannot be revived', async t => {
+  t.mock.method(console, 'error', () => {});
+  for (const reason of ['remove', 'expiry']) {
+    clock = START;
+    const { id } = await (await upload()).json();
+    const remove = bucket.delete;
+    bucket.delete = async () => { throw new Error('R2_ERROR: unavailable'); };
+    let first = true;
+    const db = { prepare: sql => runtime.db.prepare(sql), async batch(statements) {
+      if (first) {
+        first = false;
+        if (reason === 'remove') assert.equal((await run(post('/admin/api/mail/attachment-remove', { id }), env())).status, 200);
+        else {
+          clock += MAIL_FILE_LIFETIME + 1;
+          await assert.rejects(cleanupMailFiles(env(), () => clock), /R2_ERROR/);
+        }
+        assert.equal((await runtime.db.prepare('SELECT state FROM cms_mail_files WHERE id = ?').bind(id).first()).state, 'deleting');
+      }
+      return runtime.db.batch(statements);
+    } };
+    const request = compose({ scheduledAt: iso(START + 3 * MAIL_FILE_LIFETIME), attachments: [{ kind: 'upload', id }] });
+    const p = provider(), response = await run(post('/admin/api/mail/send', request), env({ CMS_DB: db }), p.fetch);
+    assert.equal(response.status, 422, reason);
+    assert.equal(p.calls.length, 0, reason);
+    assert.equal(await requestRow('mail/' + request.requestId), null);
+    assert.equal((await runtime.db.prepare('SELECT state FROM cms_mail_files WHERE id = ?').bind(id).first()).state, 'deleting');
+    bucket.delete = remove;
+    await cleanupMailFiles(env(), () => clock);
+    assert.equal(await runtime.db.prepare('SELECT id FROM cms_mail_files WHERE id = ?').bind(id).first(), null);
+  }
+});
+
+test('an expired registered file is inaccessible before its cleanup job runs', async () => {
+  const id = await addFile(10, iso(START - 1));
+  const link = await signFileLink(env(), id, Math.floor(START / 1000) + 3600);
+  assert.equal((await serveMailFile(new Request(origin + link), env(), () => clock)).status, 403);
+  assert.ok(bucket.objects.has('mail-private/' + id));
 });
 
 test('failed cancel reconciles canceled status and records it once', async () => {
