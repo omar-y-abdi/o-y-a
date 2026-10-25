@@ -43,5 +43,5 @@ test('quality shell uses the shared Python finder for every Python invocation', 
   const quality = await readFile(new URL('../scripts/quality.sh', import.meta.url), 'utf8');
   assert.match(quality, /python=\$\(node --input-type=module -e 'import \{ testPython \} from "\.\/scripts\/test-python\.mjs"; console\.log\(await testPython\(\)\);'\)/);
   assert.doesNotMatch(quality, /^python\s/m);
-  assert.equal((quality.match(/^"\$python" /gm) ?? []).length, 4, 'unit, port, readiness and HTTP checks share the finder');
+  assert.equal((quality.match(/^"\$python" /gm) ?? []).length, 1, 'the revision-scroll unit check is the only Python step left');
 });
