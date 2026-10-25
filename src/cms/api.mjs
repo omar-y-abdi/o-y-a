@@ -55,7 +55,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       }
       if (url.pathname === '/admin/api/assets') {
         const state = url.searchParams.get('state');
-        const result = await assetPage(env.CMS_DB, { cursor: url.searchParams.get('cursor'), query: url.searchParams.get('q') ?? '', state: ['active','archived','trash'].includes(state) ? state : null, archived: state ? null : url.searchParams.get('archived') === '1', images: url.searchParams.get('kind') === 'image' });
+        const result = await assetPage(env.CMS_DB, { cursor: url.searchParams.get('cursor'), query: url.searchParams.get('q') ?? '', state: ['active','archived','trash'].includes(state) ? state : null, archived: state ? null : url.searchParams.get('archived') === '1', images: url.searchParams.get('kind') === 'image', fonts: url.searchParams.get('kind') === 'font' });
         return json(result);
       }
       if (url.pathname === '/admin/api/managed-svg') {
@@ -96,7 +96,13 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       }
       throw new HttpError(422, 'SVG-sparningens fas är ogiltig.');
     }
-    if (['/admin/api/asset-metadata', '/admin/api/asset-usage', '/admin/api/asset-lifecycle'].includes(url.pathname)) {
+    if (url.pathname === '/admin/api/asset-usage') {
+      const body = await readJson(request, 1024);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string' || Object.keys(body).some(key => key !== 'id')) throw new HttpError(422, 'Välj en resurs för historikkontrollen.');
+      const builtin = seed.assets.find(asset => asset.id === body.id);
+      return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }));
+    }
+    if (['/admin/api/asset-metadata', '/admin/api/asset-lifecycle'].includes(url.pathname)) {
       const body = await readJson(request, 16 * 1024 * 1024);
       const builtin = seed.assets.find(asset => asset.id === body.id);
       if (url.pathname === '/admin/api/asset-metadata') {
@@ -104,20 +110,15 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         return json({ asset: builtin ? await updateBuiltinAsset(env.CMS_DB, builtin, patch) : await updateAsset(env.CMS_DB, id, patch) });
       }
       const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
-      if (url.pathname === '/admin/api/asset-usage') return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }, project));
       const input = { action: body.action, baseVersion: body.baseVersion, baseSiteVersion: body.baseSiteVersion, project };
       return json(builtin ? await transitionBuiltinAsset(env.CMS_DB, builtin, input) : await transitionAsset(env, { id: body.id, ...input }));
     }
-    if (['/admin/api/replace-resource', '/admin/api/resource-usage'].includes(url.pathname)) {
+    if (url.pathname === '/admin/api/replace-resource') {
       const body = await readJson(request, 16 * 1024 * 1024);
       const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
       const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
       const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
       const assets = resourceCatalog(builtinSeed, selectedAssets, project);
-      if (url.pathname.endsWith('/resource-usage')) {
-        const counts = resourceReferences(project, url.origin);
-        return json({ counts: Object.fromEntries([...counts].map(([src, count]) => [src, count])) });
-      }
       const previous = assets.find(asset => asset.id === body.fromId), next = assets.find(asset => asset.id === body.toId && !asset.builtin && !asset.trashed);
       if (!previous || !next) throw new HttpError(404, 'Filen som ska ersättas eller den nya filen saknas.');
       const result = replaceResource(project, previous, next, url.origin);
@@ -223,8 +224,6 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references }));
     }
-    const asset = url.pathname.match(/^\/admin\/api\/assets\/([0-9a-f-]{36})$/);
-    if (asset) return json(await updateAsset(env.CMS_DB, asset[1], await readJson(request, 4096)));
     throw new HttpError(404, 'Åtgärden finns inte.');
   } catch (error) { return errorResponse(error, new URL(request.url).pathname.split('/')[3]); }
 }

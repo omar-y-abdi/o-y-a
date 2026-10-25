@@ -1,6 +1,6 @@
 import { parseFragment } from 'parse5';
 import { HttpError } from './http.mjs';
-import { validateCss, validateEditorData, validateHtml, validatePagePath, VALIDATION_POLICY } from './validation.mjs';
+import { validateCss, validateHtml, validatePagePath, VALIDATION_POLICY } from './validation.mjs';
 import { resolveSiteLink } from './routes.mjs';
 import { referencedIds } from './id-references.mjs';
 import { validateResources, resourceReferences } from './resources.mjs';
@@ -70,9 +70,6 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
       }
     }
     const style = compatible && page.css === saved.css ? saved.css : validateCss(page.css ?? '');
-    // Import legacy metadata safely, but persist one authoritative representation.
-    // Reconstructing from HTML/CSS removes the editor/public split-brain state.
-    if (page.project !== undefined && page.project !== null) validateEditorData(page.project, contracts);
     const project = null;
     return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts, ...(page.footerVersion === undefined ? {} : { footerVersion: page.footerVersion }) };
   };
@@ -125,7 +122,6 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
       for (let node = slots[0]; node?.tagName; node = node.parentNode) {
         if (attribute(node, 'hidden') !== undefined || attribute(node, 'inert') !== undefined || attribute(node, 'aria-hidden') === 'true' || ['svg', 'select', 'textarea', 'dialog', 'details'].includes(node.tagName)) fail('Vinstens text får inte placeras i dolt eller inaktivt innehåll.');
       }
-      if (card.design.project !== undefined && card.design.project !== null) validateEditorData(card.design.project);
       result.design = { html, css: validateCss(card.design.css ?? ''), project: null };
     }
     return result;

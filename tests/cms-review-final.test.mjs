@@ -55,9 +55,15 @@ test('R17: card slots must be renderable text containers, never void, inert or h
   assert.doesNotThrow(() => validateProject(project, seed));
 });
 
-test('R18: editor collection and member shapes are checked before persistence', async () => {
+test('C1: obsolete editor shapes are discarded before persistence', async () => {
   for (const data of [{ pages: {} }, { pages: [null] }, { pages: [{ frames: {} }] }, { pages: [{ frames: [null] }] }, { pages: [{ component: { tagName: 'main', components: 37 } }] }, { pages: [{ component: { tagName: 3 } }] }, { styles: {} }, { pages: [{ component: { attributes: [] } }] }, { pages: [{ component: { style: [] } }] }, { pages: [{ component: { components: [false] } }] }]) {
-    const project = extra(); project.pages.at(-1).project = data; await rejectedWithoutRevision(project);
+    const project = extra(); project.pages.at(-1).project = data;
+    const before = (await (await admin('state')).json()).version;
+    const response = await admin('save', { project, baseVersion: before, requestId: crypto.randomUUID() });
+    assert.equal(response.status, 200, await response.clone().text());
+    const state = await (await admin('state')).json();
+    assert.equal(state.project.pages.at(-1).project, null);
+    assert.equal(state.project.pages.at(-1).html, project.pages.at(-1).html);
   }
 });
 

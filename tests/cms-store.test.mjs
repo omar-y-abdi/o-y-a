@@ -121,3 +121,18 @@ test('publication media and page fonts reuse a trusted reference index without r
   assert.match(query, /cms_media/);
   assert.equal(media[0].src, src);
 });
+
+test('C1: invalidating media between preflight and the publication batch prevents every publication write', async () => {
+  const id = crypto.randomUUID();
+  await db.prepare('INSERT INTO cms_media(id,object_key,name,mime,bytes,sha256,created_at,validation_version) VALUES(?,?,?,?,?,?,?,1)').bind(id, `${id}.woff2`, 'Font', 'font/woff2', 48, 'fixture', new Date().toISOString()).run();
+  const candidate = project('Förlorat sparförsök');
+  candidate.theme = { ...defaultTheme, fontFamily: `cms-font-${id}` };
+  const before = await db.prepare('SELECT version,path FROM cms_rendered ORDER BY version,path').all();
+  const racedDb = { prepare: sql => db.prepare(sql), async batch(statements) {
+    await db.prepare('UPDATE cms_media SET validation_version=0 WHERE id=?').bind(id).run();
+    return db.batch(statements);
+  } };
+  await assert.rejects(publishSite(racedDb, { project: candidate, baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' }), { status: 409 });
+  assert.equal((await readSite(db)).version, revision);
+  assert.deepEqual((await db.prepare('SELECT version,path FROM cms_rendered ORDER BY version,path').all()).results, before.results);
+});
