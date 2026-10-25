@@ -1,6 +1,6 @@
 # Integrating SKIFT into a portfolio
 
-The distributable already contains a complete page at `dist/play/skift/`. The local preview serves it at `/play/skift/`. Integration is a separate publishing decision: the project does not edit a repository, configure Cloudflare, create an external project, or deploy anything.
+The distributable already contains a complete page at `dist/play/skift/`. The local preview serves it at `/play/skift/`. This describes the standalone artifact. The portfolio now builds the same game sources directly; its root build and Worker own deployment and routing. The standalone commands themselves do not configure or deploy hosting.
 
 ## Static hosting
 

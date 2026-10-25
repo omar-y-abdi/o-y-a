@@ -60,7 +60,7 @@ npm run check:fast &&
 CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
 ```
 
-Den lokala standardloopen bygger, lintar, kör parallella `node:test`-tester och kritiska GrapesJS-smokes. Full lokal verifiering körs i ordning:
+Den lokala standardloopen bygger, lintar, kör parallella `node:test`-tester och kritiska GrapesJS-smokes. Följande är en bred lokal kontrollkedja. Den fullständiga PR-matrisen, inklusive funktionella browserportar och fristående SKIFT-release, definieras i [CI-workflowen](.github/workflows/ci.yml) och [QA-guiden](docs/QA.md). Kör tunga tester i GitHub när lokal belastning ska undvikas:
 
 ```sh
 npm run quality &&
@@ -81,6 +81,10 @@ Det lägger till publik HTTP/browser-E2E, 240 parallella kortexporter, autentise
 
 ## Miljöer och kontakt
 
-Produktion är den enda Worker-konfigurationen: `wrangler.jsonc` och Worker `omar-portfolio`. Workers Builds deployar den med `npm run deploy:cloudflare` cirka 30 sekunder efter varje push till `main`. Driftrutinerna finns i [driftguiden](docs/DEPLOYMENT.md).
+Produktion är den enda Worker-konfigurationen: `wrangler.jsonc` och Worker `omar-portfolio`. Workers Builds deployar den med `npm run deploy:cloudflare` efter push till `main`, enligt kontots effektiva bygginställningar. Driftrutinerna finns i [driftguiden](docs/DEPLOYMENT.md).
 
 Kontaktformuläret behåller Cloudflare Turnstile, serverbaserad Resend-integration och befintligt missbruksskydd. Se [CONTACT-SETUP.md](docs/CONTACT-SETUP.md). Lokala tester använder uttryckliga testsvar och skickar inga riktiga mejl. Frivillig statistik förblir avstängd med `ANALYTICS_ENABLED: "false"`.
+
+## Ursprung och licenser
+
+[Underlag och proveniens](docs/SOURCES.md) skiljer historiska innehållskällor från verifierad kod. [Fullständiga tredjepartslicenser](THIRD-PARTY-LICENSES.txt) finns i Git och följer med webbbygget. [Licensinventeringen](licenses/README.md) beskriver inbäddade bibliotek och byggkontroller; spelet har dessutom [egna notices och credits](games/skift/CREDITS.md).

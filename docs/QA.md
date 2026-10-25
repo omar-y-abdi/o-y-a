@@ -74,7 +74,7 @@ The following entry points do not run the site build themselves. Run `npm run bu
 
 | Entry point | Build dependency and additional prerequisite |
 | --- | --- |
-| `npm run preview`, `node scripts/serve.mjs`, `node scripts/cms-dev.mjs` | Built assets and the Worker's generated CMS seed. |
+| `npm run preview`, `node scripts/cms-dev.mjs` | Built assets and the Worker's generated CMS seed. |
 | `npm run test:slow`, `npm run test:cms`, direct `node --test tests/*.test.mjs`, `scripts/run-node-tests.mjs` modes | Node suites read built pages/assets or import the generated seed directly or through `tests/helpers/cms-runtime.mjs` and `tests/helpers/pre-agent-footer.mjs`. |
 | `scripts/test-cms.mjs`, `test-cms-parallel.mjs`, `test-footer-cms.mjs`, `test-cms-compat.mjs` | Local Worker assets and generated seed; Python/browser setup from the README. |
 | `scripts/prepare-cms-modules.mjs`, `test-cms-modules.mjs`, `test-cms-modules-parallel.mjs` | Generated seed and asset URLs; fixture preparation is not a site build. |
@@ -149,3 +149,7 @@ The computed contrast audit checks text over simple solid backgrounds. It exclud
 Local fixtures do not verify the owner's actual Cloudflare Access session, deployed CPU quotas, durable production Save, media visibility or history restore. Verify those outcomes separately under the release procedure; a successful Wrangler upload alone is insufficient.
 
 The release instructions remain in [DEPLOYMENT.md](DEPLOYMENT.md). Neither mock contact responses nor a successful provider call prove email inbox delivery. No production mail, full accessibility certification or field-performance guarantee is claimed.
+
+## Distribution and notice gates
+
+Every root build checks tracked full third-party notices and actual browser bundle inputs. The verify job additionally checks the Wrangler Worker bundle. A separate `skift-release` job installs the game lockfile, builds and packages it, rebuilds its extracted source outside the repository, and exercises the actual ZIP in pinned Chromium. Its artifact includes the ZIP, checksum and browser receipt. Missing license text or a missing build input fails the gate.

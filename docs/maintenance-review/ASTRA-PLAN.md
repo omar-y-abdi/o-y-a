@@ -1,0 +1,87 @@
+# Astra peer plan: PR14 repair and independent review
+
+## Contract and current evidence
+
+Worktree: `maintenance-clean checkout`. The root owns Git and publication. I do not stage, commit, push, reset, switch branches, install dependencies, run local tests/builds/servers/application code, or touch another worktree. Source changes begin only after an agreed file assignment. Runtime acceptance comes from the reviewed candidate's GitHub jobs; static review is labeled separately.
+
+Read the operating-manual, surgical-coding, and ai-build-orchestration skills, the four mapping reports, and ROOT-PLAN. The user's explicit equal-partner instruction allows both root and peer to author; every material authoring batch receives the other's independent review. No additional agents.
+
+The initial source pass independently confirms signed bearer credentials in URL path, unreserved `/mail-file`, expiry cleanup deleting D1 before R2 with no scheduled caller, and the single-key encryption/signing boundary. The existing raw-v185 API case is meaningful evidence but does not exercise browser preview. Original generated-output deletions should remain; existing builders regenerate game notices. Full vendor coverage and standalone build closure still need repair and runtime proof.
+
+## History and review boundary
+
+Recommend one clearly labeled candidate snapshot import commit recording both original endpoints and exact source-tree identity, followed by coherent independently reviewed repair commits. The import is explicitly unapproved provenance, not a claim that the old work passed review. This keeps original maintenance ancestry off the new branch and preserves a reconstructible source instead of inventing domain history for intertwined changes. Final review still covers the entire main-to-candidate diff, including the import, deletions, tests, docs, and migrations.
+
+## Proposed ownership
+
+Peer owns server/mail/security/data: `src/cms/email-api.mjs`, `src/server/contact-secrets.mjs`, `src/cms/routes.mjs`, `src/worker.mjs`, `wrangler.jsonc`, a necessary append-only mail migration and any justified mail-lifecycle module, `tests/email-api.test.mjs`, `tests/contact-secrets.test.mjs`, `tests/wrangler-config.test.mjs`, focused new mail lifecycle/route tests, `docs/CONTACT-SETUP.md`, `docs/CMS-SECURITY.md`, and the inaccurate legacy-JSON passage in `docs/CMS-LOCAL-VERIFICATION.md`. Additional server paths need an explicit handoff before edits.
+
+Root owns licensing/build/standalone release, public startup and tablet navigation, other studio/client behavior, raw-v185 browser coverage, general docs/tests/CI. Root may review/read every peer file; source writes remain disjoint. Cross-scope edits to docs, worker configuration, or test helpers require an explicit handoff.
+
+## Repair sequence and observable gates
+
+1. **Attachment security and route ownership.** Verify current Wrangler query redaction support against pinned schema and official documentation. Move newly issued capability tokens out of URL paths, enable effective query redaction, reject path/identity/expiry tampering, and reserve the route in server validation. Resolve existing signed-link compatibility explicitly: unconditional legacy acceptance would preserve the leak; removing it can invalidate pending sends. Determine rollout condition from source/docs and report any live-state prerequisite without reading credentials.
+2. **Attachment lifecycle.** Establish a durable D1 deletion claim before R2 deletion. All send reservations and serving reads must exclude the claim; R2 failure must retain a retryable key; successful deletion can remove its D1 row. Add bounded scheduled cleanup so abandoned files expire without later user traffic. Manual removal must use the same durable state instead of orphan logging alone. Check insertion rollback and partial-upload failure too: the existing R2-before-D1 path can also lose its cleanup key. Avoid a generic queue unless the actual cross-store crash boundary requires one.
+3. **Lifecycle adversarial tests.** Pin idle expiry, failure/retry, bounded work, unexpired preservation, scheduled claim preservation, expiry-vs-send ordering, manual remove-vs-send ordering, serving a tombstoned file, and interrupted upload cleanup. Use real D1 for state transitions and controlled R2 gates for races. Scheduler wiring must be covered through the Worker entry, not merely a helper call.
+4. **Master-key and validation documentation.** Document all uses of `CONTACT_HASH_SECRET`, fail-closed saved settings, pending and ambiguous mail preconditions, recovery/re-entry after controlled rotation, and rollback. Correct editor JSON discard and actual route-specific request limits. Keep encryption and rotation behavior pinned without adding speculative multi-key infrastructure.
+5. **Continue hostile full-PR review.** Inspect remaining changed server/data paths, migrations, CAS/rollback boundaries, resource references, cold legacy conversion and release tools. Distinguish demonstrated defects from missing production evidence. Do not import unfinished CPU branches.
+6. **Mutual batch review.** Supply root an exact touched-path list, invariant/test ledger, static reasoning and known unrun checks. Review root's source-build notices, package closure, failed startup UI, raw legacy browser setup, docs and all CI changes. Neither author approves their own batch.
+7. **Final acceptance.** Review the complete main diff after repairs, reconcile every map finding, verify clean ancestry and no accidental artifacts through root's receipts, require root and peer approval, and require final same-SHA CI success. Production history, effective trace settings, and deploy state remain distinct owner-operated evidence when they cannot be obtained within this task.
+
+## Edge cases to settle before lifecycle code
+
+- A send reads an eligible upload, cleanup/removal claims it, then the send attempts its D1 reservation: no provider call and no file resurrection.
+- A scheduled send reserves first: its extended expiry is authoritative and cleanup cannot claim it early.
+- R2 delete fails or the Worker stops after R2 succeeds: D1 retains retry state and repeated delete remains safe.
+- Two cleaners select the same object: immutable object keys make deletion idempotent; one cleaner must never remove a newly valid row.
+- Repeated failing deletions do not starve later expired files.
+- Upload succeeds in R2 but fails in D1, or fails halfway through R2: the immutable key remains discoverable for cleanup.
+- Existing scheduled links and ambiguous sends survive only if their exact signed URL/key remains valid; changing encoding/key cannot be represented as transparent rotation.
+
+## Status
+
+Root approved the proposed ownership and committed the exact unapproved source snapshot as `e1ab14a8e860f771635b61b4163237dc44257e55` on the main baseline. First repair batch is authored for independent review: query-only credentials/redaction, reserved download namespace, controlled key/URL transition docs, corrected editor JSON/limits/recovery docs, and an independently discovered send-concurrency defect.
+
+**New SD-06:** Resend HTTP 409 was incorrectly treated as definitive refusal. Official Resend documentation distinguishes an in-flight same-key request from an already-used key; neither disproves acceptance. More generally, a fresh attempt could delete the shared intent after a refusal while a concurrent retry was accepted. Append-only migration `0008_mail_send_attempts.sql` gives existing intents a conservative attempt count, and every new/retried call increments it atomically before reaching Resend. A refusal can discard only a never-shared fresh intent; upload claims are released only when no intent remains. Retry registration checks missing/confirmed intents before provider calls. Tests cover both documented 409 variants, fresh/refusing A with in-flight B across all refusal statuses, and a retry whose intent disappears before it registers. Existing fresh-409 deletion expectation was a verified wrong provider premise and is replaced by preserved-uncertainty assertions.
+
+Official query-redaction behavior is confirmed both in the pinned installed Wrangler schema and Cloudflare's Worker settings API documentation. Effective deployed setting remains a release check. No local runtime commands or tests were run. First batch files are being frozen for root review; subsequent lifecycle work uses a separate append-only migration.
+
+Root independently reviewed and committed the first batch as `cdafaaf93fa5fe0257bc4da080e80e5691dd2c14`; it is on draft PR15. Root's syntax/lint check passed. First-batch runtime acceptance is pending GitHub; this is not my own execution claim.
+
+## Lifecycle batch ready for cross-review
+
+Second batch uses append-only migration `0009_mail_file_lifecycle.sql`, a focused `src/cms/mail-files.mjs` boundary, and wiring in the existing email API/Worker/config. Historical rows default to ready. New uploads register as uploading before R2 receives bytes and promote only if that unexpired staging row still exists. Cleanup/manual removal moves a row permanently to deleting before R2; D1 metadata is removed only after R2 success. All send eligibility/reservation and serving reads require ready state.
+
+The root challenged the proposal to use only an orphan sweep: a late post-PUT D1 insert could resurrect metadata after an old-object sweep. Conversely, pre-registration alone cannot prevent R2 completing after its staging row was deleted and the caller died. Both controls are therefore necessary: promotion CAS prevents metadata resurrection; the bounded aged-object sweep recovers such late writes and preexisting unregistered objects. This is why the additional state and cursor earn their complexity.
+
+An hourly cron processes 20 expired/retry rows and one 20-object private-prefix listing page. R2 deletes and D1 membership checks are batched. Deletion retries move behind older pending work. The orphan scan skips every extant D1 row, only considers objects at least 24 hours old, advances failed pages so later work progresses, wraps, and uses a monotonic cursor version to prevent stale overlapping scans overwriting a wrapped position. Both cleanup branches are attempted independently; failure remains an observable failed scheduled invocation.
+
+Regression sources cover real D1 state transitions, failed R2 deletion, failed final D1 deletion, simultaneous cleaners, bounded batches/fairness, cursor wrap and ABA, failed membership reads, late PUT after cleanup and orphan sweep through the actual upload API, inability to serve/send/remove an incomplete upload, failed registration/promotion/compensation, deletion-vs-send reservation, expiry serving before cleanup, upgrade of old mail rows, real R2 pagination after prior-page deletion, and the real Worker's scheduled entry without later user traffic. The runtime helper change is a two-line opt-in approved by root; production has no extra trigger route.
+
+No local tests, builds, servers or application runtime have been run. `git diff --check` was read-only and clean. Source is ready for root's independent review and permitted syntax/lint before a reviewed batch commit; GitHub runtime proof remains required.
+
+## First GitHub result and correction
+
+Run `40244317891` at `cdafaaf93fa5fe0257bc4da080e80e5691dd2c14` failed all four required jobs during fixture migration. My standalone SQL comment in `0008` was sent to D1 `exec`, whose line-based input requires a statement on each line; the error was `SQL code did not contain a statement`. The behavior tests consequently did not establish their claims. Removed that comment line from the unshipped migration and the equivalent line from the drafted `0009`, preserving all SQL statements and matching existing migration formatting. The existing real-D1 setup is the regression gate; nothing was skipped or relaxed. Root was notified before another push. Future evidence must come from the next corrected candidate SHA.
+
+Root approved and published the lifecycle plus migration-format correction as `c7d4a0a`; runtime acceptance is pending its GitHub run.
+
+## Legacy media queue finding and recovery
+
+**SD-07:** Whole-PR inspection found removal of `adoptQueuedDelete` without a drain/migration/empty-state receipt. The old producer is in ancestor `36710a7`; `323c2fb` replaced that producer but retained recovery, and the main baseline still had recovery. Queue occupancy in production is unknown, but treating the persisted table as unconditionally dead abandons a supported historical state.
+
+Root granted ownership of `src/cms/assets.mjs` and corresponding focused tests. The new recovery deliberately avoids the old direct-delete bypass: an explicit delete atomically transfers the exact queue snapshot back to canonical `cms_media` as a trashed row, with identity/version/head checks, and consumes the queue only when the matching canonical row exists. It then enters the existing reference checks and CAS deletion reservation. A referenced old object is restored but retained; storage failure preserves the canonical tombstone. Exact queued-row predicates prevent a delayed concurrent retry from reinserting metadata after another request has completed deletion. Non-delete actions never execute queued deletion.
+
+New `tests/cms-legacy-delete.test.mjs` covers missing and existing matching rows, non-delete refusal, current/historical references, stale head/resource version, head changes before handoff, invalid/conflicting snapshots, D1 transaction failure, R2 failure/retry and delayed concurrent adoption after deletion. These are authored regression sources; no local runtime or tests were executed. Queue recovery files are frozen for root review. Next task is independent review of root's frozen licensing/package/CI batch.
+
+## Cross-review and current pending corrections
+
+Root approved the legacy queue implementation and requested a concrete owner path for records missing from the library. `CMS-SECURITY.md` now includes read-only identifier/version discovery and one reviewed same-origin authenticated endpoint retry, preserving reference/CAS checks and avoiding direct SQL/R2 deletion.
+
+The corrected lifecycle candidate reached the Node behavior tests. Its remaining failure exposed a messaging regression: the new 409 uncertainty flag took the existing response decorator's fast path and omitted the warning that the first attempt may already have sent. Both documented Resend 409 variants now include that warning and the inspection link. Existing uncertainty/earlier-attempt assertions are retained, and the two named variants also pin the warning. This correction is frozen for the next reviewed push; no local execution is claimed.
+
+Independently reviewed the root's license/package changes. Found and returned a gap where embedded upstream notices could be truncated together with the assembled notice without a source-digest failure. Root added digest checks for every embedded/override notice and paired-tampering regressions. I verified the retained upstream notice blob identities and hashes, GrapesJS bundle/map/CSS digests, actual graph guard wiring, pinned Wrangler metafile support, isolated extracted ZIP rebuild, pinned-browser ZIP smoke and artifact paths. Static approval given after the repair, pending candidate CI.
+
+Independently reviewed and statically approved the root's startup, fallback-navigation, contextual Undo, raw-v185 browser and current documentation repairs. The public fallback error covers bootstrap and game-module failure with a native reload link; navigation remains available until initialization succeeds. Compose/account tabs cannot mutate unrelated Draft history through either controls or shortcuts. The raw fixture is stored before browser state/preview/first Save. Runtime behavior and budgets still require same-head GitHub evidence.
+
+Moving the frozen mapping reports into `docs/maintenance-review` introduced a separate documentation-test integration issue: a current-command existence check cannot treat historical deleted-script references in those reports as runnable instructions. Reported this before publication, along with the inventory report's stale private ledger location. Frozen evidence must keep its original findings while relocation/current-command metadata is corrected.

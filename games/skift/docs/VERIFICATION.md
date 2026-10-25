@@ -1,5 +1,7 @@
 # SKIFT verification
 
+> Historical standalone record, retained for provenance. Its approvals, checkmarks and measurements describe the original standalone work, not acceptance of the current portfolio branch. Current source and CI artifacts are authoritative; the `skift-release` job checks the present ZIP.
+
 ## Recorded environment and scope
 
 The complete suite was executed on the authorized Mac on **24 September 2026**. Browser versions recorded by the tools: Google Chrome **153.0.8010.54**, Playwright WebKit **26.6**, Playwright Firefox **155.0**. These are actual local browser runs, not claims about every release of Safari, Firefox, Chrome or every physical mobile device.

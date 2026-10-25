@@ -1,7 +1,9 @@
 # SKIFT — design contract
 
+> Historical standalone record, retained for provenance. Its approvals, checkmarks and measurements describe the original standalone work, not acceptance of the current portfolio branch. Current source and CI artifacts are authoritative; the `skift-release` job checks the present ZIP.
+
 ## Approved intent
-An original browser **action game**, not EKO's puzzle concept and not a Bruno Simon clone. The visual quality reference is a cohesive, tactile, carefully lit world. The deliverable is an independent ZIP and a tested local installation in `/Users/k/dev/o-y-a game`. Do not modify, commit to, or deploy `omar-y-abdi/o-y-a`.
+An original browser **action game**, not EKO's puzzle concept and not a Bruno Simon clone. The visual quality reference is a cohesive, tactile, carefully lit world. The deliverable is an independent ZIP and a local installation. That original no-portfolio-edit boundary was superseded by the later authorized source integration.
 
 ## Direction
 A tiny maintenance robot is the only thing still on shift in a malfunctioning power works. Dash through mechanical sentries, discharge a radial pulse, recover three cells in each district, then restart the heart of the machine. Three handcrafted dioramas: the sunlit relay yard, the turquoise cooling works, and the golden core chamber. The final district includes a three-pattern boss with readable vulnerability windows. No weapons realism, gore, accounts or chat.

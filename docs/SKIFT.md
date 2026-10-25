@@ -61,7 +61,7 @@ selector), `main.js` (dismiss Help/Settings before startup completes), and
 languages' CMS defaults from `i18n.js`; only whitelisted landing text can be
 overridden, including empty strings. Modal HTML stays code-owned.
 
-The portfolio and standalone builds share `scripts/build-options.mjs` inside
+The portfolio and standalone builds share `games/skift/scripts/build-options.mjs` inside
 the game: bundling, full minification, Chrome 100/Safari 15.4/Firefox 100 targets
 and linked legal comments. The portfolio disables source maps, matching the
 old importer's exclusion of maps. The root esbuild pin and the standalone

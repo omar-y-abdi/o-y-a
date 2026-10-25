@@ -1,6 +1,6 @@
 # Deploy the portfolio and CMS
 
-Production is the only Worker, `omar-portfolio`, configured by `wrangler.jsonc`. Workers Builds deploys it about 30 s after each push to `main`. GitHub Actions performs checks and retains browser evidence; it has no deployment job or production secrets.
+Production is the only Worker, `omar-portfolio`, configured by `wrangler.jsonc`. Workers Builds deploys it after pushes to `main`, according to the connected account's effective configuration. GitHub Actions performs checks and retains browser evidence; it has no deployment job. Pull-request jobs have no production credentials. The separately dispatched stored-history job uses the read-only secrets described below.
 
 ## Cloudflare Workers Builds
 
@@ -16,6 +16,30 @@ Do **not** use plain `npx wrangler deploy` as the production deploy command. `np
 The gate checks the head revision as it was when the gate ran. A studio save during the deploy is not covered, so do not save while a deploy runs. The manual `stored-revisions` workflow checks every stored revision with `node scripts/cms-pull-release.mjs --all --allow=1-4,84-88 --allow-errors="$CMS_ALLOW_ERRORS_FILE"`. It requires the `historical_errors_json` dispatch input: a JSON object with exactly the keys `"1"`, `"2"`, `"3"`, `"4"`, `"84"`, `"85"`, `"86"`, `"87"`, `"88"`, each mapped to its reviewed exact nonempty error string. The workflow passes this through an environment variable, validates the shape and writes a private runner temporary file. Missing or malformed input fails closed. Each incompatible revision must match its recorded message exactly; the head is never allowlisted. The normal production deploy gate still checks the head without any exceptions. The manual workflow needs repository secrets `CLOUDFLARE_D1_READ_TOKEN` (D1 read access) and `CLOUDFLARE_ACCOUNT_ID`.
 
 There is no checked-in verified inventory of those historical error messages. To obtain evidence, an authorized owner builds this source and runs the read-only `node scripts/cms-pull-release.mjs --all` against the intended database. This command deliberately exits unsuccessfully when historical incompatibilities exist and prints their version/error pairs. Review those results against the original historical defects before creating the input object; do not automatically bless the current failures. Investigate any new version or changed message rather than broadening the exceptions. Keep the reviewed report and dispatch input with the release evidence; do not include credentials in either.
+
+Before the first shared-frame release, retain a release record containing the
+candidate Git SHA/tree, its successful PR run, the successful manual
+`stored-revisions` run at that same candidate, the inspected D1 head version,
+the reviewed exact historical-error mapping, and the D1 bookmark/Worker version
+needed for rollback. Check the manual run's `headSha`; a green run from an older
+candidate is insufficient. A skipped manual job is not a history check. New code
+or a changed database head invalidates the corresponding compatibility evidence.
+
+Keep all studio writers, old tabs and data tools quiescent from the final head
+check through migration and Worker activation. The deploy command's head check
+and subsequent deployment are not one D1 transaction. If a writer changes the
+head in that interval, stop the release and repeat compatibility verification
+for the new head. The repository cannot enforce an account-wide write freeze or
+prove the Cloudflare dashboard configuration from PR CI. The owner must record
+these release conditions before merging a change that triggers deployment.
+
+The same record must distinguish cold legacy ingress from an already converted
+project. PR CI exercises raw-v185 state, preview and first Save through the real
+local Worker/browser, but does not measure Cloudflare edge CPU. Check current
+`cpu_time_ms` and `exceededCpu` outcomes for state, preview, Save and recovery on
+the intended data/plan; helper benchmarks and wall-clock timings cannot certify
+the production CPU limit. A failing CPU check blocks release and requires a
+measured repair or an explicitly approved plan change.
 
 The shared-frame release changes the stored project format on publication. Follow [CMS-FRAME-MIGRATION.md](CMS-FRAME-MIGRATION.md) before its first production Save or a rollback to an older Worker.
 

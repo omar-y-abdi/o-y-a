@@ -16,7 +16,7 @@ Webbläsaren öppnas på `http://127.0.0.1:8787/play/skift/`. Om porten är uppt
 
 **Spelet är färdigbyggt. Node, npm, ffmpeg och internet behövs inte för att spela det lokalt.** Python 3 behövs endast för den lokala webbservern. På en webbplats behövs inte heller Python. Öppna inte HTML-filen direkt via `file://`; använd startfilen eller en vanlig statisk webbserver.
 
-På den befintliga Mac-installationen ligger projektet i `/Users/k/dev/o-y-a game`.
+I källrepot ligger spelet i `games/skift`. Kör paketets kommandon därifrån. En Git-checkout innehåller inte `dist/`; kör `npm ci` och `npm run build` först. Den publicerade ZIP-filen innehåller däremot det färdiga bygget.
 
 ## Kontroller
 
@@ -35,7 +35,7 @@ Framsteg sparas vid **början av varje distrikt**, inte efter varje steg. Efter 
 
 ## Belastning och tillgänglighet
 
-Standardläget är **Eco, 30 FPS**, med högst en miljon renderade pixlar även på en 4K-skärm. Läget **60 FPS** finns i inställningarna och använder en högre pixelbudget. Fysiken använder ett fast tidssteg; dekorativa effekter är begränsade. Pausade och dolda spel fortsätter inte simulera. Startskärmens korta animation somnar efter tio sekunder.
+Standardläget är **Eco, 30 FPS** på enheter med grov pekare (vanligen touch), annars **60 FPS**. Eco begränsar renderingen till en miljon pixlar; 60 FPS använder högst 5,2 miljoner. Ett uttryckligt sparat kvalitetsval gäller även efter omladdning. Fysiken använder ett fast tidssteg; dekorativa effekter är begränsade. Pausade och dolda spel fortsätter inte simulera. Startskärmens korta animation somnar efter tio sekunder.
 
 Svenska och engelska ingår. Ljud, musik och dekorativ rörelse kan stängas av. Menyer har tangentbordsfokus och använder webbläsarens dialogfunktion. Actionspelvärlden är inte en skärmläsarekvivalent upplevelse. En webbläsare med **WebGL 2** krävs; det finns ingen CPU-renderad reservversion.
 
@@ -43,7 +43,7 @@ Mätresultat och deras begränsningar finns i [docs/VERIFICATION.md](docs/VERIFI
 
 ## För webbplatsen
 
-Den färdiga sidan är `dist/play/skift/index.html`; alla spelresurser ligger under samma katalog och använder relativa sökvägar. Förberedd adress: `/play/skift/`. Läs [integrationsguiden](docs/INTEGRATION.md). Inga repofiler har ändrats och inget har publicerats.
+Den färdiga sidan är `dist/play/skift/index.html`; alla spelresurser ligger under samma katalog och använder relativa sökvägar. Förberedd adress: `/play/skift/`. Läs [integrationsguiden](docs/INTEGRATION.md). Portfolions rotbygge kompilerar samma spelkällor med sin egen sidram; den fristående ZIP-filen behåller sin egen sida.
 
 ## Utveckling och reproducerbara tester
 
@@ -58,15 +58,17 @@ npm run dev
 
 `npm run dev` bygger, bevakar källfilerna och serverar spelet lokalt. Produktionsspelet behöver inga npm-beroenden på servern: bibliotekskoden ingår redan i bygget.
 
-För browser-E2E används Google Chrome samt Playwrights Firefox och WebKit. Installera Chrome om det saknas. Installera testmotorerna med `npx playwright install firefox webkit`. Linux kan också behöva Playwrights systemberoenden (`npx playwright install-deps`). Testverktygens installation är inte ett krav för att spela spelet.
+ZIP-provet i `npm run release` använder Playwrights pinnade Chromium (`npx playwright install chromium`). De äldre, bredare browser-E2E-skripten använder Google Chrome samt Playwrights Firefox och WebKit. Installera Chrome om det saknas. Installera testmotorerna med `npx playwright install firefox webkit`. Linux kan också behöva Playwrights systemberoenden (`npx playwright install-deps`). Testverktygens installation är inte ett krav för att spela spelet.
 
 ```sh
 npm run test:e2e     # Enhetstester, bygge, browser-, input- och livscykeltester
 npm run test:all     # Även två kompletta kampanjer, browsermatris och prestandaprov
-npm run test:package # ZIP-integritet, filmanifest och portabel struktur
+npm run test:package # ZIP-integritet, manifest och isolerat npm ci/ombygge
 npm run release     # Bygge, tester, ZIP och browserprov av den uppackade ZIP-filen
 npm run test:release # Upprepa browserprovet på den senaste ZIP-filen
 ```
+
+GitHub-jobbet `skift-release` installerar paketets egen lockfil, bygger, packar, bygger om den uppackade källan utan repots beroenden och provar ZIP-filen i Chromium. Ombygget behöver internet för `npm ci`; spelstart från den färdiga ZIP-filen behöver det inte.
 
 Testskripten startar en egen loopback-server på en ledig port och stänger den efteråt. `evidence/` innehåller rapporter och skärmbilder. `?qa=1` aktiverar endast läsbara diagnoser; där finns inga teleport-, odödlighets- eller vinstkommandon.
 

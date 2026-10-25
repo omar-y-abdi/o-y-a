@@ -32,8 +32,10 @@ test('privacy decisions exist at the moved documentation path', () => {
   assert.ok(existsSync('docs/PRIVACY-DECISIONS.md'), 'Missing docs/PRIVACY-DECISIONS.md');
 });
 
-test('README and docs relative links resolve to files and headings', () => {
-  const files = ['README.md', ...readdirSync('docs', { recursive: true }).filter(file => file.endsWith('.md')).map(file => `docs/${file}`)];
+const documentation = () => ['README.md', 'games/skift/README.md', 'games/skift/CREDITS.md', 'licenses/README.md', ...['docs', 'games/skift/docs'].flatMap(directory => readdirSync(directory, { recursive: true }).filter(file => file.endsWith('.md')).map(file => `${directory}/${file}`))];
+
+test('site, game and license documentation links resolve to files and headings', () => {
+  const files = documentation();
   const slug = text => text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s/g, '-');
   for (const file of files) {
     const source = readFileSync(file, 'utf8').replace(/^```[^\n]*\n[\s\S]*?^```/gm, '');
@@ -45,6 +47,18 @@ test('README and docs relative links resolve to files and headings', () => {
         const headings = [...readFileSync(target, 'utf8').matchAll(/^#{1,6} (.+)$/gm)].map(([, text]) => slug(text));
         assert.ok(headings.includes(decodeURIComponent(target.hash.slice(1))), `${file}: missing heading ${href}`);
       }
+    }
+  }
+});
+
+test('documented script entry points exist in their site or standalone package', () => {
+  for (const file of documentation()) {
+    // Frozen audit reports intentionally name deleted historical scripts.
+    // They are evidence maps, not operational command instructions.
+    if (file.startsWith('docs/maintenance-review/')) continue;
+    const base = file.startsWith('games/skift/') ? 'games/skift' : '.';
+    for (const [script] of readFileSync(file, 'utf8').matchAll(/\b(?:games\/skift\/)?scripts\/[\w.-]+\.(?:mjs|py|sh)\b/g)) {
+      assert.ok(existsSync(resolve(base, script)), `${file}: missing script ${script}`);
     }
   }
 });

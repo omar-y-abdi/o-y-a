@@ -1,6 +1,8 @@
 # SKIFT implementation plan
 
-**Goal:** ship the complete original game described in DESIGN.md, a runnable distribution, source, tests and local installation, without touching the portfolio repository.
+> Historical standalone record, retained for provenance. Its approvals, checkmarks and measurements describe the original standalone work, not acceptance of the current portfolio branch. Current source and CI artifacts are authoritative; the `skift-release` job checks the present ZIP.
+
+**Goal:** ship the complete original game described in DESIGN.md, a runnable distribution, source, tests and local installation, under the original standalone-only scope, before the later portfolio integration.
 **Architecture:** a testable rules module and authored level data feed a cannon-es simulation; Three.js renders a batched diorama; DOM menus and Howler are thin integrations.
 **Stack:** Three.js 0.180.0, cannon-es 0.20.0, Howler 2.2.4, esbuild 0.25.12, Node test runner, Playwright.
 **Spec:** DESIGN.md.
