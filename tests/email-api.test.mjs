@@ -1,5 +1,6 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { request } from 'node:http';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { handleEmailAdmin, serveMailFile, SCHEDULE_MAX_DAYS } from '../src/cms/email-api.mjs';
 import { signFileLink } from '../src/server/contact-secrets.mjs';
@@ -78,15 +79,27 @@ beforeEach(async () => {
 });
 
 test('owner-only, write-guarded, bounded', async () => {
-  const call = (path, init = {}) => runtime.mf.dispatchFetch(origin + path, init);
-  const auth = { 'Cf-Access-Jwt-Assertion': authorization, Origin: origin, 'X-CMS-Request': '1', 'Content-Type': 'application/json' };
+  // Match the HTTP checks harness's fresh connections instead of dispatchFetch's
+  // pooled transport. Oversized bodies can be rejected before upload completes.
+  const call = (path, { method = 'GET', headers = {}, body } = {}, check = 'request') => new Promise((resolve, reject) => {
+    const fail = error => reject(new Error(`${method} ${path}: ${check}`, { cause: error }));
+    const req = request(new URL(path, runtime.url), { method, headers, agent: false }, response => {
+      response.once('error', fail);
+      response.once('end', () => resolve({ status: response.statusCode }));
+      response.resume();
+    });
+    req.once('error', fail);
+    req.setTimeout(5_000, () => req.destroy(new Error('HTTP timeout')));
+    req.end(body);
+  });
+  const auth = { 'Cf-Access-Jwt-Assertion': authorization, Origin: runtime.url, 'X-CMS-Request': '1', 'Content-Type': 'application/json' };
   const routes = [['GET', '/admin/api/contact'], ['POST', '/admin/api/contact', 8192], ['POST', '/admin/api/mail/test', 1048576], ['POST', '/admin/api/mail/send', 1048576], ['GET', '/admin/api/mail/sent'], ['GET', '/admin/api/mail/status?id=x'], ['POST', '/admin/api/mail/cancel', 1024], ['POST', '/admin/api/mail/attachment'], ['POST', '/admin/api/mail/attachment-remove', 1024]];
   for (const [method, path, limit] of routes) {
-    const anonymous = await call(path, { method, headers: { Origin: origin, 'X-CMS-Request': '1', 'Content-Type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) });
-    assert.equal(anonymous.status, 401, path);
+    const anonymous = await call(path, { method, headers: { Origin: runtime.url, 'X-CMS-Request': '1', 'Content-Type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) }, 'anonymous');
+    assert.equal(anonymous.status, 401, `${method} ${path}: anonymous`);
     if (method !== 'POST') continue;
-    for (const headers of [{ ...auth, 'X-CMS-Request': '' }, { ...auth, Origin: 'https://evil.example' }, { ...auth, 'Sec-Fetch-Site': 'cross-site' }]) assert.equal((await call(path, { method, headers, body: '{}' })).status, 403, path);
-    if (limit) assert.equal((await call(path, { method, headers: auth, body: 'x'.repeat(limit + 1) })).status, 413, path);
+    for (const [check, headers] of [['missing write marker', { ...auth, 'X-CMS-Request': '' }], ['foreign origin', { ...auth, Origin: 'https://evil.example' }], ['cross-site fetch', { ...auth, 'Sec-Fetch-Site': 'cross-site' }]]) assert.equal((await call(path, { method, headers, body: '{}' }, check)).status, 403, `${method} ${path}: ${check}`);
+    if (limit) assert.equal((await call(path, { method, headers: auth, body: 'x'.repeat(limit + 1) }, `${limit + 1}-byte body`)).status, 413, `${method} ${path}: ${limit + 1}-byte body`);
   }
   assert.equal((await run(uploadRequest('a.pdf', new Uint8Array(1), { 'Content-Length': '31457281' }), env())).status, 413);
   const unsized = uploadRequest('a.pdf', new Uint8Array(1)); unsized.headers.delete('Content-Length');

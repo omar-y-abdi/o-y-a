@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = path => readFile(new URL('../' + path, import.meta.url), 'utf8');
@@ -36,4 +36,30 @@ test('CI and QA do not promise the removed card-export report', async () => {
   const [workflow, qa] = await Promise.all([source('.github/workflows/ci.yml'), source('docs/QA.md')]);
   assert.doesNotMatch(workflow, /output\/card-export\/card-export-report\.json/);
   assert.doesNotMatch(qa, /output\/card-export\//);
+});
+
+test('CI selects every functional browser spec and the nested SKIFT unit suite', async () => {
+  const [workflow, packageSource, names] = await Promise.all([source('.github/workflows/ci.yml'), source('package.json'), readdir(new URL('.', import.meta.url))]);
+  const { scripts } = JSON.parse(packageSource);
+  // The public command is invoked by quality's web-e2e runner, pinned above.
+  // The evidence capture has no baseline comparison and remains an owner tool.
+  const commands = workflow.split('\n').filter(line => !line.trimStart().startsWith('#')).join('\n') + '\n' + scripts['test:public-pages'];
+  const selected = new Set([...commands.matchAll(/tests\/([\w-]+\.spec\.mjs)/g)].map(match => match[1]));
+  const functional = names.filter(name => name.endsWith('.spec.mjs') && name !== 'public-evidence.spec.mjs');
+  assert.deepEqual(functional.filter(name => !selected.has(name)), [], 'Every functional spec must be named in an executed CI browser command');
+  assert.match(workflow, /run: node --test --test-concurrency=1 games\/skift\/tests\/\*\.test\.mjs/);
+  const job = workflow.split('\n  functional-browser:\n')[1]?.split('\n  # Manual only.')[0];
+  assert.ok(job);
+  assert.match(job, /npx playwright install --with-deps chromium/);
+  assert.match(job, /run: npm run build/);
+  assert.match(job, /--project=chromium --no-deps --workers=2/);
+});
+
+test('manual retained-history gate requires reviewed exact errors through an environment input', async () => {
+  const workflow = await source('.github/workflows/ci.yml');
+  assert.match(workflow, /historical_errors_json:[\s\S]*?required: true/);
+  assert.match(workflow, /HISTORICAL_ERRORS_JSON: \$\{\{ inputs\.historical_errors_json \}\}/);
+  assert.match(workflow, /node scripts\/cms-release-errors\.mjs/);
+  assert.match(workflow, /cms-pull-release\.mjs --all --allow=1-4,84-88 --allow-errors="\$CMS_ALLOW_ERRORS_FILE"/);
+  assert.doesNotMatch(workflow, /run:.*\$\{\{ inputs\.historical_errors_json/);
 });

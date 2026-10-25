@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
+import { waitCanvas } from './helpers/cms-browser-qa.mjs';
 import { DEFAULT_EMAIL } from '../src/server/email-render.mjs';
 
 // Unlike cms-editor.spec.mjs's bare editor, Mejl needs the real studio and API.
@@ -15,6 +16,9 @@ const subjectField = page => page.locator('[data-email-path="templates.receipt.s
 const previewSubject = page => page.locator('[data-email-subject-row] [data-email-preview-subject]');
 
 async function openEmail(page) {
+  // Every caller has just navigated/reloaded the studio's initial page editor.
+  // Use its established readiness boundary before opening Mejl; boot is not a 5s SLO.
+  await waitCanvas(page);
   await expect(page.locator('#loading-state')).toBeHidden();
   // The page list exists only after boot's state request and backup setup.
   await expect(page.locator('[data-page-id="home"]')).toHaveCount(1);
