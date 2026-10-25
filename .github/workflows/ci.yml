@@ -88,10 +88,12 @@ jobs:
       - run: python -m playwright install --with-deps ${{ matrix.browser }}
       - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run build
+      # Run the engine's editor/serialization gate before legacy Python failures
+      # can prevent it from executing; each suite owns independent fixtures.
+      - run: npx playwright test --project=${{ matrix.browser }} --no-deps
       - run: node scripts/test-cms-modules-parallel.mjs
       - run: node scripts/test-cms-parallel.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
       - run: node scripts/test-footer-cms.mjs
-      - run: npx playwright test --project=${{ matrix.browser }} --no-deps
       - name: Retain compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
