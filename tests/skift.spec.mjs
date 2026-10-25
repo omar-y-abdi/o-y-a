@@ -49,6 +49,9 @@ test('loading and title menus remain dismissible and error recovery stays availa
 });
 
 test('integrated game supports input, pause, persisted settings and district checkpoint', { tag: '@webgl' }, async ({ page }) => {
+  // Two WebGL initializations plus the complete input/pause/settings/persistence
+  // flow can exhaust 30s on CI even while every step advances.
+  test.setTimeout(60_000);
   const errors = []; page.on('pageerror', error => errors.push(String(error)));
   await page.setViewportSize({ width: 1440, height: 900 });
   await openGame(page);

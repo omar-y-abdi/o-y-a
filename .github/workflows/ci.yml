@@ -91,6 +91,10 @@ jobs:
       # Run the engine's editor/serialization gate before legacy Python failures
       # can prevent it from executing; each suite owns independent fixtures.
       - run: npx playwright test --project=${{ matrix.browser }} --no-deps
+        # Four concurrent heavy WebKit studios stalled a click. Isolate resources
+        # without changing deadlines; this experiment does not establish an app cause.
+        env:
+          PLAYWRIGHT_WORKERS: ${{ matrix.browser == 'webkit' && '1' || '4' }}
       - run: node scripts/test-cms-modules-parallel.mjs
       - run: node scripts/test-cms-parallel.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
       - run: node scripts/test-footer-cms.mjs
