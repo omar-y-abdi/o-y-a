@@ -1,15 +1,18 @@
-import * as css from 'css-tree';
+import parse from 'css-tree/parser';
+import generate from 'css-tree/generator';
+import walk from 'css-tree/walker';
+import { ident } from 'css-tree/utils';
 
-const attributeName = node => css.ident.decode(node.name.name).toLowerCase();
-const sensitive = node => !node.flags || css.ident.decode(node.flags).toLowerCase() === 's';
-const selectorId = node => node.type === 'IdSelector' ? css.ident.decode(node.name)
+const attributeName = node => ident.decode(node.name.name).toLowerCase();
+const sensitive = node => !node.flags || ident.decode(node.flags).toLowerCase() === 's';
+const selectorId = node => node.type === 'IdSelector' ? ident.decode(node.name)
   : node.type === 'AttributeSelector' && attributeName(node) === 'id' && node.matcher === '=' && sensitive(node)
-    ? node.value.type === 'String' ? node.value.value : css.ident.decode(node.value.name) : undefined;
+    ? node.value.type === 'String' ? node.value.value : ident.decode(node.value.name) : undefined;
 
 function matchesId(node, id) {
   if (id === null) return false;
   if (!node.matcher) return true;
-  let value = node.value.type === 'String' ? node.value.value : css.ident.decode(node.value.name);
+  let value = node.value.type === 'String' ? node.value.value : ident.decode(node.value.name);
   if (!sensitive(node)) {
     const lower = text => text.replace(/[A-Z]/g, letter => letter.toLowerCase());
     id = lower(id); value = lower(value);
@@ -27,7 +30,7 @@ function matchesId(node, id) {
 
 export function frameStyleIds(source) {
   const ids = new Set();
-  if (source) css.walk(css.parse(source), node => { const id = selectorId(node); if (id !== undefined) ids.add(id); });
+  if (source) walk(parse(source), node => { const id = selectorId(node); if (id !== undefined) ids.add(id); });
   return ids;
 }
 
@@ -35,8 +38,8 @@ export function frameStyleIds(source) {
 // tokens, so colours, comments, strings and escaped identifiers stay distinct.
 export function mapFrameCss(source, ids) {
   if (!source || !ids.size) return source;
-  const tree = css.parse(source, { parseCustomProperty: true });
-  css.walk(tree, node => {
+  const tree = parse(source, { parseCustomProperty: true });
+  walk(tree, node => {
     const original = selectorId(node);
     if (node.type === 'AttributeSelector' && /(?:^|\|)id$/.test(attributeName(node)) && original === undefined) {
       // Prefixes, substring matching and case folding can select several nodes.
@@ -44,7 +47,7 @@ export function mapFrameCss(source, ids) {
       for (const [from, target] of ids) {
         if (from === target.id) continue;
         const before = matchesId(node, from), after = matchesId(node, target.id);
-        if (before !== after) throw new Error(`CSS-väljaren ${css.generate(node)} kan ändra betydelse med sidramens äldre ID:n. Använd ett exakt ID eller en gemensam klass innan du fortsätter.`);
+        if (before !== after) throw new Error(`CSS-väljaren ${generate(node)} kan ändra betydelse med sidramens äldre ID:n. Använd ett exakt ID eller en gemensam klass innan du fortsätter.`);
       }
     }
     if (original !== undefined) {
@@ -52,8 +55,8 @@ export function mapFrameCss(source, ids) {
       const target = ids.get(original);
       if (!target) return;
       if (target.id !== null && attributeId) node.value = { type: 'String', value: target.id };
-      else if (target.id !== null) node.name = css.ident.encode(target.id);
-      else Object.assign(node, css.parse(`[data-cms-frame-id="${target.key}"]`, { context: 'selector' }).children.first);
+      else if (target.id !== null) node.name = ident.encode(target.id);
+      else Object.assign(node, parse(`[data-cms-frame-id="${target.key}"]`, { context: 'selector' }).children.first);
     }
     if (node.type === 'Url' && node.value.startsWith('#') && ids.has(node.value.slice(1))) {
       const target = ids.get(node.value.slice(1));
@@ -61,5 +64,5 @@ export function mapFrameCss(source, ids) {
       node.value = '#' + target.id;
     }
   });
-  return css.generate(tree);
+  return generate(tree);
 }

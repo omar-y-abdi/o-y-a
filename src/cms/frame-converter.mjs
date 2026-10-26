@@ -59,12 +59,14 @@ export function toFrameProject(input, seed, { client = false } = {}) {
     return entry;
   });
   // Every retained historical ID has a canonical counterpart, even when the
-  // first page lacked that ID. This makes later shared styles reversible.
+  // first page lacked that ID. The code-owned game's main has no page receipt,
+  // so its IDs also stay outside the canonical frame's namespace.
   for (const group of shapes.values()) {
-    const nodes = elements(group.tree), used = new Set(nodes.map(node => attribute(node, 'id')).filter(Boolean));
+    const nodes = elements(group.tree), reserved = new Set(seed.skiftIds ?? []), used = new Set([...reserved, ...nodes.map(node => attribute(node, 'id')).filter(Boolean)]);
     nodes.forEach((node, index) => {
-      if (attribute(node, 'id')) return;
-      let id = group.entries.map(entry => attribute(entry.nodes[index], 'id')).find(Boolean);
+      const current = attribute(node, 'id');
+      if (current && !reserved.has(current)) return;
+      let id = current || group.entries.map(entry => attribute(entry.nodes[index], 'id')).find(Boolean);
       if (!id) return;
       if (used.has(id)) { let suffix = index; do { id = `frame-${suffix++}`; } while (used.has(id)); }
       used.add(id); node.attrs = [...node.attrs.filter(item => item.name !== 'id'), { name: 'id', value: id }];

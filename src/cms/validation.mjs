@@ -5,7 +5,7 @@ import { ID_REFERENCES } from './id-references.mjs';
 import { attribute as attr, walk as traverse } from './html-tree.mjs';
 import { RESERVED } from './routes.mjs';
 
-export const VALIDATION_POLICY = 'cms-policy-6-generated-content';
+export const VALIDATION_POLICY = 'cms-policy-7-frame-markers';
 
 const TAGS = new Set('a abbr address article aside b bdi bdo blockquote br button caption cite code col colgroup dd del details dfn dialog div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i img input kbd label legend li main mark nav noscript ol optgroup option output p picture pre progress q rp rt ruby s samp section select small source span strike strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var svg g path circle rect ellipse line polyline polygon defs lineargradient radialgradient stop clippath title desc mask pattern use'.split(' '));
 const ATTRS = new Set('id class title role lang dir tabindex hidden inert href target rel src srcset sizes alt width height loading decoding type name value checked disabled required readonly multiple min max step minlength maxlength autocomplete placeholder for rows cols method action novalidate open aria-label aria-labelledby aria-describedby aria-controls aria-live aria-atomic aria-hidden aria-expanded aria-pressed aria-current aria-disabled aria-invalid aria-busy scope colspan rowspan start reversed datetime cite download style viewbox fill fill-rule fill-opacity stroke stroke-width stroke-linecap stroke-linejoin stroke-dasharray stroke-dashoffset stroke-opacity d points x y x1 x2 y1 y2 cx cy r rx ry transform opacity offset stop-color stop-opacity gradientunits gradienttransform clip-path clip-rule preserveaspectratio xmlns'.split(' '));
@@ -49,7 +49,7 @@ export function validateCss(source, context = 'stylesheet') {
   catch { invalid('Stilmallen innehåller ogiltig CSS.'); }
   css.walk(tree, function (node) {
     if (node.type === 'Raw') invalid('Stilmallen innehåller CSS som inte kan kontrolleras säkert.');
-    if (node.type === 'AttributeSelector' && /(^|\|)data-cms-node$/i.test(css.ident.decode(node.name.name))) invalid('Stilmallen får inte använda studions interna nodnycklar.');
+    if (node.type === 'AttributeSelector' && /(^|\|)data-cms-(?:node|frame-id)$/i.test(css.ident.decode(node.name.name))) invalid('Stilmallen får inte använda studions interna nodnycklar.');
     if (node.type === 'Atrule' && !AT_RULES.has(css.ident.decode(node.name).toLowerCase())) invalid('Den här CSS-regeln är inte tillåten.');
     if (node.type === 'Url' && !resourceUrl(node.value)) invalid('CSS får bara hämta webbplatsens egna bilder och typsnitt.');
     if (node.type === 'Function') {

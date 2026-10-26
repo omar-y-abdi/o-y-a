@@ -20,7 +20,7 @@ for (const source of ['static', 'published']) for (const width of [320, 390]) {
     await page.evaluate(() => document.fonts.ready);
     await expect.poll(() => page.locator('[data-win-artwork]').evaluate(element => element.shadowRoot?.querySelector('[data-card-text]')?.textContent)).toBeTruthy();
     const overflow = await page.evaluate(() => ({ viewport: innerWidth, html: document.documentElement.scrollWidth, body: document.body.scrollWidth,
-      outside: [...document.querySelectorAll('main *')].filter(element => element.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(element).visibility !== 'hidden').slice(0, 12).map(element => ({ tag: element.tagName, id: element.id, class: element.className?.baseVal ?? element.className, right: element.getBoundingClientRect().right })),
+      outside: [...document.querySelectorAll('main *')].filter(element => element.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(element).visibility !== 'hidden').slice(0, 12).map(element => ({ tag: element.tagName, id: element.id, class: element.className?.baseVal ?? element.className, right: element.getBoundingClientRect().right, font: getComputedStyle(element).font, text: element.textContent.slice(0, 80) })),
     }));
     const save = page.locator('[data-save]');
     await expect(save).toBeEnabled();
@@ -29,7 +29,7 @@ for (const source of ['static', 'published']) for (const width of [320, 390]) {
       const bounds = element.getBoundingClientRect(), target = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
       return { reachable: element.contains(target), target: target?.outerHTML.slice(0, 500), bounds: bounds.toJSON() };
     });
-    await testInfo.attach('workshop-layout-and-pointer', { body: JSON.stringify({ source, width, overflow, hit }, null, 2), contentType: 'application/json' });
+    await testInfo.attach('workshop-layout-and-pointer', { body: JSON.stringify({ source, width, browser: page.context().browser().version(), overflow, hit }, null, 2), contentType: 'application/json' });
     expect(Math.max(overflow.html, overflow.body), JSON.stringify(overflow)).toBeLessThanOrEqual(width + 1);
     expect(hit.reachable, JSON.stringify(hit)).toBe(true);
     const download = page.waitForEvent('download');

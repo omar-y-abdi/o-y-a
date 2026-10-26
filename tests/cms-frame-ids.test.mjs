@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFragment } from 'parse5';
+import { parseFragment, serialize } from 'parse5';
 import { baseInitial, baseSeed, baseValidate, basePublish } from './helpers/base-worker.mjs';
 import { seed, legacyInitial } from '../.generated/cms-seed.mjs';
 import { legacyFrameIdentities, footerId } from './helpers/frame-identities.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { toFrameProject, toLegacyProject } from '../src/cms/frame-converter.mjs';
-import { composePage, frameCss, validateFrame, validateFrameIds } from '../src/cms/frame.mjs';
+import { composePage, frameCss, splitPage, validateFrame, validateFrameIds } from '../src/cms/frame.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { readSite } from '../src/cms/store.mjs';
 import { projectChanges, applyProjectChanges, validateProjectChanges } from '../src/cms/project-changes.mjs';
@@ -14,9 +14,24 @@ import { Draft } from '../src/cms/client/draft.mjs';
 import { draftBackup, readDraftBackup } from '../src/cms/client/recovery.mjs';
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { mapFrameCss } from '../src/cms/frame-ids.mjs';
+import { validateCss } from '../src/cms/validation.mjs';
 
-test('F2: actual BASE-valid footer IDs survive state, preview, unrelated Save and public rendering', async () => {
-  const original = baseValidate(legacyFrameIdentities(baseInitial), baseSeed, baseInitial);
+for (const homeId of ['legacy-footer-home', 'start-button']) test(`F2: actual BASE-valid ${homeId} footer survives state, preview, unrelated Save and public rendering`, async () => {
+  const candidate = legacyFrameIdentities(baseInitial), home = candidate.pages.find(page => page.id === 'home');
+  home.html = home.html.replaceAll('legacy-footer-home', homeId);
+  let frameCollision, mainCollision;
+  if (homeId === 'start-button') {
+    // Force the allocator past an occupied frame identity. Its next candidate
+    // is also a main-only ID: projection must preserve both original targets.
+    const frameNodes = elements(parseFragment(splitPage(home.html).html, { scriptingEnabled: true }));
+    const index = frameNodes.findIndex(node => node.tagName === 'footer');
+    frameCollision = `frame-${index}`; mainCollision = `frame-${index + 1}`;
+    const tree = parseFragment(home.html, { scriptingEnabled: false }), nodes = elements(tree);
+    nodes.find(node => node.tagName === 'header').attrs.push({ name: 'id', value: frameCollision });
+    const main = nodes.find(node => node.tagName === 'main'), marker = parseFragment(`<div id="${mainCollision}" data-cms-node="u-canonical-collision"></div>`).childNodes[0];
+    marker.parentNode = main; main.childNodes.push(marker); home.html = serialize(tree);
+  }
+  const original = baseValidate(candidate, baseSeed, baseInitial);
   const runtime = await cmsRuntime();
   try {
     await basePublish(runtime.db, { project: original, baseVersion: 0, requestId: crypto.randomUUID(), actor: runtime.email });
@@ -28,19 +43,26 @@ test('F2: actual BASE-valid footer IDs survive state, preview, unrelated Save an
     assert.equal(state.project.frameConflicts, undefined);
     for (const id of ['home', 'about']) {
       const page = state.project.pages.find(item => item.id === id);
-      assert.equal(footerId(composePage(state.project.frame, page)), `legacy-footer-${id}`);
+      const expected = id === 'home' ? homeId : `legacy-footer-${id}`;
+      assert.equal(footerId(composePage(state.project.frame, page)), expected);
       const preview = await post('preview', { project: state.project, pageId: id });
       assert.equal(preview.status, 200, await preview.clone().text());
-      assert.equal(footerId((await preview.json()).html), `legacy-footer-${id}`);
+      assert.equal(footerId((await preview.json()).html), expected);
     }
     state.project.pages[0].description = 'En orelaterad beskrivningsändring.';
     const save = await post('save', { project: state.project, baseVersion: state.version, requestId: crypto.randomUUID() });
     assert.equal(save.status, 200, await save.clone().text());
     for (const [path, id] of [['/', 'home'], ['/om/', 'about']]) {
       const html = await (await runtime.mf.dispatchFetch(runtime.url + path)).text();
-      assert.equal(footerId(html), `legacy-footer-${id}`);
-      assert.ok(html.includes(`href="#legacy-footer-${id}"`));
+      const expected = id === 'home' ? homeId : `legacy-footer-${id}`;
+      assert.equal(footerId(html), expected);
+      assert.ok(html.includes(`href="#${expected}"`));
+      if (id === 'home' && mainCollision) for (const identity of [frameCollision, mainCollision]) assert.equal(elements(parseFragment(html)).filter(node => attribute(node, 'id') === identity).length, 1);
     }
+    const game = await (await runtime.mf.dispatchFetch(runtime.url + '/play/skift/')).text();
+    assert.equal(elements(parseFragment(game)).filter(node => attribute(node, 'id') === 'start-button').length, 1);
+    assert.ok(!seed.skiftIds.includes(footerId(state.project.frame.html)));
+    if (frameCollision) assert.notEqual(footerId(state.project.frame.html), frameCollision);
     assert.ok((await readSite(runtime.db)).project.pages.find(page => page.id === 'about').frameIds);
   } finally { await runtime.close(); }
 });
@@ -132,6 +154,21 @@ test('F2: CSS projection distinguishes IDs, colours, strings, exact attribute se
   assert.equal(mapped, '#other-id,[id="other-id"]{color:#abc;clip-path:url(#other-id);--literal:"#abc"}');
 });
 
+test('F2: generated public selector markers cannot be authored in frame or page CSS', () => {
+  for (const selector of ['[data-cms-frame-id]', '[DATA-CMS-FRAME-ID="f-footer"]', '[data-cms-\\66 rame-id]', '[*|data-cms-frame-id]', ':is([data-cms-frame-id])']) assert.throws(() => validateCss(`${selector}{color:red}`), /interna nodnycklar/);
+  assert.doesNotThrow(() => validateCss('#data-cms-frame-id,.data-cms-frame-id,[data-theme]{color:red}'));
+  const project = validateProject(toFrameProject(legacyFrameIdentities(legacyInitial), seed), seed);
+  for (const target of ['frame', 'page']) {
+    const changed = structuredClone(project), value = target === 'frame' ? changed.frame : changed.pages[0];
+    value.css += '[data-cms-frame-id="f-footer"]{color:red}';
+    assert.throws(() => validateProject(changed, seed, project), /interna nodnycklar/);
+  }
+  const old = structuredClone(project);
+  old.pages[0].css += '[data-cms-frame-id="f-footer"]{color:red}';
+  old.pages[0].facts.validationKey = old.pages[0].facts.validationKey.replace('cms-policy-7-frame-markers', 'cms-policy-6-generated-content');
+  assert.throws(() => validateProject(structuredClone(old), seed, old), /interna nodnycklar/, 'A trusted cache from the prior policy cannot bypass the new selector boundary');
+});
+
 test('F2: ambiguous ID attribute selectors fail closed instead of drifting across page identities', () => {
   const ids = new Map([['legacy-footer', { id: 'canonical-footer' }]]);
   for (const selector of ['[id="LEGACY-FOOTER" i]', '[id^="legacy-"]', '[id$="legacy-footer"]', '[id*="gacy"]', '[id~="legacy-footer"]', '[id|="legacy"]', '[id^="canonical-"]', '[*|id="legacy-footer"]']) {
@@ -140,8 +177,8 @@ test('F2: ambiguous ID attribute selectors fail closed instead of drifting acros
   assert.equal(mapFrameCss('.site-footer[id^="other-"]{color:red}', ids), '.site-footer[id^="other-"]{color:red}');
   assert.equal(mapFrameCss('[id$="footer"]{color:red}', ids), '[id$="footer"]{color:red}');
   assert.equal(mapFrameCss('[id^="legacy-"]{color:red}', new Map([['legacy-home', { id: 'legacy-about' }]])), '[id^="legacy-"]{color:red}');
-  assert.equal(mapFrameCss('[id="LEGACY" i]{color:red}', new Map([['legacy', { id: 'Legacy' }]])), '[id="LEGACY" i]{color:red}');
-  assert.equal(mapFrameCss('[id="legacy-footer" s]{color:red}', ids), '[id="canonical-footer" s]{color:red}');
+  assert.equal(mapFrameCss('[id="LEGACY" i]{color:red}', new Map([['legacy', { id: 'Legacy' }]])), '[id="LEGACY"i]{color:red}');
+  assert.equal(mapFrameCss('[id="legacy-footer" s]{color:red}', ids), '[id="canonical-footer"s]{color:red}');
   assert.throws(() => mapFrameCss('.site-footer[id]{color:red}', new Map([['legacy-footer', { id: null, key: 'f-footer' }]])), /Använd ett exakt ID/);
   const project = validateProject(toFrameProject(legacyFrameIdentities(legacyInitial), seed), seed);
   project.frame.css += '.site-footer[id^="legacy-"]{color:red}';

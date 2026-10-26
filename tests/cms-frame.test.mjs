@@ -29,7 +29,7 @@ function publicIdentity(html, ownerDecisions = false) {
     if (node.attrs) {
       const classes = (attribute(node, 'class') ?? '').split(/\s+/);
       if (!inMain && ownerDecisions && classes.includes('footer-signoff')) for (const child of node.childNodes) if (child.nodeName === '#text') child.value = 'Thanks for stopping by. ';
-      node.attrs = node.attrs.filter(item => item.name !== 'data-cms-node' && (inMain || item.name !== 'id' || ['mobile-menu', 'privacy-title'].includes(item.value)));
+      node.attrs = node.attrs.filter(item => item.name !== 'data-cms-node' && (inMain || item.name !== 'data-cms-frame-id') && (inMain || item.name !== 'id' || ['mobile-menu', 'privacy-title'].includes(item.value)));
       for (const item of node.attrs) if (item.name === 'class') item.value = item.value.trim().replace(/\s+/g, ' ');
       node.attrs.sort((left, right) => left.name.localeCompare(right.name));
     }
@@ -221,7 +221,27 @@ test('B8: retained pre-footer state converts in both directions with explicit fr
   const checked = validateProject(converted, seed);
   const reverse = validateProject(conversion.toLegacyProject(checked, seed), seed);
   const again = validateProject(conversion.toFrameProject(reverse, seed), seed);
-  for (const page of checked.pages) assert.equal(publicIdentity(frame.composePage(again.frame, again.pages.find(item => item.id === page.id))), publicIdentity(frame.composePage(checked.frame, page)), page.path);
+  let materialized = 0;
+  for (const page of checked.pages) {
+    const after = again.pages.find(item => item.id === page.id), restored = reverse.pages.find(item => item.id === page.id);
+    const beforeHtml = frame.composePage(checked.frame, page), afterHtml = frame.composePage(again.frame, after);
+    assert.equal(publicIdentity(afterHtml), publicIdentity(beforeHtml), page.path);
+    const footer = html => elements(parseFragment(html)).find(node => node.tagName === 'footer');
+    const beforeFooter = footer(beforeHtml), afterFooter = footer(afterHtml), marker = attribute(beforeFooter, 'data-cms-frame-id');
+    const beforeId = attribute(beforeFooter, 'id'), restoredId = attribute(footer(restored.html), 'id'), afterId = attribute(afterFooter, 'id');
+    const selector = marker ? `[data-cms-frame-id="${marker}"]` : `#${beforeId}`;
+    assert.ok(frame.frameCss(checked.frame, page).includes(`${selector}{height:282px}`), `${page.path}: chosen style`);
+    assert.ok(restored.css.includes(`#${restoredId}{height:282px}`), `${page.path}: reverse style`);
+    assert.ok(frame.frameCss(again.frame, after).includes(`#${afterId}{height:282px}`), `${page.path}: reimported style`);
+    if (marker) {
+      materialized++;
+      assert.equal(beforeId, undefined);
+      assert.match(restoredId, /^frame-legacy-\d+$/);
+      assert.equal(afterId, restoredId);
+      assert.equal(attribute(afterFooter, 'data-cms-frame-id'), undefined);
+    } else assert.equal(afterId, beforeId);
+  }
+  assert.ok(materialized > 0, 'The chosen shared style reaches originally idless footers through reverse migration');
   assert.equal(JSON.stringify(legacy), untouched);
 });
 
