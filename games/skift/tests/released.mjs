@@ -1,5 +1,5 @@
 /** Exercise the actual unpacked release without installing dependencies there. */
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -10,8 +10,9 @@ const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 const archive = path.join(root, `SKIFT-${version}.zip`);
 const temp = await mkdtemp(path.join(root, '.zip-smoke-'));
 const python = process.platform === 'win32' ? 'python' : 'python3';
-let server, browser;
+let server, browser, page;
 const checks = [], errors = [];
+await mkdir('evidence', { recursive: true });
 try {
   const extracted = spawnSync(python, ['-c', 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])', archive, temp]);
   assert.equal(extracted.status, 0, String(extracted.stderr));
@@ -22,7 +23,8 @@ try {
     server.stdout.on('data', data => { out += data; const m = out.match(/http:\/\/127\.0\.0\.1:\d+\/play\/skift\//); if (m) { clearTimeout(timer); resolve(m[0]); } });
   });
   browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.context().tracing.start({ screenshots: true, snapshots: true, sources: true });
   page.on('pageerror', e => errors.push(String(e)));
   const responses = [];
   page.on('response', r => { if (r.status() >= 400) responses.push(`${r.status()} ${r.url()}`); });
@@ -30,11 +32,18 @@ try {
   await page.locator('#start-button').click();
   const snapshot = () => page.evaluate(() => window.__SKIFT__.snapshot());
   const a = await snapshot();
-  await page.keyboard.down('d'); await page.waitForTimeout(400); await page.keyboard.up('d');
-  const b = await snapshot(); assert.ok(Math.hypot(a.player.x - b.player.x, a.player.z - b.player.z) > 1);
+  await page.keyboard.down('d');
+  try {
+    // This is an input/progression check, not a hardware frame-rate benchmark.
+    // Software-rendered CI must observe the same distance, within a bounded wait.
+    await expect.poll(async () => {
+      const b = await snapshot();
+      return Math.hypot(a.player.x - b.player.x, a.player.z - b.player.z);
+    }).toBeGreaterThan(1);
+  } finally { await page.keyboard.up('d'); }
   checks.push('Unpacked build starts and movement works without node_modules in the extracted directory');
-  await page.keyboard.press('Space'); await page.waitForTimeout(120); assert.ok((await snapshot()).dashCooldown > 0);
-  await page.keyboard.press('j'); await page.waitForTimeout(120); assert.ok((await snapshot()).pulseCooldown > 0);
+  await page.keyboard.press('Space'); await expect.poll(async () => (await snapshot()).dashCooldown).toBeGreaterThan(0);
+  await page.keyboard.press('j'); await expect.poll(async () => (await snapshot()).pulseCooldown).toBeGreaterThan(0);
   checks.push('Dash and pulse work through real keyboard input');
   await page.keyboard.press('Escape'); await page.waitForTimeout(100); const paused = await snapshot();
   await page.waitForTimeout(400); assert.equal((await snapshot()).time, paused.time);
@@ -48,13 +57,20 @@ try {
   assert.deepEqual(errors, []); assert.deepEqual(responses, []);
   checks.push('No JavaScript errors or failed asset requests');
   const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
-  await mkdir('evidence', { recursive: true });
-  await writeFile('evidence/released-archive.json', JSON.stringify({ date: new Date().toISOString(), archive: path.basename(archive), sha256: digest, browser: browser.version(), checks, errors }, null, 2));
+  await writeFile('evidence/released-archive.json', JSON.stringify({ outcome: 'passed', date: new Date().toISOString(), archive: path.basename(archive), sha256: digest, browser: browser.version(), checks, errors }, null, 2));
   console.log('PASS released ZIP:', digest); checks.forEach(c => console.log('PASS', c));
+} catch (error) {
+  const snapshot = await page?.evaluate(() => window.__SKIFT__?.snapshot()).catch(() => null);
+  await writeFile('evidence/released-archive.json', JSON.stringify({ outcome: 'failed', error: String(error.stack ?? error), checks, errors, snapshot }, null, 2));
+  throw error;
 } finally {
-  if (browser) await browser.close();
-  if (server && server.exitCode === null) {
-    server.kill(); await new Promise(resolve => server.once('exit', resolve));
+  try {
+    if (page) await page.context().tracing.stop({ path: 'evidence/released-trace.zip' });
+  } finally {
+    if (browser) await browser.close();
+    if (server && server.exitCode === null) {
+      server.kill(); await new Promise(resolve => server.once('exit', resolve));
+    }
+    await rm(temp, { recursive: true, force: true });
   }
-  await rm(temp, { recursive: true, force: true });
 }

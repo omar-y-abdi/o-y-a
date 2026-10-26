@@ -104,6 +104,25 @@ for (const width of [320, 390, 768, 1024, 1440]) {
 }
 
 test.describe('all 240 production card exports', () => {
+  // This is a content/export matrix, not a concurrent-load benchmark. Two pages
+  // during concurrent exports stalled with an unfinished card-bank fetch; isolate the
+  // export workload without changing deadlines, payload checks or retry count.
+  test.describe.configure({ mode: 'default' });
+  test.afterEach(async ({ request }, testInfo) => {
+    if (testInfo.status === testInfo.expectedStatus) return;
+    const started = Date.now();
+    let response, evidence;
+    try {
+      // Independent HTTP evidence only: it cannot retry or pass the failed UI.
+      response = await request.get('/data/cards.json', { timeout: 3000, maxRetries: 0 });
+      const body = await response.text();
+      evidence = { status: response.status(), bytes: Buffer.byteLength(body), elapsedMs: Date.now() - started };
+    } catch (error) { evidence = { error: String(error), elapsedMs: Date.now() - started }; }
+    finally {
+      await response?.dispose();
+      await testInfo.attach('independent-card-bank-read.json', { body: JSON.stringify(evidence), contentType: 'application/json' });
+    }
+  });
   for (const card of BANK) {
     test(`${card.id} exports valid PNG`, async ({ page }, testInfo) => {
       const browserErrors = [];

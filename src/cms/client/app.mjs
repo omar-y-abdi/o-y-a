@@ -189,6 +189,9 @@ function restorePendingView(editor) {
   if (device !== 'compare') editor.setDevice(device === 'mobile' ? 'Mobil' : 'Dator');
   applyZoom(false);
   restoreEditorView(editor, snapshot, { setTab: setInspectorTab });
+  // A fresh editor with no selection emits no deselection event. Rebuild the
+  // inspector from the restored Draft instead of leaving the old form visible.
+  if (!editor.getSelected()) inspect(null, editor);
   status();
   return true;
 }

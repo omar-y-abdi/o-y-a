@@ -40,36 +40,48 @@ async function repairSharedContent(state, publish = true) {
     const form = modal.querySelector('[data-shared-content-repair]');
     const errorNode = modal.querySelector('[data-shared-content-error]');
     const submit = form.querySelector('button[type=submit]');
+    const fieldsets = [...form.querySelectorAll('fieldset')];
+    let attempt = null, saved = false, conflicted = false;
     const preventCancel = event => event.preventDefault();
     const cleanup = () => modal.removeEventListener('cancel', preventCancel);
     modal.addEventListener('cancel', preventCancel);
     form.addEventListener('submit', async event => {
       event.preventDefault();
+      if (submit.disabled) return;
       submit.disabled = true;
       submit.textContent = 'Samordnar…';
       errorNode.textContent = '';
-      const choices = {};
-      for (const [index, conflict] of conflicts.entries()) {
-        const chosen = form.querySelector(`input[name="shared-conflict-${index}"]:checked`);
-        const option = conflict.options[Number(chosen?.value)];
-        if (!option) {
-          submit.disabled = false;
-          submit.textContent = 'Använd valt innehåll på alla sidor';
-          errorNode.textContent = 'Välj en variant för varje gemensam del.';
-          return;
-        }
-        choices[conflict.key] = Number(chosen.value);
-      }
       try {
-        const project = chooseFrameClient(state.project, choices);
-        if (publish) await request('save', { project, baseVersion: state.version, requestId: crypto.randomUUID() });
-        const fresh = publish ? await request('state') : { ...state, project };
+        if (!attempt) {
+          const choices = {};
+          for (const [index, conflict] of conflicts.entries()) {
+            const chosen = form.querySelector(`input[name="shared-conflict-${index}"]:checked`);
+            if (!chosen || !conflict.options[Number(chosen.value)]) throw new Error('Välj en variant för varje gemensam del.');
+            choices[conflict.key] = Number(chosen.value);
+          }
+          attempt = { project: chooseFrameClient(state.project, choices), baseVersion: state.version, requestId: crypto.randomUUID() };
+        }
+        // A lost response must replay exactly the same choice and identity.
+        // A confirmed Save, or a definitive head conflict, only needs a fresh read.
+        for (const fieldset of fieldsets) fieldset.disabled = true;
+        if (publish && !saved && !conflicted) {
+          try { await request('save', attempt); saved = true; }
+          catch (error) {
+            if (error.definitive) {
+              if (error.status === 409) conflicted = true;
+              else attempt = null;
+            }
+            throw error;
+          }
+        }
+        const fresh = publish ? await request('state') : { ...state, project: attempt.project };
         cleanup();
         modal.close();
         resolve(fresh.project?.frameConflicts?.length ? await repairSharedContent(fresh, publish) : fresh);
       } catch (error) {
+        for (const fieldset of fieldsets) fieldset.disabled = Boolean(attempt);
         submit.disabled = false;
-        submit.textContent = 'Använd valt innehåll på alla sidor';
+        submit.textContent = saved || conflicted ? 'Läs in den aktuella versionen' : attempt ? 'Försök spara samma val igen' : 'Använd valt innehåll på alla sidor';
         errorNode.textContent = error.message;
       }
     });

@@ -52,3 +52,28 @@ Release boundaries are explicit: stored-history/manual exact-SHA evidence, D1 bo
 Astra independently approved the root license/package/CI batch after verifying the upstream license blob IDs/digests and the corrected tampering gate. Astra also approved the startup/navigation, contextual history, raw-v185 browser and general-documentation sources. Root independently approved legacy queue recovery and the 409 explanatory-warning correction. New source checks cover both named 409 variants without relaxing the old existing-intent warning assertion. Allowed root lint and Python syntax checks passed; no local test/build/server was run. Runtime and final whole-diff acceptance remain pending.
 
 The four original maps are now tracked as frozen evidence, with their 359-path ledger and pinned inventory. Both active plans live beside them; the private locations point here. Original machine-specific paths were removed. The current-command documentation check excludes these frozen reports because references to deleted scripts are evidence, not runnable instructions; relative-link checks still include them.
+
+## Current finding disposition
+
+| Finding | Disposition and implementation evidence |
+| --- | --- |
+| Provenance map: missing full CMS/vendor notices; weak generated checks | Repaired in d87af54: tracked full texts, installed-source/version checks, pinned embedded vendors, graph checks and notice-tampering regressions. Root and Astra independently approved. |
+| Provenance map: site ledger and stale standalone scope | Repaired in ae38095 and game credits: source ledger restored, historical records labeled, current build/license paths corrected. |
+| SD-01 / SD-02 | Repaired in cdafaaf: query-only attachment capability, query redaction, reserved route and tampering/route tests. |
+| SD-03 | Repaired in c7d4a0a: durable upload/deleting state, scheduled cleanup, bounded aged orphan sweep and race/failure tests. |
+| SD-04 / SD-05, VR-04 | Repaired: accurate key-rotation, signed-link transition, discarded editor-JSON and actual body-limit contracts. |
+| SD-06, found after mapping | Repaired: all 409 responses preserve uncertainty; every send attempt is recorded before provider access, and shared intent cannot be discarded by a concurrent refusal. Warning regression from c7d4a0a corrected in03258f4 without weakening its assertion. |
+| Legacy media queue, found after mapping | Repaired in03258f4: exact snapshot/head transaction hands recovery to current reference/CAS deletion checks; owner discovery/retry runbook and ten regression sources. |
+| SP-01 / SP-02 | Repaired in3e5864e: visible SKIFT import failure/reload and native navigation before successful main initialization. CI exposed a wrong test selector (/kontakt/ is not in primary-nav); corrected to real /om/ navigation. |
+| SP-03 | Contextual history guard implemented. New CI case additionally found stale unselected inspector presentation after successful Undo; trace shows clean Draft and stale textarea. Explicit no-selection inspector refresh fixes that separate defect; assertions distinguish history from presentation. |
+| VR-01 | Raw-v185 authenticated browser state/preview/first-Save/reload case passed in functional run40246352536. The stored fixture is asserted raw before and after the initial read. |
+| VR-02 / VR-09 | ZIP closure, extracted build and exact notice tests implemented. Actual extracted npm-ci/build passed in run40246352536; standalone browser movement's fixed400ms hardware assumption failed. Observed input polling now preserves the same movement/cooldown thresholds and retains failure JSON/trace. |
+| VR-03 / server release gaps | Required owner release record in DEPLOYMENT: same-candidate full-history run, exact reviewed errors, D1 bookmark, quiescent writers, account settings and current edge CPU evidence. No production evidence fabricated; these are distinct from PR acceptance. |
+| VR-05 through VR-08 | Current resource/frame model, removed runner, standalone ownership and guide export claims corrected; live docs/script paths linted. |
+| Frame-conflict recovery, found during final review | Peer authored frozen Save identity/choice, confirmed-Save state-read retry and explicit stale-head reconciliation. Root approved source and six real-Worker browser regression cases; registered in functional CI. Runtime pending. |
+
+## Remote round at ae38095
+
+Run40246352536 passed the functional-browser job, including the new raw-v185 case. Node source/storage/notice tests passed before public-browser execution. Firefox/WebKit exposed the stale-inspector defect and the new nav test's wrong premise. The standalone job passed build/ZIP/extracted rebuild before failing its fixed-wall-clock movement assertion. The public matrix also had two unfinished card-bank fetches during concurrent exports (r03 and r18, at different times); traces do not identify a production or server cause. Only the all240 export group is now scheduled sequentially, with the same8s checks and zero retries. A bounded independent HTTP receipt is attached on a future failure; it never changes a failed browser result. This is harness resource isolation, not a claimed product fix.
+
+The next coherent batch repairs those diagnosed failures and adds the independently reviewed frame-conflict recovery. Root and Astra agreed to each other's changes. No local runtime was used; lint and syntax checks are the local evidence. Whole original-diff review continued across frame conversion/rendering/editor state, migration/retention/release tools, client startup, game lifecycle and test registrations; no additional concrete blocker was established.

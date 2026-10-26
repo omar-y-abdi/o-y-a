@@ -224,6 +224,9 @@ test('compose and account tabs cannot undo a hidden page draft; template history
   await waitCanvas(page);
   await expect(description).toHaveValue(changed);
   await page.locator('[data-action="undo"]').click();
+  await expect(page.locator('[data-action="save"]')).toBeDisabled();
+  await expect(page.locator('[data-action="undo"]')).toBeDisabled();
+  await expect(page.locator('[data-action="redo"]')).toBeEnabled();
   await expect(description).toHaveValue(original);
   await page.locator('[data-action="redo"]').click();
   await expect(description).toHaveValue(changed);

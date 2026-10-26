@@ -96,6 +96,7 @@ jobs:
             games/skift/SKIFT-*.zip
             games/skift/SKIFT-*.zip.sha256
             games/skift/evidence/released-archive.json
+            games/skift/evidence/released-trace.zip
           retention-days: 14
 
   editor-compatibility:
@@ -165,6 +166,7 @@ jobs:
         run: >-
           npx playwright test
           tests/cms-frame-public.spec.mjs
+          tests/cms-frame-recovery.spec.mjs
           tests/cms-browser.spec.mjs
           tests/cms-interactions.spec.mjs
           tests/cms-review-browser.spec.mjs

@@ -39,6 +39,8 @@ Memorykortens grundmarkup finns i editorn. Kort, fram-/baksida och SVG-behållar
 
 Sidhuvud, sidfot och gemensamma paneler lagras i en enda sidram. En ramändring från en sida uppdaterar hela webbplatsens ram i samma utkast och som ett undo-steg. Sidornas huvudinnehåll lagras separat. Vid öppning av äldre innehåll kontrolleras ramarna; motstridiga ramversioner behöver väljas uttryckligen innan Save.
 
+Om den aktuella publicerade versionen har motstridiga ramar visar studion ett samordningsval innan arbetsytan öppnas. Dialogen anger att valet publiceras som en ny version. Vid ett osäkert svar låses valet och **Försök spara samma val igen** behåller samma sparförsök. Har Save bekräftats, eller en annan flik hunnit publicera, läser **Läs in den aktuella versionen** först in det aktuella läget. Historik och återställda reservutkast läses däremot in som utkast; deras val publiceras först med Save.
+
 ## Spara och återställa
 
 | Knapp | Resultat |

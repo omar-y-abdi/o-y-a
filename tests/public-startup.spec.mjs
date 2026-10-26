@@ -92,10 +92,10 @@ test.describe('public startup', () => {
       await page.goto(runtime.url + '/');
       await expect(page.locator('html')).not.toHaveClass(/js-ready/);
       await expect(page.locator('[data-menu-toggle]')).toBeHidden();
-      const contact = page.locator('.primary-nav a[href="/kontakt/"]');
-      await expect(contact).toBeVisible();
-      await contact.click();
-      await expect(page).toHaveURL(runtime.url + '/kontakt/');
+      const about = page.locator('.primary-nav a[href="/om/"]');
+      await expect(about).toBeVisible();
+      await about.click();
+      await expect(page).toHaveURL(runtime.url + '/om/');
     });
   }
 
