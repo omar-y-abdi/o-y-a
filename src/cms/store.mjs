@@ -2,7 +2,8 @@ import { HttpError } from './http.mjs';
 import { fontCss } from './theme.mjs';
 import { resourceReferences, resolveResources } from './resources.mjs';
 import { resourceSlots } from '../content/resources.mjs';
-import { composePage } from './frame.mjs';
+import { composePage, frameCss } from './frame.mjs';
+import { trimLegacySaveMetadata } from './legacy-save-identity.mjs';
 
 export async function digest(value) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
@@ -38,6 +39,29 @@ export async function replaySave(db, { requestId, actor, payloadHash }) {
   const existing = await db.prepare('SELECT version, payload_hash, actor, created_at FROM cms_revisions WHERE request_id = ?').bind(requestId).first();
   if (!existing) return null;
   if (existing.payload_hash !== payloadHash || existing.actor !== actor) throw new HttpError(409, 'Ett annat sparförsök använde samma identitet.');
+  return { version: existing.version, requestId, createdAt: existing.created_at, replayed: true };
+}
+
+export async function replayFullSave(db, { requestId, actor, baseVersion, payloadHash, project }) {
+  const existing = await db.prepare('SELECT version, base_version, request_format, payload_hash, actor, created_at FROM cms_revisions WHERE request_id = ?').bind(requestId).first();
+  if (!existing) return null;
+  if (existing.actor !== actor || existing.base_version !== baseVersion) throw new HttpError(409, 'Ett annat sparförsök använde samma identitet.');
+  let expected = existing.request_format === 'full-v1' ? payloadHash : null;
+  if (existing.request_format === 'canonical' && [1, 2].includes(project?.schemaVersion) && Array.isArray(project.pages)) {
+    expected = await digest(JSON.stringify(project));
+    if (expected !== existing.payload_hash) {
+      const trimmed = trimLegacySaveMetadata(project);
+      if (trimmed) expected = await digest(JSON.stringify(trimmed));
+    }
+  }
+  if (expected !== existing.payload_hash) {
+    if (existing.request_format === 'canonical') {
+      // The old Worker stored no raw request identity. Re-normalizing with new
+      // rules cannot prove equality, nor can a mismatch prove changed content.
+      throw new HttpError(409, `Sparförsöket finns redan som version ${existing.version}, men dess äldre innehåll kan inte jämföras säkert. Ditt frysta utkast finns kvar. Jämför med versionen i historiken innan du återställer eller sparar nya ändringar.`, { saveIdentityUnverified: true, recordedVersion: existing.version });
+    }
+    throw new HttpError(409, 'Ett annat sparförsök använde samma identitet.');
+  }
   return { version: existing.version, requestId, createdAt: existing.created_at, replayed: true };
 }
 
@@ -104,7 +128,7 @@ export function publicationChunks(project, resources = resourceSlots, references
   const addressableCards = project.cards.filter(card => (card.state ?? 'active') !== 'trash').map(publicCard);
   const activeIds = project.cards.filter(card => (card.state ?? 'active') === 'active').map(card => card.id);
   const rendered = [
-    ...project.pages.map(page => ({ path: page.path, html: composePage(project.frame, page), css: fonts + (project.frame?.css ?? '') + page.css, meta: { ...metadata(page), resources, ...(project.frame ? { frameVersion: 2 } : {}) } })),
+    ...project.pages.map(page => ({ path: page.path, html: composePage(project.frame, page), css: fonts + frameCss(project.frame, page) + page.css, meta: { ...metadata(page), resources, ...(project.frame ? { frameVersion: 2 } : {}) } })),
     ...(project.frame ? [{ path: '@frame', html: project.frame.html, css: fonts + project.frame.css, meta: { id: 'skift', resources } }] : []),
     ...addressableCards.map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(card), css: '', meta: {} })),
     ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest], ['email', project.email ?? null]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: {} })),
@@ -135,7 +159,7 @@ export async function publicationMedia(db, project, references = resourceReferen
   return media;
 }
 
-export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references }) {
+export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical' }) {
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(requestId)) throw new HttpError(400, 'Sparförsöket saknar en giltig version eller identitet.');
   const serialized = JSON.stringify(project);
   if (new TextEncoder().encode(serialized).byteLength > 8 * 1024 * 1024) throw new HttpError(413, 'Projektet är för stort.');
@@ -155,8 +179,8 @@ export async function publishSite(db, { project, baseVersion, requestId, actor, 
   const mediaKeys = media.map(row => row.object_key);
   const summary = `${manifest.length} sidor · ${project.cards.length} vinster`;
   const revision = mediaKeys.length
-    ? db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, strftime(\'%Y-%m-%dT%H:%M:%fZ\',\'now\'), ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ? AND (SELECT count(*) FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL AND validation_version > 0) = ?').bind(version, requestId, baseVersion, actor, hash, compressed, JSON.stringify(manifest), summary, baseVersion, JSON.stringify(mediaKeys), mediaKeys.length)
-    : db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, project, manifest, summary) SELECT ?, ?, ?, ?, strftime(\'%Y-%m-%dT%H:%M:%fZ\',\'now\'), ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ?').bind(version, requestId, baseVersion, actor, hash, compressed, JSON.stringify(manifest), summary, baseVersion);
+    ? db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, request_format, project, manifest, summary) SELECT ?, ?, ?, ?, strftime(\'%Y-%m-%dT%H:%M:%fZ\',\'now\'), ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ? AND (SELECT count(*) FROM cms_media WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL AND validation_version > 0) = ?').bind(version, requestId, baseVersion, actor, hash, requestFormat, compressed, JSON.stringify(manifest), summary, baseVersion, JSON.stringify(mediaKeys), mediaKeys.length)
+    : db.prepare('INSERT INTO cms_revisions (version, request_id, base_version, actor, created_at, payload_hash, request_format, project, manifest, summary) SELECT ?, ?, ?, ?, strftime(\'%Y-%m-%dT%H:%M:%fZ\',\'now\'), ?, ?, ?, ?, ? FROM cms_head WHERE id = 1 AND version = ?').bind(version, requestId, baseVersion, actor, hash, requestFormat, compressed, JSON.stringify(manifest), summary, baseVersion);
   const statements = [revision];
   const resourceIndex = [...trustedReferences.entries()];
   if (resourceIndex.length) statements.push(db.prepare("INSERT INTO cms_revision_resource_index(version,src,reference_count) SELECT ?, json_extract(value,'$[0]'), json_extract(value,'$[1]') FROM json_each(?) WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)").bind(version, JSON.stringify(resourceIndex), baseVersion, requestId));

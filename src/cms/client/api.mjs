@@ -3,7 +3,7 @@ import { chooseFrameClient } from './frame-project.mjs';
 
 export class ApiError extends Error {
   constructor(message, status = 0, details) { super(message); this.status = status; this.details = details; }
-  get definitive() { return this.status >= 400 && this.status < 500 && this.status !== 408; }
+  get definitive() { return this.status >= 400 && this.status < 500 && this.status !== 408 && !this.details?.saveIdentityUnverified; }
 }
 
 export async function send(url, { headers, ...init }, failure) {

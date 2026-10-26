@@ -27,7 +27,7 @@ test.beforeAll(async () => {
   studioCss = await readFile('src/cms/styles.css', 'utf8');
 });
 
-async function openStudio(page, { html, css = '', bodyClass = 'page-test', frame }) {
+async function openStudio(page, { html, css = '', bodyClass = 'page-test', frame, frameIds }) {
   await page.setViewportSize({ width: 1600, height: 1400 });
   await page.route(`${ORIGIN}/**`, route => {
     const files = { '/': ['text/html', SHELL], '/harness.js': ['text/javascript', harness], '/grapes.css': ['text/css', gjsCss], '/studio.css': ['text/css', studioCss], '/canvas.css': ['text/css', CANVAS_CSS], '/pic.svg': ['image/svg+xml', PIC] };
@@ -36,8 +36,8 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test', frame
   });
   await page.goto(`${ORIGIN}/`);
   expect(await page.evaluate(() => ({ secure: isSecureContext, uuid: typeof crypto.randomUUID })), 'The harness uses the production studio secure context').toEqual({ secure: true, uuid: 'function' });
-  await page.evaluate(([html, css, bodyClass, frame]) => new Promise(resolve => {
-    window.__studio = window.createEditor({ page: { html, css, path: '/t/', bodyClass }, frame, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onAssetPick: null,
+  await page.evaluate(([html, css, bodyClass, frame, frameIds]) => new Promise(resolve => {
+    window.__studio = window.createEditor({ page: { html, css, path: '/t/', bodyClass, frameIds }, frame, cssPath: '/canvas.css', assets: [], onChange() {}, onSelect() {}, onAssetPick: null,
       onReady: editor => {
         window.__ed = editor; window.__resizes = [];
         editor.on('component:resize', ({ type }) => window.__resizes.push(type));
@@ -45,7 +45,7 @@ async function openStudio(page, { html, css = '', bodyClass = 'page-test', frame
         editor.Canvas.setCoords(0, 24);
         resolve();
       } });
-  }), [html, css, bodyClass, frame]);
+  }), [html, css, bodyClass, frame, frameIds]);
   // A coords change hides the tools and restarts select-comp 300 ms later
   // (grapes.mjs:31774-31781). Wait for that before any click or drag.
   await expect.poll(() => page.evaluate(() => window.__ed.Canvas.getCanvasView().toolsWrapper.style.display), { message: 'tools shown again after setCoords' }).toBe('');
@@ -59,6 +59,33 @@ const setDevice = async (page, name) => {
 };
 const select = (page, selector) => page.evaluate(selector => { window.__ed.select(window.__ed.getWrapper().find(selector)[0]); }, selector);
 const undoSize = page => page.evaluate(() => window.__ed.UndoManager.getStack().length);
+
+for (const historical of ['historical-footer', null]) test(`F2: ${historical ?? 'idless'} frame editor projection preserves IDs and shared styling across pages`, async ({ page }) => {
+  const html = '<main id="main"><h1>Sidans rubrik</h1><p id="canonical-footer">Sidans egen identitet</p><p id="frame-editor-0">Egen identitet med samma prefix</p></main>';
+  const frame = { html: '<header data-cms-node="f-head">Ram</header><main></main><footer id="canonical-footer" data-cms-node="f-foot"><p>Avslutning</p></footer>', css: '#canonical-footer{color:#123456}' };
+  const frameIds = { 'f-foot': ['canonical-footer', historical] };
+  await openStudio(page, { html, frame, frameIds });
+  const canvas = page.frameLocator('#editor iframe.gjs-frame'), footer = canvas.locator('footer');
+  await expect(footer).toHaveAttribute('id', historical ?? 'frame-editor-1');
+  await expect(canvas.locator('#canonical-footer')).toHaveText('Sidans egen identitet');
+  await expect(footer).toHaveCSS('color', 'rgb(18, 52, 86)');
+  expect(await page.evaluate(() => window.__studio.snapshot(true))).toMatchObject({ html, frame });
+  const saved = await page.evaluate(() => {
+    const footer = window.__ed.getWrapper().find('[data-cms-node="f-foot"]')[0];
+    footer.addStyle({ color: '#654321' });
+    window.__studio.flush(true);
+    return window.__studio.snapshot(true);
+  });
+  await expect(footer).toHaveCSS('color', 'rgb(101, 67, 33)');
+  expect(saved.frame.html).toContain('id="canonical-footer"');
+  expect(saved.frame.html).not.toContain('frame-editor-');
+  expect(saved.frame.css).toContain('#canonical-footer');
+  expect(saved.frame.css).not.toContain(historical ?? 'frame-editor-1');
+  await openStudio(page, { html, frame: saved.frame, frameIds: { 'f-foot': ['canonical-footer', 'another-historical-footer'] } });
+  await expect(footer).toHaveAttribute('id', 'another-historical-footer');
+  await expect(footer).toHaveCSS('color', 'rgb(101, 67, 33)');
+  expect((await page.evaluate(() => window.__studio.snapshot(true))).frame).toEqual(saved.frame);
+});
 
 // The CSS the editor would save, split into the global and the phone rule of #box.
 const boxRules = page => page.evaluate(() => {

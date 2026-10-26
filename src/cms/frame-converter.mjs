@@ -4,7 +4,8 @@ import { attribute, elements } from './html-tree.mjs';
 import { preparePage, validateHtml, validateCss, migrateKeys } from './validation.mjs';
 import LEGACY_KEYS from './legacy-keys.json' with { type: 'json' };
 import { normalizeStoredProject as normalizeLegacyProject, normalizeClientProject as normalizeLegacyClient, refreshDevelopers, normalizeSharedValue, DEFAULT_SHARED_CONTENT } from './legacy-project.mjs';
-import { splitPage, composePage, frameShape, projectFrame, splitPageCss, responsiveHomeCss, legacySeed, validateFrame } from './frame.mjs';
+import { splitPage, composePage, frameCss, frameShape, projectFrame, splitPageCss, responsiveHomeCss, legacySeed, validateFrame } from './frame.mjs';
+import { mapFrameCss } from './frame-ids.mjs';
 
 const fail = message => { throw new HttpError(422, message); };
 const definition = (seed, page) => seed.pages.find(item => item.id === page.id) ?? seed.pages.find(item => item.id === page.sourceId) ?? seed.blank;
@@ -41,8 +42,8 @@ export function toFrameProject(input, seed, { client = false } = {}) {
   const ownerDecisions = input.frameVersion !== 2;
   const legacy = legacySeed(seed);
   const normalized = client ? legacyClientProject(input, seed) : normalizeLegacyProject(input, legacy);
-  const variants = new Map();
-  const pages = normalized.pages.map(page => {
+  const variants = new Map(), shapes = new Map();
+  const entries = normalized.pages.map(page => {
     const old = definition(legacy, page), source = definition(seed, page);
     const keys = seed.scopeKeys?.[source.id];
     const checked = validateHtml(page.html, old?.contracts ?? []);
@@ -50,13 +51,45 @@ export function toFrameProject(input, seed, { client = false } = {}) {
     const style = ownerDecisions && page.path === '/' ? responsiveHomeCss(page.css, split.page) : page.css;
     const styles = splitPageCss(style, split.html, split.page, page.path, ownerDecisions);
     const html = projectFrame(split.html, ownerDecisions);
-    const value = { html: scopedHtml(html, keys, true), css: styles.frame };
-    const signature = JSON.stringify([frameShape(value.html), value.css]);
+    const scoped = scopedHtml(html, keys, true), shape = frameShape(scoped);
+    const nodes = elements(parseFragment(scoped, { scriptingEnabled: true }));
+    if (!shapes.has(shape)) shapes.set(shape, { tree: parseFragment(scoped, { scriptingEnabled: true }), entries: [] });
+    const entry = { page, html, scoped, shape, nodes, styles, keys, main: split.page };
+    shapes.get(shape).entries.push(entry);
+    return entry;
+  });
+  // Every retained historical ID has a canonical counterpart, even when the
+  // first page lacked that ID. This makes later shared styles reversible.
+  for (const group of shapes.values()) {
+    const nodes = elements(group.tree), used = new Set(nodes.map(node => attribute(node, 'id')).filter(Boolean));
+    nodes.forEach((node, index) => {
+      if (attribute(node, 'id')) return;
+      let id = group.entries.map(entry => attribute(entry.nodes[index], 'id')).find(Boolean);
+      if (!id) return;
+      if (used.has(id)) { let suffix = index; do { id = `frame-${suffix++}`; } while (used.has(id)); }
+      used.add(id); node.attrs = [...node.attrs.filter(item => item.name !== 'id'), { name: 'id', value: id }];
+    });
+    group.html = serialize(group.tree);
+  }
+  const pages = entries.map(({ page, html, shape, nodes, styles, keys, main }) => {
+    const canonical = shapes.get(shape), targets = elements(canonical.tree), ids = new Map(), frameIds = {};
+    targets.forEach((node, index) => {
+      const from = attribute(node, 'id') ?? null, to = attribute(nodes[index], 'id') ?? null;
+      if (from === to) return;
+      const key = attribute(node, 'data-cms-node');
+      if (!key || from === null) fail('Sidramens äldre ID:n kan inte kopplas entydigt.');
+      frameIds[key] = [from, to];
+      if (to !== null) ids.set(to, { id: from });
+    });
+    let style;
+    try { style = mapFrameCss(styles.frame, ids); } catch (error) { fail(`${page.path}: ${error.message}`); }
+    const value = { html: canonical.html, css: style };
+    const signature = JSON.stringify([shape, value.css]);
     const variant = variants.get(signature) ?? { value, label: page.name || page.path, pages: [] };
     variant.pages.push(page.name || page.path);
     variants.set(signature, variant);
-    const { facts: _facts, footerVersion: _footer, ...clean } = page;
-    return { ...clean, html: scopedHtml(split.page, keys, false), css: styles.page, project: null, frameKeys: frameKeys(variant.value.html, html) };
+    const { facts: _facts, footerVersion: _footer, frameIds: _ids, ...clean } = page;
+    return { ...clean, html: scopedHtml(main, keys, false), css: styles.page, project: null, frameKeys: frameKeys(variant.value.html, html), ...(Object.keys(frameIds).length ? { frameIds } : {}) };
   });
   if (!variants.size) fail('Projektet saknar en sidram.');
   const options = [...variants.values()];
@@ -107,9 +140,25 @@ export function toLegacyProject(project, seed) {
   const frame = validateFrame(project.frame, seed);
   const pages = project.pages.map(page => {
     validateHtml(page.html, definition(seed, page)?.contracts ?? []);
-    const styles = splitPageCss(frame.css + page.css, frame.html, page.html, page.path, false);
-    if (styles.frame !== frame.css || styles.page !== validateCss(page.css ?? '')) fail(`Stilarna på ${page.path} kan inte återställas utan att byta ägare.`);
-    const tree = parseFragment(composePage(frame, page), { scriptingEnabled: false });
+    let projected = page;
+    const withMarkers = composePage(frame, page);
+    const markers = elements(parseFragment(withMarkers)).filter(node => attribute(node, 'data-cms-frame-id'));
+    if (markers.length) {
+      // Schema 1 cannot carry generated selector markers. An explicit reverse
+      // migration gives these styled, formerly idless nodes collision-free IDs.
+      const ids = new Set(elements(parseFragment(withMarkers)).map(node => attribute(node, 'id')).filter(Boolean));
+      const frameIds = structuredClone(page.frameIds);
+      let serial = 0;
+      for (const node of markers) {
+        let id; do { id = `frame-legacy-${serial++}`; } while (ids.has(id)); ids.add(id);
+        frameIds[attribute(node, 'data-cms-frame-id')][1] = id;
+      }
+      projected = { ...page, frameIds };
+    }
+    const css = frameCss(frame, projected), composed = projected === page ? withMarkers : composePage(frame, projected);
+    const styles = splitPageCss(css + page.css, splitPage(composed).html, page.html, page.path, false);
+    if (styles.frame !== css || styles.page !== validateCss(page.css ?? '')) fail(`Stilarna på ${page.path} kan inte återställas utan att byta ägare.`);
+    const tree = parseFragment(composed, { scriptingEnabled: false });
     const nodes = elements(tree), keys = nodes.map(node => attribute(node, 'data-cms-node'));
     for (const node of nodes) node.attrs = node.attrs.filter(item => item.name !== 'data-cms-node');
     const prepared = preparePage(`<!doctype html><html><head></head><body>${serialize(tree)}</body></html>`);
@@ -120,8 +169,8 @@ export function toLegacyProject(project, seed) {
       if (keys[index]) key.value = keys[index];
       else node.attrs = node.attrs.filter(item => item !== key);
     });
-    const { facts: _facts, frameKeys: _keys, ...clean } = page;
-    return { ...clean, html: serialize(restored), css: frame.css + page.css, project: null, footerVersion: 1 };
+    const { facts: _facts, frameKeys: _keys, frameIds: _ids, ...clean } = page;
+    return { ...clean, html: serialize(restored), css: css + page.css, project: null, footerVersion: 1 };
   });
   const tree = parseFragment(frame.html), sharedContent = {};
   for (const key of Object.keys(legacySeed(seed).sharedContent ?? DEFAULT_SHARED_CONTENT)) {

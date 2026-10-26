@@ -5,7 +5,7 @@ import { resolveSiteLink } from './routes.mjs';
 import { referencedIds } from './id-references.mjs';
 import { validateResources, resourceReferences } from './resources.mjs';
 import { normalizeSharedContent, validateSharedInstances, normalizeFooterProject, normalizeSkiftProject } from './legacy-project.mjs';
-import { validateFrame, validateFrameKeys, legacySeed } from './frame.mjs';
+import { validateFrame, validateFrameKeys, validateFrameIds, effectiveFrameIds, frameCss, legacySeed } from './frame.mjs';
 import { attribute, elements } from './html-tree.mjs';
 import { SKIFT_PATH } from '../content/skift.mjs';
 
@@ -33,9 +33,10 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
   if (framed && publication && input.frameConflicts?.length) fail('Välj vilken sidram som ska gälla innan du sparar.');
   const frame = framed ? validateFrame(input.frame, seed) : null;
   const frameIds = frame?.nodes.map(node => attribute(node, 'id')).filter(Boolean) ?? [];
+  if (frameIds.some(id => seed.skiftIds?.includes(id))) fail('Sidramen använder ett ID som tillhör spelets huvudinnehåll.');
   const frameLinks = frame?.nodes.filter(node => node.tagName === 'a').map(node => attribute(node, 'href')).filter(Boolean) ?? [];
   const frameReferences = frame?.nodes.flatMap(node => node.attrs.flatMap(item => referencedIds(item.name, item.value).map(target => [item.name, target]))) ?? [];
-  const consentIds = new Set(frame?.nodes.filter(node => attribute(node, 'data-consent') !== undefined).map(node => attribute(node, 'id')).filter(Boolean));
+  const frameIdsByPath = new Map();
   if (publication && frame?.nodes.some(node => node.tagName === 'h1' || node.tagName === 'img' && attribute(node, 'alt') === undefined)) fail('Sidramen behöver alternativtext och får inte innehålla sidans huvudrubrik.');
   if (input.pages.length > 64) fail('Projektets sidregister är för stort.');
   const ids = new Set();
@@ -57,6 +58,15 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
     // A14: the game template is code-owned and never becomes a CMS page.
     if (source?.template === 'skift') fail('Spelets sida kan inte redigeras i studion.');
     const contracts = source?.contracts ?? [];
+    const frameKeys = framed ? validateFrameKeys(page.frameKeys, seed.scopeKeys?.[source?.id ?? 'blank']) : undefined;
+    const originalSource = legacySeed(seed).pages.find(item => item.id === source?.id) ?? legacySeed(seed).blank;
+    const aliases = framed ? validateFrameIds(page.frameIds, { contracts: seed.frame?.contracts, originalContracts: originalSource?.contracts, frameKeys }) : undefined;
+    const projection = { frameIds: aliases };
+    const pageFrameIds = frame ? effectiveFrameIds(frame, projection) : [];
+    if (new Set(pageFrameIds).size !== pageFrameIds.length) fail(`Sidramen använder samma ID flera gånger på ${path}.`);
+    frameIdsByPath.set(path, pageFrameIds);
+    const consentIds = new Set(frame ? effectiveFrameIds({ nodes: frame.nodes.filter(node => attribute(node, 'data-consent') !== undefined) }, projection) : []);
+    if (framed) frameCss(frame, projection);
     // An exact cache key avoids hash collisions and follows live contracts.
     // Only facts loaded from the trusted database may satisfy this comparison.
     const validationKey = JSON.stringify([VALIDATION_POLICY, contracts, publication]);
@@ -77,16 +87,15 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
       facts = { validationKey, ids: nodes.map(node => attribute(node, 'id')).filter(Boolean), links: nodes.filter(node => node.tagName === 'a').map(node => attribute(node, 'href')).filter(Boolean), references: nodes.flatMap(node => node.attrs.flatMap(item => referencedIds(item.name, item.value).map(target => [item.name, target]))) };
       for (const node of nodes) if (publication && node.tagName === 'img' && attribute(node, 'alt') === undefined) fail('Varje bild behöver alternativtext; dekorativa bilder kan ha tom text.');
     }
-    if (facts.ids.some(id => frameIds.includes(id))) fail(`Sidramen och ${path} använder samma ID.`);
+    if (facts.ids.some(id => pageFrameIds.includes(id))) fail(`Sidramen och ${path} använder samma ID.`);
     if (facts.references?.some(([name, target]) => name === 'for' && consentIds.has(target))) fail('Samtyckesknappens tillgängliga namn är låst.');
     if (publication) for (const [name, target] of [...(facts.references ?? []), ...frameReferences]) {
-      if (![...facts.ids, ...frameIds].includes(target) && target !== 'top') fail(`Referensen ${name} till ${target} på ${path} saknar mål.`);
+      if (![...facts.ids, ...pageFrameIds].includes(target) && target !== 'top') fail(`Referensen ${name} till ${target} på ${path} saknar mål.`);
     }
     if (!framed) { const { references: _references, ...legacyFacts } = facts; facts = legacyFacts; }
     const style = compatible && page.css === saved.css ? saved.css : validateCss(page.css ?? '');
     const project = null;
-    const frameKeys = framed ? validateFrameKeys(page.frameKeys, seed.scopeKeys?.[source?.id ?? 'blank']) : undefined;
-    return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts, ...(frameKeys === undefined ? {} : { frameKeys }), ...(framed || page.footerVersion === undefined ? {} : { footerVersion: page.footerVersion }) };
+    return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts, ...(frameKeys === undefined ? {} : { frameKeys }), ...(aliases === undefined ? {} : { frameIds: aliases }), ...(framed || page.footerVersion === undefined ? {} : { footerVersion: page.footerVersion }) };
   };
   // A7: a rejected save names the page it came from.
   const pages = input.pages.map(page => {
@@ -97,7 +106,7 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
     }
   });
   if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
-  const targets = new Map([[SKIFT_PATH, new Set([...(seed.skiftIds ?? []), ...frameIds])], ...pages.map(page => [page.path, new Set([...page.facts.ids, ...frameIds])])]);
+  const targets = new Map([[SKIFT_PATH, new Set([...(seed.skiftIds ?? []), ...frameIds])], ...pages.map(page => [page.path, new Set([...page.facts.ids, ...frameIdsByPath.get(page.path)])])]);
   // A3: every page with a broken link is reported in one 422, not one per save.
   const linkProblem = (page, href) => {
     let link;

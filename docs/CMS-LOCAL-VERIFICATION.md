@@ -22,6 +22,8 @@ npm run edge:check
 
 Run these sequentially and stop if a command fails. `quality` already includes build, lint, Node tests, the public HTTP suite, public browser regressions and all 240 standard card exports. `test:cms` first runs the isolated real-module fixtures, then the original CMS browser/interactions suites **and both review suites** against an ephemeral, authenticated local Worker. `node scripts/test-cms-compat.mjs` runs the module fixtures and targeted review suites in Firefox and WebKit. CI runs the same engine-specific module and review gates. These commands do not publish content or email to the real site. `edge:check` is a Wrangler **dry run**, not a deploy.
 
+The fast Node gate also prepares an immutable historical Worker fixture from commit `80630c7d280c71314702af791dbc0828d9ff8b0a`, using that revision's source, lockfile and build. It lives under `.generated/base-worker/` and supplies the actual old validator and publisher for deployment-compatibility regressions. A shallow checkout must first fetch that commit (`git fetch origin 80630c7d280c71314702af791dbc0828d9ff8b0a`). Its historical dependencies are isolated test evidence, never current release inputs. The root dependency audit applies to the current lockfile. A legacy-shaped project produced by current code is not a substitute for this fixture.
+
 For a quicker focused rerun:
 
 ```sh

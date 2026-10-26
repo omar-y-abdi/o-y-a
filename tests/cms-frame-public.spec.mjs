@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { parseFragment, serialize } from 'parse5';
 import * as css from 'css-tree';
-import { seed } from '../.generated/cms-seed.mjs';
+import { seed, legacyInitial } from '../.generated/cms-seed.mjs';
 import { normalizeStoredProject } from '../src/cms/legacy-project.mjs';
 import { toFrameProject } from '../src/cms/frame-converter.mjs';
 import { validateProject } from '../src/cms/project.mjs';
@@ -11,6 +11,7 @@ import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { waitCanvas } from './helpers/cms-browser-qa.mjs';
+import { legacyFrameIdentities, footerId } from './helpers/frame-identities.mjs';
 
 // Keep raster/compositing off the host GPU and pin color/text rendering.
 // File scope is required: launchOptions changes Playwright's worker fixture.
@@ -21,6 +22,59 @@ test.use({ launchOptions: {
     '--disable-gpu', '--force-color-profile=srgb', '--disable-lcd-text',
   ],
 } });
+
+test('F2: real studio Save preserves legacy bookmarks and new shared styles reach projected footer identities', async ({ page, context }) => {
+  test.setTimeout(90_000);
+  const original = validateProject(legacyFrameIdentities(legacyInitial), seed);
+  const runtime = await cmsRuntime({ project: original });
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  try {
+    await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(runtime.url + '/admin/');
+    await waitCanvas(page);
+    await expect(page.frameLocator('#editor iframe.gjs-frame').locator('footer')).toHaveAttribute('id', 'legacy-footer-home');
+    await page.locator('#page-description').fill('Orelaterad ändring med bevarade äldre bokmärken.');
+    const previewResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/admin/api/preview');
+    await page.locator('[data-action=lock]').click();
+    expect((await previewResponse).status()).toBe(200);
+    await expect(page.frameLocator('#preview-stage iframe').locator('footer')).toHaveAttribute('id', 'legacy-footer-home');
+    const saveResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/admin/api/save' && response.request().method() === 'POST');
+    await page.locator('[data-action=save]').click();
+    expect((await saveResponse).status()).toBe(200);
+    await expect(page.locator('#save-status')).toHaveText('Alla ändringar sparade · v2');
+    await page.goto(runtime.url + '/#legacy-footer-home');
+    await expect(page.locator('footer:target')).toHaveAttribute('id', 'legacy-footer-home');
+    await page.locator('a[href="/om/#legacy-footer-about"]').click();
+    await expect(page.locator('footer:target')).toHaveAttribute('id', 'legacy-footer-about');
+    const stored = await readSite(runtime.db);
+    const canonical = footerId(stored.project.frame.html);
+    stored.project.frame.css += `#${canonical}{color:#123456}`;
+    const headers = { 'Cf-Access-Jwt-Assertion': await runtime.token(), Origin: runtime.url, 'Content-Type': 'application/json', 'X-CMS-Request': '1' };
+    const post = (path, body) => runtime.mf.dispatchFetch(runtime.url + '/admin/api/' + path, { method: 'POST', headers, body: JSON.stringify(body) });
+    const styledSave = await post('save', { project: stored.project, baseVersion: stored.version, requestId: crypto.randomUUID() });
+    expect(styledSave.status, await styledSave.clone().text()).toBe(200);
+    const previewPage = await context.newPage();
+    try {
+      const idless = original.pages.find(item => footerId(item.html) === null);
+      expect(idless).toBeTruthy();
+      for (const id of ['home', 'about', idless.id]) {
+        const item = stored.project.pages.find(candidate => candidate.id === id);
+        const expected = footerId(original.pages.find(candidate => candidate.id === id).html);
+        await page.goto(runtime.url + item.path);
+        expect(await page.locator('footer').getAttribute('id')).toBe(expected);
+        await expect(page.locator('footer')).toHaveCSS('color', 'rgb(18, 52, 86)');
+        const preview = await post('preview', { project: stored.project, pageId: id });
+        expect(preview.status, await preview.clone().text()).toBe(200);
+        await previewPage.setContent((await preview.json()).html);
+        expect(await previewPage.locator('footer').getAttribute('id')).toBe(expected);
+        await expect(previewPage.locator('footer')).toHaveCSS('color', 'rgb(18, 52, 86)');
+      }
+    } finally { await previewPage.close(); }
+    expect(errors).toEqual([]);
+  } finally { await runtime.close(); }
+});
 
 test('raw v185 opens the authenticated studio, previews, first-saves and reloads without preconversion', async ({ page, context }) => {
   test.setTimeout(90_000);

@@ -92,6 +92,31 @@ test('confirmed frame repair retries only the state read, including a definitive
   expect((await readSite(runtime.db)).version).toBe(2);
 });
 
+test('an unverified historical identity preserves the frozen frame choice and retry body', async ({ page, context, runtime }) => {
+  const payloads = [];
+  await page.route('**/admin/api/save', async route => {
+    payloads.push(route.request().postData());
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    if (payloads.length === 1) await route.fulfill({ status: 409, json: {
+      error: 'Sparförsöket finns redan som version 2. Jämför med historiken.',
+      details: { saveIdentityUnverified: true, recordedVersion: 2 },
+    } });
+    else await route.fulfill({ response });
+  });
+  const { form, submit, error, choices } = await openRepair(page, context, runtime);
+  await choices.last().check();
+  await submit.click();
+  await expect(error).toContainText('finns redan som version 2');
+  await expect(submit).toHaveText('Försök spara samma val igen');
+  for (const choice of await choices.all()) await expect(choice).toBeDisabled();
+  await submit.click();
+  await expect(form).toBeHidden();
+  expect(payloads).toHaveLength(2);
+  expect(payloads[1]).toBe(payloads[0]);
+  expect((await readSite(runtime.db)).version).toBe(2);
+});
+
 test('a definitive frame Save refusal allows a corrected choice and a new attempt', async ({ page, context, runtime }) => {
   const payloads = [];
   await page.route('**/admin/api/save', async route => {

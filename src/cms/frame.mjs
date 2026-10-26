@@ -3,10 +3,65 @@ import * as css from 'css-tree';
 import { HttpError } from './http.mjs';
 import { attribute, elements } from './html-tree.mjs';
 import { preparePage, validateHtml, validateCss } from './validation.mjs';
+import { mapFrameCss, frameStyleIds } from './frame-ids.mjs';
 
 const fail = message => { throw new HttpError(422, message); };
 const hasClass = (node, name) => (attribute(node, 'class') ?? '').split(/\s+/).includes(name);
 export const legacySeed = seed => seed.legacy ?? seed;
+const escapedAttribute = value => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+
+export function validateFrameIds(input, { contracts = [], originalContracts = [], frameKeys = {} } = {}) {
+  if (input === undefined) return undefined;
+  const id = value => typeof value === 'string' && value.length > 0 && value.length <= 20000 && !/[\u0000\r]/.test(value) && !/^cms-(?:preview|win)-/.test(value);
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.getPrototypeOf(input) !== Object.prototype || Object.keys(input).length > 12000) fail('Sidramens äldre ID:n är ogiltiga.');
+  for (const [key, pair] of Object.entries(input)) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._:>-]{0,119}$/.test(key) || !Array.isArray(pair) || pair.length !== 2 || !id(pair[0]) || pair[1] !== null && !id(pair[1])) fail('Sidramens äldre ID:n är ogiltiga.');
+    const contract = contracts.find(item => item.key === key);
+    if (contract && Object.hasOwn(contract.attrs, 'id')) {
+      const original = originalContracts.find(item => item.key === frameKeys[key]);
+      if (pair[1] !== (original ? original.attrs.id ?? null : contract.attrs.id)) fail('Ett skyddat ID i sidramen får inte ändras.');
+    }
+    if ([pair[0], pair[1]].some(value => ['top', 'main', 'mobile-menu', 'privacy-title'].includes(value)) && pair[1] !== pair[0]) fail('Ett skyddat ID i sidramen får inte ändras.');
+    // Removed nodes and deliberate canonical ID edits no longer use the old
+    // projection. Retaining its receipt allows Undo to restore it exactly.
+  }
+  return Object.fromEntries(Object.entries(input).map(([key, pair]) => [key, [...pair]]));
+}
+
+export function effectiveFrameIds(frame, page) {
+  return frame.nodes.map(node => {
+    const current = attribute(node, 'id'), key = attribute(node, 'data-cms-node');
+    const pair = key && Object.hasOwn(page.frameIds ?? {}, key) ? page.frameIds[key] : null;
+    return pair && current === pair[0] ? pair[1] : current;
+  }).filter(Boolean);
+}
+
+function activeFrameIds(frame, page) {
+  if (!page.frameIds) return [];
+  return elements(parseFragment(frame.html, { scriptingEnabled: true, sourceCodeLocationInfo: true })).flatMap(node => {
+    const key = attribute(node, 'data-cms-node'), pair = key && Object.hasOwn(page.frameIds, key) ? page.frameIds[key] : null;
+    return pair && attribute(node, 'id') === pair[0] ? [{ node, key, from: pair[0], to: pair[1] }] : [];
+  });
+}
+
+export function frameCss(frame, page) {
+  if (!frame) return '';
+  const ids = new Map(activeFrameIds(frame, page).map(item => [item.from, { id: item.to, key: item.key }]));
+  try { return mapFrameCss(frame.css, ids); }
+  catch (error) { fail(error.message); }
+}
+
+function projectedFrameHtml(frame, page) {
+  const aliases = activeFrameIds(frame, page);
+  if (!aliases.length) return frame.html;
+  const styled = aliases.some(item => item.to === null) ? frameStyleIds(frame.css) : new Set();
+  const edits = aliases.map(({ node, key, from, to }) => {
+    const location = node.sourceCodeLocation.attrs.id;
+    const replacement = to === null ? styled.has(from) ? `data-cms-frame-id="${key}"` : '' : `id="${escapedAttribute(to)}"`;
+    return { start: location.startOffset, end: location.endOffset, replacement };
+  });
+  return edits.sort((a, b) => b.start - a.start).reduce((html, edit) => html.slice(0, edit.start) + edit.replacement + html.slice(edit.end), frame.html);
+}
 
 export function splitPage(html) {
   const tree = parseFragment(html, { scriptingEnabled: true });
@@ -21,7 +76,7 @@ export function splitPage(html) {
 
 export function composePage(frame, page, { year = new Date().getUTCFullYear() } = {}) {
   if (!frame) return page.html;
-  let html = frame.html.replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + year + after);
+  let html = projectedFrameHtml(frame, page).replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + year + after);
   html = html.replace(/ data-cms-node="([^"]*)"/g, (all, key) => {
     if (!Object.hasOwn(page.frameKeys ?? {}, key)) return all;
     // Null preserves a legacy keyless node; an unmapped new node keeps its key.
@@ -35,7 +90,13 @@ export function composePage(frame, page, { year = new Date().getUTCFullYear() } 
     attrs = attrs.replace(/\saria-current="[^"]*"/g, '');
     return `<a${attrs}${href === page.path ? ' aria-current="page"' : ''}>`;
   }));
-  return html.replace('<main></main>', () => page.html);
+  // Comments and attributes can contain the slot's spelling. Only the actual
+  // parsed element identifies where page content belongs; preserve other bytes.
+  const tree = parseFragment(html, { scriptingEnabled: true, sourceCodeLocationInfo: true });
+  const mains = elements(tree).filter(node => node.tagName === 'main');
+  const slot = mains[0], location = slot?.sourceCodeLocation;
+  if (mains.length !== 1 || slot.parentNode !== tree || slot.attrs.length || slot.childNodes.length || !location?.endTag) fail('Sidramen behöver exakt en tom plats för huvudinnehållet.');
+  return html.slice(0, location.startOffset) + page.html + html.slice(location.endOffset);
 }
 
 export function frameShape(html) {
@@ -105,7 +166,10 @@ export function frameDefinitions(seed) {
   const sharedSlots = Object.fromEntries([...fullPages, fullBlank].map(page => [page.id, Object.fromEntries(elements(parseFragment(page.html)).filter(node => attribute(node, 'data-cms-shared')).map(node => [attribute(node, 'data-cms-shared'), attribute(node, 'data-cms-node')]))]));
   const legacy = { ...seed, pages: fullPages.map(({ html: _html, css: _css, project: _project, ...page }) => page), sharedSlots };
   const scopeKeys = Object.fromEntries([...definitions.map(page => [page.id, page.scopeKeys]), ['blank', { ...blankBody.map, ...blankFrame.map }]]);
-  return { ...seed, legacy, frame, scopeKeys, skiftPage: definitions.find(page => page.template === 'skift'), pages: definitions.map(({ html: _html, css: _css, project: _project, scopeKeys: _keys, ...page }) => page), blank: { ...fullBlank, html: blankBody.html, contracts: blankBody.contracts } };
+  const skiftPage = definitions.find(page => page.template === 'skift');
+  // Shared navigation IDs belong to the frame, not the code-owned game.
+  const skiftIds = skiftPage ? elements(parseFragment(skiftPage.html)).map(node => attribute(node, 'id')).filter(Boolean) : [];
+  return { ...seed, legacy, frame, scopeKeys, skiftPage, skiftIds, pages: definitions.map(({ html: _html, css: _css, project: _project, scopeKeys: _keys, ...page }) => page), blank: { ...fullBlank, html: blankBody.html, contracts: blankBody.contracts } };
 }
 
 export function validateFrameKeys(input, scopeKeys = {}) {

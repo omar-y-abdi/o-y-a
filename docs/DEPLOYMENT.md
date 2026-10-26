@@ -41,6 +41,8 @@ the intended data/plan; helper benchmarks and wall-clock timings cannot certify
 the production CPU limit. A failing CPU check blocks release and requires a
 measured repair or an explicitly approved plan change.
 
+The repair also requires `0010_mail_receipts.sql` and `0011_save_identity.sql` before the new Worker runs. Permanent mail receipts protect retries after display-history pruning; the Save identity column distinguishes old canonical hashes from new raw request hashes. Retain pending client requests and keep older writers quiescent during activation. A code rollback must account for both identity protocols; old code does not understand the new replay guarantees. See [the review response](maintenance-review/05-adversarial-response.md) and [mail transition procedure](CONTACT-SETUP.md).
+
 The shared-frame release changes the stored project format on publication. Follow [CMS-FRAME-MIGRATION.md](CMS-FRAME-MIGRATION.md) before its first production Save or a rollback to an older Worker.
 
 Production runs on the Cloudflare Workers Free plan (owner decision, 2026-10-24). Each request has a 10 ms CPU limit, so a request over budget can fail with 503. D1 allows 100,000 written rows per day, and one D1 database can hold at most 500 MB.

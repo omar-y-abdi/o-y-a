@@ -3,7 +3,7 @@ const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const validId = (id, kind) => typeof id === 'string' && (kind === 'page' ? /^[a-zA-Z0-9-]{1,80}$/ : /^[a-z0-9-]{1,80}$/).test(id);
 
 const fields = {
-  page: new Set(['id', 'path', 'sourceId', 'name', 'title', 'description', 'html', 'css', 'project', 'template', 'bodyClass', 'noindex', 'footerVersion', 'frameKeys']),
+  page: new Set(['id', 'path', 'sourceId', 'name', 'title', 'description', 'html', 'css', 'project', 'template', 'bodyClass', 'noindex', 'footerVersion', 'frameKeys', 'frameIds']),
   card: new Set(['id', 'flavor', 'text', 'state', 'design']),
   design: new Set(['html', 'css', 'project']),
 };

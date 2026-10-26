@@ -2,8 +2,8 @@ import { authenticateAdmin } from './auth.mjs';
 import { assetResponse, assetPage, assetSelection, assetUsage, builtinAssetStates, completeManagedSvg, finalizeManagedSvg, managedSvgOperation, managedSvgSource, mergeBuiltinAssetStates, MAX_ASSET_BYTES, prepareManagedSvg, stageManagedSvg, transitionAsset, transitionBuiltinAsset, updateAsset, updateBuiltinAsset, uploadAsset, validateManagedSvg, validatePackageResources, validateReferencedMedia } from './assets.mjs';
 import { errorResponse, HttpError, json, readBytes, readJson, requireWriteRequest } from './http.mjs';
 import { validateProject, validateProjectWithReferences } from './project.mjs';
-import { normalizeStoredProject, normalizeClientProject, legacyClientProject, toLegacyProject } from './frame-converter.mjs';
-import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave } from './store.mjs';
+import { normalizeStoredProject, normalizeClientProject, toLegacyProject } from './frame-converter.mjs';
+import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave, replayFullSave } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { replaceResource, resourceReferences, resourceCatalog, resolveResources } from './resources.mjs';
 import { applyProjectChanges, validateProjectChanges } from './project-changes.mjs';
@@ -91,7 +91,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const { project, references } = validateProjectWithReferences(candidate, seed, undefined, { origins: [url.origin] });
       if (await digest(JSON.stringify(project)) !== body.projectHash) throw new HttpError(409, 'Konverteraren skiljer sig från den repeterade versionen. Migreringen skrev ingenting.');
       await validateReferencedMedia(env, project, references);
-      return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash }));
+      return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash, requestFormat: 'migration-v1' }));
     }
     if (url.pathname === '/admin/api/managed-svg') {
       const body = await readJson(request, 16 * 1024 * 1024);
@@ -238,22 +238,16 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         // After the replay check, so a replayed pendingSave keeps its payload hash.
         const { project, references } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
         await validateReferencedMedia(env, project, references);
-        return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references }));
+        return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references, requestFormat: 'delta-v1' }));
       }
+      const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, project: body.project }));
+      const replay = await replayFullSave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, baseVersion: body.baseVersion, payloadHash, project: body.project });
+      if (replay) return json(replay);
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      let source = body.project, payloadHash;
-      if (source?.schemaVersion === 1) {
-        // A pending full Save keeps its schema-1 canonical hash across the
-        // format change, including attempts committed by the preceding Worker.
-        source = validateProject(legacyClientProject(source, seed), seed, baseline, { origins: [url.origin] });
-        payloadHash = await digest(JSON.stringify(source));
-        const replay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
-        if (replay) return json(replay);
-      }
-      const { project, references } = validateProjectWithReferences(fromClient(source), seed, baseline, { origins: [url.origin] });
+      const { project, references } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project, references);
-      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash }));
+      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1' }));
     }
     throw new HttpError(404, 'Åtgärden finns inte.');
   } catch (error) { return errorResponse(error, new URL(request.url).pathname.split('/')[3]); }

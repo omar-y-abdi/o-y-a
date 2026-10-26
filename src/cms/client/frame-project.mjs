@@ -1,3 +1,5 @@
+import { mapFrameCss } from '../frame-ids.mjs';
+
 function fragment(html) {
   // Firefox serializes noscript text from a live-document template as escaped
   // markup. Keep parsing and serialization in the same inert document, as in
@@ -5,9 +7,27 @@ function fragment(html) {
   return new DOMParser().parseFromString(`<template>${html}</template>`, 'text/html').querySelector('template');
 }
 
+function editorFrame(frame, page) {
+  const template = fragment(frame.html), forward = new Map(), reverse = new Map(), nodes = new Map();
+  const used = new Set([...template.content.querySelectorAll('[id]'), ...fragment(page.html).content.querySelectorAll('[id]')].map(node => node.id));
+  for (const pair of Object.values(page.frameIds ?? {})) if (pair[1] !== null) used.add(pair[1]);
+  let serial = 0;
+  for (const node of template.content.querySelectorAll('[data-cms-node]')) {
+    const key = node.getAttribute('data-cms-node'), pair = Object.hasOwn(page.frameIds ?? {}, key) ? page.frameIds[key] : null;
+    if (!pair || node.getAttribute('id') !== pair[0]) continue;
+    let rendered = pair[1];
+    if (rendered === null) { do { rendered = `frame-editor-${serial++}`; } while (used.has(rendered)); used.add(rendered); }
+    node.id = rendered;
+    nodes.set(key, { canonical: pair[0], rendered });
+    forward.set(pair[0], { id: rendered });
+    reverse.set(rendered, { id: pair[0] });
+  }
+  return { template, forward, reverse, nodes };
+}
+
 export function composeEditorPage(page, frame) {
   if (!frame) return page;
-  const template = fragment(frame.html);
+  const { template } = editorFrame(frame, page);
   template.content.querySelectorAll('.primary-nav a, .shift-link').forEach(link => {
     link.removeAttribute('aria-current');
     if (link.getAttribute('href') === page.path && (link.matches('.shift-link') || ['/om/', '/verkstad/'].includes(page.path))) link.setAttribute('aria-current', 'page');
@@ -19,6 +39,7 @@ export function composeEditorPage(page, frame) {
 }
 
 export function frameSnapshot(editor, frame, page) {
+  const projection = editorFrame(frame, page);
   const owners = new Map();
   let baseline;
   const attached = component => { for (let node = component; node; node = node.parent()) if (node === editor.getWrapper()) return true; return false; };
@@ -27,7 +48,7 @@ export function frameSnapshot(editor, frame, page) {
     return 'frame';
   };
   const key = rule => rule.getAtRule() + '|' + rule.getSelectorsString();
-  editor.setStyle(frame.css);
+  editor.setStyle(mapFrameCss(frame.css, projection.forward));
   const imported = new Map(editor.Css.getAll().models.map(rule => [key(rule), rule]));
   editor.Css.getAll().forEach(rule => owners.set(rule, 'frame'));
   const pageRules = editor.addStyle(page.css);
@@ -102,6 +123,10 @@ export function frameSnapshot(editor, frame, page) {
       const main = mains[0], pageHtml = main.outerHTML;
       main.replaceWith(document.createElement('main'));
       template.content.querySelectorAll('.primary-nav [aria-current], .shift-link[aria-current]').forEach(node => node.removeAttribute('aria-current'));
+      for (const node of template.content.querySelectorAll('[data-cms-node]')) {
+        const original = projection.nodes.get(node.getAttribute('data-cms-node'));
+        if (original && node.getAttribute('id') === original.rendered) node.id = original.canonical;
+      }
       const rules = { frame: [], page: [] };
       for (const rule of editor.Css.getAll().models) {
         if (rule.get('shallow')) continue;
@@ -115,7 +140,7 @@ export function frameSnapshot(editor, frame, page) {
         if (component) owners.set(rule, component);
       }
       const value = { html: pageHtml, css: editor.getCss({ rules: rules.page, keepUnusedStyles: true }), project: null,
-        frame: { html: template.innerHTML, css: editor.getCss({ rules: rules.frame, keepUnusedStyles: true }) } };
+        frame: { html: template.innerHTML, css: mapFrameCss(editor.getCss({ rules: rules.frame, keepUnusedStyles: true }), projection.reverse) } };
       if (baseline && value.html === baseline.html && value.css === baseline.css) { value.html = page.html; value.css = page.css; }
       if (baseline && value.frame.html === baseline.frame.html && value.frame.css === baseline.frame.css) value.frame = frame;
       return value;
