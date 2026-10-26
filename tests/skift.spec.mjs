@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { parseFragment, serializeOuter } from 'parse5';
 import { elements } from '../src/cms/html-tree.mjs';
-import { seed } from '../.generated/cms-seed.mjs';
+import { seed, initial } from '../.generated/cms-seed.mjs';
+import { SAVE_KEY } from '../games/skift/src/rules.js';
+import { completeFirstDistrict } from './helpers/skift-navigation.mjs';
 
 let runtime;
 // Each case renders a live 3D world. Share one fixture and run these cases in
@@ -16,6 +18,63 @@ async function openGame(page) {
   await page.waitForFunction(() => window.__SKIFT__);
   await expect(page.locator('#start-button')).toBeEnabled();
 }
+
+test('I1: completing a district and choosing an upgrade survives reload and Resume', { tag: '@webgl' }, async ({ page }, testInfo) => {
+  test.setTimeout(150_000);
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openGame(page);
+  await page.locator('[data-skift-menu] [data-action="settings"]').click();
+  await page.locator('[data-setting="difficulty"]').selectOption('assist');
+  await page.locator('#modal .primary[data-action="close"]').click();
+  await page.locator('#start-button').click();
+  const completed = await completeFirstDistrict(page);
+  expect(completed.sector).toBe(0);
+  await page.locator('[data-action="upgrade"][data-value="pulse"]').click();
+  const advanced = await snapshot(page);
+  expect(advanced.mode).toBe('play');
+  expect(advanced.sector).toBe(1);
+  const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
+  expect(saved.checkpoint.sector).toBe(1);
+  expect(saved.checkpoint.upgrades).toContain('pulse');
+  expect(saved.unlocked).toBeGreaterThanOrEqual(1);
+  await page.reload();
+  await page.waitForFunction(() => window.__SKIFT__);
+  await page.locator('#start-button').click();
+  const resumed = await snapshot(page);
+  expect(resumed.mode).toBe('play');
+  expect(resumed.sector).toBe(1);
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).checkpoint.upgrades, SAVE_KEY)).toContain('pulse');
+  expect(errors).toEqual([]);
+  await testInfo.attach('checkpoint-transition', { body: JSON.stringify({ completed, advanced, saved, resumed, errors }, null, 2), contentType: 'application/json' });
+});
+
+test('F4: rejected frame collisions leave the real game startable; a unique frame ID publishes', { tag: '@webgl' }, async ({ page, context }) => {
+  test.setTimeout(60_000);
+  const isolated = await cmsRuntime();
+  try {
+    await context.addCookies([{ name: 'CF_Authorization', value: await isolated.token(), url: isolated.url }]);
+    const project = structuredClone(initial), original = project.frame.html;
+    const save = () => page.request.post(isolated.url + '/admin/api/save', { headers: { Origin: isolated.url, 'X-CMS-Request': '1' }, data: { project, baseVersion: 0, requestId: crypto.randomUUID() } });
+    for (const id of ['start-button', 'modal']) {
+      project.frame.html = `<div id="${id}" data-cms-node="u-protected-id"></div>` + original;
+      const rejected = await save();
+      expect(rejected.status(), await rejected.text()).toBe(422);
+    }
+    project.frame.html = '<div id="unique-owner-frame" data-cms-node="u-unique-id"></div>' + original;
+    const accepted = await save();
+    expect(accepted.status(), await accepted.text()).toBe(200);
+    await page.goto(isolated.url + '/play/skift/?qa=1');
+    await page.waitForFunction(() => window.__SKIFT__);
+    await expect(page.locator('#start-button')).toHaveCount(1);
+    await expect(page.locator('#start-button')).toBeEnabled();
+    await expect(page.locator('#unique-owner-frame')).toHaveCount(1);
+    await expect(page.locator('[data-skift-load-error]')).toHaveCount(0);
+    await page.locator('#start-button').click();
+    expect((await snapshot(page)).mode).toBe('play');
+  } finally { await isolated.close(); }
+});
 
 test('loading and title menus remain dismissible and error recovery stays available', { tag: '@webgl' }, async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });

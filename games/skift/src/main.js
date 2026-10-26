@@ -45,7 +45,7 @@ function action(name,value){
   else if(name==='resume')play();
   else if(name==='close'){if(!['pause','settings','how'].includes(ui.kind))return;if(ui.kind==='pause')play();else if(returnTo==='pause')ui.open('pause',game);else ui.close();}
   else if(name==='retry'){mode='play';game.retry();play();}
-  else if(name==='upgrade'){game.advance(value);play();}
+  else if(name==='upgrade'){mode='play';game.advance(value);play();}
   else if(name==='menu'){
     ui.close();mode='menu';input.enabled=false;input.clear();sound.pause();game.newRun(settings.difficulty);ui.mode(mode);ui.updateTitle();menuSince=performance.now();view.setCamera('menu',true);wake();
   }
