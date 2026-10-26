@@ -75,8 +75,10 @@ function sentId(result) {
 // - a retry of a young unconfirmed one calls Resend with the same key;
 // - after 23 hours an unconfirmed request requires manual checking in Resend.
 // Pending scheduled sends and all unconfirmed intents are never evicted.
+// Confirmed identities also live in permanent small receipts, independently of
+// the bounded display history: a frozen client can retry after any delay.
 const PENDING = "(COALESCE(scheduled_at, '') > ?1 AND canceled_at IS NULL) OR resend_id IS NULL";
-const sentByRequest = (env, requestId) => env.CMS_DB.prepare('SELECT resend_id, scheduled_at, sender, created_at FROM cms_sent_mail WHERE request_id = ?').bind(requestId).first();
+const sentByRequest = (env, requestId) => env.CMS_DB.prepare('SELECT resend_id, scheduled_at, sender, created_at FROM cms_mail_receipts WHERE request_id = ?1 UNION ALL SELECT resend_id, scheduled_at, sender, created_at FROM cms_sent_mail WHERE request_id = ?1 LIMIT 1').bind(requestId).first();
 
 // A later refusal cannot disprove delivery on the first attempt.
 async function uncertainResponse(response) {
@@ -87,6 +89,12 @@ async function uncertainResponse(response) {
 
 function requireRetryWindow(existing, nowMs) {
   if (existing && nowMs - Date.parse(existing.created_at) > 23 * 3600000) throw new HttpError(409, 'Utskicket är äldre än 23 timmar och kan redan ha skickats. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
+}
+
+function requireCurrentIntent(body, existing) {
+  // Pre-receipt clients may hold a confirmed identity already pruned by the old
+  // Worker. Its absence cannot prove it is new. Never upgrade a frozen body.
+  if (!existing && body.intentVersion !== 2) throw new HttpError(409, 'Det äldre utskickets resultat kan inte bekräftas. Kontrollera mejlet i Resend: https://resend.com/emails innan du kastar det och skapar ett nytt. Ladda om studion för nya utskick.', { uncertain: true });
 }
 
 const discardIntent = async (db, requestId) => {
@@ -107,10 +115,10 @@ async function deliver(env, existing, intent, call, reserve = [], uploadCount = 
   // Register every attempt before it can reach Resend, including retries with
   // no attachments. A fresh refusal can discard only a never-shared intent.
   const results = await db.batch([
-    ...(existing ? [] : [db.prepare('INSERT INTO cms_sent_mail(request_id,kind,recipients,subject,sender,attachments,created_at,scheduled_at,actor,send_attempts) VALUES(?,?,?,?,?,?,?,?,?,0)')
+    ...(existing ? [] : [db.prepare('INSERT INTO cms_sent_mail(request_id,kind,recipients,subject,sender,attachments,created_at,scheduled_at,actor,send_attempts) SELECT ?1,?,?,?,?,?,?,?,?,0 WHERE NOT EXISTS (SELECT 1 FROM cms_mail_receipts WHERE request_id = ?1)')
       .bind(intent.requestId, intent.kind, JSON.stringify(intent.recipients), intent.subject, intent.sender, intent.attachments, intent.createdAt, intent.scheduledAt, intent.actor)]),
     ...reserve,
-    db.prepare('UPDATE cms_sent_mail SET send_attempts = send_attempts + 1 WHERE request_id = ? AND resend_id IS NULL').bind(intent.requestId),
+    db.prepare('UPDATE cms_sent_mail SET send_attempts = send_attempts + 1 WHERE request_id = ?1 AND resend_id IS NULL AND NOT EXISTS (SELECT 1 FROM cms_mail_receipts WHERE request_id = ?1)').bind(intent.requestId),
   ]);
   if (results.at(-1)?.meta?.changes !== 1) throw new HttpError(409, 'Ett annat försök ändrade utskicket. Kontrollera mejlet i Resend: https://resend.com/emails', { uncertain: true });
   if (uploadCount && results.at(-2)?.meta?.changes !== uploadCount) {
@@ -129,6 +137,7 @@ async function deliver(env, existing, intent, call, reserve = [], uploadCount = 
 }
 
 const finalize = (env, requestId, id, nowMs, extra = []) => env.CMS_DB.batch([
+  env.CMS_DB.prepare('INSERT INTO cms_mail_receipts(request_id,resend_id,sender,created_at,scheduled_at) SELECT request_id,?,sender,created_at,scheduled_at FROM cms_sent_mail WHERE request_id = ? ON CONFLICT(request_id) DO NOTHING').bind(id, requestId),
   env.CMS_DB.prepare('UPDATE cms_sent_mail SET resend_id = ? WHERE request_id = ?').bind(id, requestId),
   ...extra,
   env.CMS_DB.prepare(`DELETE FROM cms_sent_mail WHERE id NOT IN (SELECT id FROM cms_sent_mail ORDER BY id DESC LIMIT 100) AND NOT (${PENDING})`).bind(iso(nowMs)),
@@ -259,6 +268,7 @@ async function testMail(request, env, context) {
   const requestId = `mail-test/${body.requestId}`;
   const existing = context.existing = await sentByRequest(env, requestId);
   if (existing?.resend_id) return json({ id: existing.resend_id });
+  requireCurrentIntent(body, existing);
   requireRetryWindow(existing, now());
   const draft = validateEmailSettings(body.email);
   const project = await head();
@@ -286,6 +296,7 @@ async function sendMail(request, env, context) {
   const requestId = `mail/${body.requestId}`;
   const existing = context.existing = await sentByRequest(env, requestId);
   if (existing?.resend_id) return json({ id: existing.resend_id, scheduledAt: existing.scheduled_at, from: existing.sender });
+  requireCurrentIntent(body, existing);
   const nowMs = now();
   requireRetryWindow(existing, nowMs);
   const lists = recipients(body);
@@ -326,7 +337,7 @@ async function sendMail(request, env, context) {
     subject: rendered.subject, html: rendered.html, text: rendered.text,
     ...(scheduledAt ? { scheduled_at: scheduledAt } : {}), ...(attachments.length ? { attachments } : {}),
   } }), reserve, uploadCount);
-  const [, marked] = await finalize(env, requestId, id, nowMs, uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), uploads)] : []);
+  const [, , marked] = await finalize(env, requestId, id, nowMs, uploadCount ? [env.CMS_DB.prepare('UPDATE cms_mail_files SET sent_at = ? WHERE id IN (SELECT value FROM json_each(?))').bind(iso(nowMs), uploads)] : []);
   // Resend has the mail; unexpected storage loss is reported, never resent.
   if (uploadCount && marked?.meta?.changes !== uploadCount) reportFailure(new Error('mail upload missing at finalize'), 'mail');
   return json({ id, scheduledAt, from: rendered.from });

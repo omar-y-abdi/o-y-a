@@ -1,5 +1,11 @@
 # Root plan: adversarial maintenance cleanup
 
+## Reopened after the independent PR15 review
+
+The prior acceptance at a574e65 is withdrawn. PR15 is draft again. The supplied review establishes eight introduced defects F1–F8 and inherited checkpoint defect I1. Root owns F1–F4, I1, pinned-browser investigation of O1/O2, dependency assessment D1, and integration. Astra owns F5–F8 and independently challenges root changes. Both must approve the repaired candidate, with new exact-head GitHub evidence. Existing green CI is historical evidence only.
+
+Track implementation and evidence in [the response ledger](05-adversarial-response.md). Keep the frozen maps below as historical records. No local runtime is authorized; author regressions here and execute them in GitHub. Real BASE-produced migration/replay fixtures are required; HEAD-generated legacy-shaped fixtures do not prove deployment compatibility.
+
 ## Contract
 
 The current task supersedes the earlier unfinished-feature queue. Review and repair every change in PR14 before returning to that queue. Preserve intended features and public/security contracts; do not accept green CI as evidence that the design, documentation, provenance or coverage is correct.
@@ -77,3 +83,7 @@ The four original maps are now tracked as frozen evidence, with their 359-path l
 Run40246352536 passed the functional-browser job, including the new raw-v185 case. Node source/storage/notice tests passed before public-browser execution. Firefox/WebKit exposed the stale-inspector defect and the new nav test's wrong premise. The standalone job passed build/ZIP/extracted rebuild before failing its fixed-wall-clock movement assertion. The public matrix also had two unfinished card-bank fetches during concurrent exports (r03 and r18, at different times); traces do not identify a production or server cause. Only the all240 export group is now scheduled sequentially, with the same8s checks and zero retries. A bounded independent HTTP receipt is attached on a future failure; it never changes a failed browser result. This is harness resource isolation, not a claimed product fix.
 
 The next coherent batch repairs those diagnosed failures and adds the independently reviewed frame-conflict recovery. Root and Astra agreed to each other's changes. No local runtime was used; lint and syntax checks are the local evidence. Whole original-diff review continued across frame conversion/rendering/editor state, migration/retention/release tools, client startup, game lifecycle and test registrations; no additional concrete blocker was established.
+
+## Independent-review repair batch 1
+
+F5–F8: Astra authored permanent delivery receipts and old-client cutover, pending attachment removal guard, settings fieldset lock, and URI-context substitutions. Root independently reviewed the SQL race/retention boundaries and client/renderer seams. Cross-review found and repaired a shifted finalization-result index, with a two-attachment diagnostic regression. Astra approved that correction. Allowed syntax/lint and diff checks passed; runtime evidence remains pending. F1–F4/I1 and O1/O2/D1 remain open.

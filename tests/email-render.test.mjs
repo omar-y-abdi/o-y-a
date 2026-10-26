@@ -77,6 +77,38 @@ test('a link label cannot cross a line break, so only validated links render', (
   for (const [, href] of html.matchAll(/href="([^"]*)"/g)) assert.ok(approved.has(href), href);
 });
 
+test('visitor mailbox substitution is URI-encoded before HTML escaping without changing recipients', () => {
+  const email = structuredClone(DEFAULT_EMAIL);
+  email.templates.notification.blocks[1].text = '[svara {mejl}](mailto:{mejl}) [ämne](mailto:{mejl}?subject=Hej&body={namn})';
+  const validated = validateEmailSettings(email);
+  for (const address of ['simple@example.org', 'victim?bcc=copy@attacker.example', 'a&bcc=copy@example.org', 'a#fragment@example.org', 'a%3Fsubject=x@example.org', 'a=b@example.org', 'a+b@example.org']) {
+    assert.equal(isEmailAddress(address), true, address);
+    const name = 'Mira &bcc=other@example.org #hej % {mejl}';
+    const rendered = renderEmail(validated, 'notification', { visitor: { name, email: address, message: '' } });
+    const [plain, withHeaders] = [...rendered.html.matchAll(/<a href="([^"]*)"/g)].map(([, value]) => new URL(value.replaceAll('&amp;', '&')));
+    for (const url of [plain, withHeaders]) {
+      assert.equal(url.protocol, 'mailto:');
+      assert.equal(decodeURIComponent(url.pathname), address);
+      assert.equal(url.hash, '');
+      assert.equal(url.searchParams.has('bcc'), false);
+    }
+    assert.equal(plain.search, '');
+    assert.deepEqual([...withHeaders.searchParams], [['subject', 'Hej'], ['body', name]]);
+  }
+});
+
+test('ordinary inline links preserve literal query headers and encode only visitor URL components', () => {
+  const email = structuredClone(DEFAULT_EMAIL);
+  email.templates.notification.blocks[1].text = '[Hej {namn}](https://example.org/reply?name={namn}&email={mejl})';
+  const visitor = { name: 'A & B # x', email: 'a+b@example.org', message: '' };
+  const html = renderEmail(validateEmailSettings(email), 'notification', { visitor }).html;
+  const href = html.match(/<a href="([^"]*)"/)[1];
+  assert.ok(href.includes('&amp;email='));
+  const url = new URL(href.replaceAll('&amp;', '&'));
+  assert.deepEqual([...url.searchParams], [['name', visitor.name], ['email', visitor.email]]);
+  assert.ok(html.includes('>Hej A &amp; B # x</a>'));
+});
+
 test('receipt never reflects input', () => {
   const visitor = { name: 'INJECT_ME', email: 'INJECT_ME', message: 'INJECT_ME' };
   const mail = renderEmail(DEFAULT_EMAIL, 'receipt', { visitor });

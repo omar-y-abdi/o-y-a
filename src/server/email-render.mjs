@@ -5,9 +5,8 @@ const ORIGIN = 'https://omaryusuf.se';
 export const SENDING_DOMAIN = 'hej.omaryusuf.se';
 export const PLACEHOLDERS = Object.freeze(['namn', 'mejl', 'meddelande']);
 export const FONTS = Object.freeze(['Arial,Helvetica,sans-serif', 'Georgia,serif', 'Verdana,Geneva,sans-serif', 'Tahoma,Geneva,sans-serif', 'Trebuchet MS,Helvetica,sans-serif', 'Courier New,Courier,monospace']);
-// Inline links `[label](url)`. Escaping never touches []()\s, so the validator
-// (raw text) and the renderer (escaped text) see the same matches, provided the
-// renderer matches before it turns LF into <br>.
+// Inline links `[label](url)`. Validator and renderer parse the same raw text;
+// substitutions happen afterward, separately for visible text and URI values.
 export const INLINE_LINK = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const PLACEHOLDER = new RegExp(`\\{(${PLACEHOLDERS.join('|')})\\}`, 'g');
 
@@ -90,7 +89,22 @@ function picture(block, ctx) {
 }
 
 function renderBlock(block, palette, design, ctx) {
-  const inline = text => fill(esc(text).replace(INLINE_LINK, (_, label, url) => `<a href="${url}" style="color:${palette.text};">${label}</a>`).replace(/\n/g, '<br>'), ctx.values, esc);
+  const inline = text => {
+    const visible = source => fill(esc(source).replace(/\n/g, '<br>'), ctx.values, esc);
+    const destination = url => ctx.values ? url.replace(PLACEHOLDER, (_, key, offset) => {
+      const value = String(ctx.values[key]);
+      // RFC 6068: reserved mailbox characters belong to the address, never
+      // URI query headers. Keep only the actual mailbox's @ separator literal.
+      const mailbox = key === 'mejl' && /^mailto:/i.test(url) && (url.indexOf('?') < 0 || offset < url.indexOf('?'));
+      return mailbox ? value.split('@').map(encodeURIComponent).join('@') : encodeURIComponent(value);
+    }) : url;
+    let html = '', end = 0;
+    for (const match of text.matchAll(INLINE_LINK)) {
+      html += visible(text.slice(end, match.index)) + `<a href="${esc(destination(match[2]))}" style="color:${palette.text};">${visible(match[1])}</a>`;
+      end = match.index + match[0].length;
+    }
+    return html + visible(text.slice(end));
+  };
   switch (block.type) {
     case 'heading': return `<h${block.level} style="${textStyle(block.style, palette)}">${inline(block.text)}</h${block.level}>`;
     case 'label': return `<p style="${textStyle(block.style, palette)}">${inline(block.text)}</p>`;

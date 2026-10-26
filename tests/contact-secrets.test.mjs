@@ -61,7 +61,7 @@ test('invalid formats save nothing', async () => {
   const draft = structuredClone(DEFAULT_EMAIL);
   draft.sender.local = 'hej@evil.example';
   const calls = [];
-  const response = await admin(env(SECRETS), '/admin/api/mail/test', { requestId: crypto.randomUUID(), template: 'receipt', email: draft }, { transport: async (...args) => { calls.push(args); return Response.json({ id: 'x' }); } });
+  const response = await admin(env(SECRETS), '/admin/api/mail/test', { intentVersion: 2, requestId: crypto.randomUUID(), template: 'receipt', email: draft }, { transport: async (...args) => { calls.push(args); return Response.json({ id: 'x' }); } });
   assert.equal(response.status, 422);
   assert.equal(calls.length, 0);
 });
@@ -157,7 +157,7 @@ test('secrets never leave the server', async () => {
     bodies.push(await (await admin(env(), '/admin/api/contact', { values: SECRETS })).text());
     bodies.push(await (await admin(env(), '/admin/api/contact')).text());
     const leaky = async () => Response.json({ name: 'validation_error', message: `Bad key ${SECRETS.RESEND_API_KEY} and re_other_key_value` }, { status: 422 });
-    bodies.push(await (await admin(env(), '/admin/api/mail/test', { requestId: crypto.randomUUID(), template: 'notification', email: null }, { transport: leaky })).text());
+    bodies.push(await (await admin(env(), '/admin/api/mail/test', { intentVersion: 2, requestId: crypto.randomUUID(), template: 'notification', email: null }, { transport: leaky })).text());
     const provider = recorder();
     bodies.push(await (await handleContact(contactRequest(), env(), provider.fetch)).text());
     assert.equal(provider.calls.length, 2);

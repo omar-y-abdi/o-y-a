@@ -251,6 +251,79 @@ async function expectFrozenCompose(page) {
   for (let index = 0; index < await controls.count(); index++) await expect(controls.nth(index)).toBeDisabled();
 }
 
+for (const status of [200, 404, 503]) test(`double-click attachment removal preserves the other file after ${status}`, async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Attachment request interleaving needs Chromium only.');
+  const ids = [crypto.randomUUID(), crypto.randomUUID()], removals = [], sends = [], answer = Promise.withResolvers();
+  let uploads = 0;
+  await page.route('**/admin/api/mail/attachment', route => route.fulfill({ json: { id: ids[uploads++], size: 12 } }));
+  await page.route('**/admin/api/mail/attachment-remove', async route => {
+    removals.push(route.request().postDataJSON());
+    if (removals.length === 1) await answer.promise;
+    await route.fulfill({ status: removals.length === 1 ? status : 404, json: status === 200 ? { removed: true } : { error: status === 503 ? 'Lagringen svarar inte.' : 'Bilagan finns inte.' } });
+  });
+  await page.route('**/admin/api/mail/send', route => { sends.push(route.request().postDataJSON()); return route.fulfill({ json: { id: 'attachment-send', scheduledAt: null } }); });
+  try {
+    await openStudio(page, context);
+    await fillCompose(page);
+    await page.locator('[data-email-file]').setInputFiles(['a.pdf', 'b.pdf'].map(name => ({ name, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7 test') })));
+    await expect(page.locator('[data-email-attachment="ready"]')).toHaveCount(2);
+    const button = page.locator('[data-email-attachment-remove="0"]'), box = await button.boundingBox();
+    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+    await expect.poll(() => removals.length).toBe(1);
+    await expect(page.locator('[data-email-attachment="removing"]')).toHaveCount(1);
+    await expect(page.locator('[data-email-send]')).toBeDisabled();
+    for (const control of await page.locator('[data-email-compose-fields] input, [data-email-compose-fields] button').all()) await expect(control).toBeDisabled();
+    await page.locator('[data-email-send]').dispatchEvent('click');
+    expect(sends).toHaveLength(0);
+    answer.resolve();
+    if (status === 503) {
+      await expect(page.locator('#studio-toast')).toContainText('Lagringen svarar inte.');
+      await expect(page.locator('[data-email-attachment="ready"]')).toHaveCount(2);
+      await expect(page.locator('[data-email-send]')).toBeEnabled();
+      await page.locator('[data-email-attachment-remove="0"]').click();
+    }
+    await expect(page.locator('.email-attachment-name')).toHaveText(['b.pdf']);
+    expect(removals).toEqual(Array.from({ length: status === 503 ? 2 : 1 }, () => ({ id: ids[0] })));
+    await expect(page.locator('[data-email-send]')).toBeEnabled();
+    await confirmSend(page);
+    await expect.poll(() => sends.length).toBe(1);
+    expect(sends[0].attachments).toEqual([{ kind: 'upload', id: ids[1] }]);
+  } finally { answer.resolve(); }
+});
+
+for (const accepted of [true, false]) test(`settings fields stay locked through a withheld ${accepted ? 'success' : 'failure'} response`, async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Settings request interleaving needs Chromium only.');
+  const view = { master: 'ok', rateLimit: true, ready: true, values: Object.fromEntries(['RESEND_API_KEY', 'CONTACT_TO', 'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'].map(name => [name, { state: 'saved', hint: '1234', updatedAt: null, ...(name === 'CONTACT_TO' ? { value: 'before@example.org' } : name === 'TURNSTILE_SITE_KEY' ? { value: '0xsiteKey_123456' } : {}) }])) };
+  const answer = Promise.withResolvers(), posts = [];
+  await page.route('**/admin/api/contact', async route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: view });
+    posts.push(route.request().postDataJSON());
+    await answer.promise;
+    await route.fulfill({ status: accepted ? 200 : 422, json: accepted ? { ...view, values: { ...view.values, CONTACT_TO: { ...view.values.CONTACT_TO, value: 'after@example.org' } } } : { error: 'Inställningen kunde inte sparas.' } });
+  });
+  try {
+    await openStudio(page, context);
+    await selectEmailTab(page, 'settings');
+    const recipient = page.locator('[data-email-setting-input="CONTACT_TO"]'), secret = page.locator('[data-email-setting-input="RESEND_API_KEY"]');
+    await recipient.fill('after@example.org');
+    await secret.fill('re_pending_123456789');
+    await page.locator('[data-email-save-settings]').click();
+    await expect.poll(() => posts.length).toBe(1);
+    for (const control of await page.locator('[data-email-settings-fields] input, [data-email-settings-fields] button').all()) await expect(control).toBeDisabled();
+    await recipient.click({ force: true });
+    await page.keyboard.type('must-not-replace-pending-input');
+    await expect(recipient).toHaveValue('after@example.org');
+    await expect(secret).toHaveValue('re_pending_123456789');
+    expect(posts).toEqual([{ values: { RESEND_API_KEY: 're_pending_123456789', CONTACT_TO: 'after@example.org' } }]);
+    answer.resolve();
+    await expect(page.locator('#studio-toast')).toContainText(accepted ? 'Inställningarna är sparade.' : 'Inställningen kunde inte sparas.');
+    await expect(recipient).toBeEnabled();
+    await expect(recipient).toHaveValue('after@example.org');
+    await expect(secret).toBeEnabled();
+    await expect(secret).toHaveValue(accepted ? '' : 're_pending_123456789');
+  } finally { answer.resolve(); }
+});
+
 test('uncertain compose freezes all fields and retries identical body despite other draft edits', async ({ page, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'Compose behavior needs Chromium only.');
   const calls = [];
@@ -399,7 +472,7 @@ test('fresh test refusal drops requestId; uncertain retries retain it even on la
   expect(calls[3]).toBe(calls[1]);
 });
 
-for (const kind of ['compose', 'receipt']) test(`frozen ${kind} restores requestId and exact body after reload`, async ({ page, context, browserName }) => {
+for (const legacy of [false, true]) for (const kind of ['compose', 'receipt']) test(`${legacy ? 'pre-receipt' : 'current'} frozen ${kind} restores requestId and exact body after reload`, async ({ page, context, browserName }) => {
   test.skip(browserName !== 'chromium', 'Reload recovery needs Chromium only.');
   const calls = [], path = kind === 'compose' ? 'send' : 'test';
   await page.route(`**/admin/api/mail/${path}`, async route => {
@@ -420,6 +493,15 @@ for (const kind of ['compose', 'receipt']) test(`frozen ${kind} restores request
     await expect(page.locator('#backup-status')).toHaveText('Reservutkast redo');
     await expect(field).toHaveValue('Osparat före omladdning');
   }
+  expect(JSON.parse(calls[0]).intentVersion).toBe(2);
+  if (legacy) await page.evaluate(kind => {
+    const saved = JSON.parse(sessionStorage.getItem('studio-mail-frozen'));
+    const pending = kind === 'compose' ? saved.compose : saved.tests.find(([name]) => name === kind)[1];
+    const body = JSON.parse(pending.body);
+    delete body.intentVersion;
+    pending.body = JSON.stringify(body);
+    sessionStorage.setItem('studio-mail-frozen', JSON.stringify(saved));
+  }, kind);
   await page.reload();
   await openEmail(page);
   await expect(page.locator(`[data-email-tab="${kind}"]`)).toHaveAttribute('aria-selected', 'true');
@@ -433,7 +515,9 @@ for (const kind of ['compose', 'receipt']) test(`frozen ${kind} restores request
   if (kind === 'compose') await expect(page.locator('[data-email-tab="sent"]')).toHaveAttribute('aria-selected', 'true');
   else await expect(field).toBeEnabled();
   expect(calls).toHaveLength(2);
-  expect(calls[1]).toBe(calls[0]);
+  const expected = JSON.parse(calls[0]);
+  if (legacy) delete expected.intentVersion;
+  expect(calls[1]).toBe(JSON.stringify(expected));
   expect(JSON.parse(calls[1]).requestId).toBe(JSON.parse(calls[0]).requestId);
   await page.reload();
   await openEmail(page);

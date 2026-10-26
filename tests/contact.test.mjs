@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { contactConfig, handleContact } from '../src/server/contact.mjs';
 import { encryptSecret } from '../src/server/contact-secrets.mjs';
 import { DEFAULT_EMAIL, renderEmail } from '../src/server/email-render.mjs';
+import { validateEmailSettings } from '../src/cms/email-validate.mjs';
 import { resourceSlots } from '../src/content/resources.mjs';
 import { publicationChunks } from '../src/cms/store.mjs';
 import { initial } from '../.generated/cms-seed.mjs';
@@ -115,4 +116,16 @@ test('receipt off sends one mail and checks one id',async()=>{
  assert.equal(emails.length,1);assert.deepEqual(emails[0].to,['owner@example.org']);
  assert.equal((await handleContact(request({...valid,contentVersion:6}),{...env(),CMS_DB:fakeDb(off)},provider().fetch)).status,503);
  assert.equal((await handleContact(request(),env(),provider({result:{data:[{id:'owner-id'}]}}).fetch)).status,503);
+});
+
+test('a valid visitor mailbox cannot inject mailto headers into the delivered notification',async()=>{
+ const email=structuredClone(DEFAULT_EMAIL);email.templates.notification.blocks[1].text='[svara](mailto:{mejl})';
+ const configured=validateEmailSettings(email),address='victim?bcc=copy@attacker.example',service=provider();
+ const response=await handleContact(request({...valid,email:address,contentVersion:9}),{...env(),CMS_DB:fakeDb({9:{'@resources':resourceSlots,'@email':configured}})},service.fetch);
+ assert.equal(response.status,200);
+ const [notification,receipt]=sentBodies(service.calls);
+ const href=notification.html.match(/<a href="([^"]*)"/)[1],url=new URL(href);
+ assert.equal(decodeURIComponent(url.pathname),address);assert.equal(url.search,'');assert.equal(url.hash,'');
+ assert.equal(notification.reply_to,address);assert.deepEqual(receipt.to,[address]);
+ assert.ok(!receipt.html.includes(address));
 });

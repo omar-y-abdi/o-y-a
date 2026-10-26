@@ -1,5 +1,16 @@
 # Astra peer plan: PR14 repair and independent review
 
+## Reopened review at a574e65
+
+The earlier approval is withdrawn after the adversarial review. The successful CI run at a574e65 did not cover the following real failures. Root assigned this peer F5–F8, including the server/client mail seam, its focused tests and these runbooks. Root continues F1–F4 and the remaining game/release findings. No local tests, builds, servers or application runtime are permitted; renewed acceptance requires reciprocal source review and fresh exact-head GitHub evidence.
+
+- **F5 confirmed:** pruning a confirmed row from the 100-entry display history removed its only server replay identity. A frozen client retry after the provider's 24-hour retention could deliver again. `0010_mail_receipts.sql` introduces minimal permanent confirmation receipts and backfills retained rows; finalization and pruning share one transaction, and pre-provider registration also excludes receipts. Unknown pre-upgrade identities fail closed through a new-intent protocol marker that is never added to old frozen bodies. Tests cover both custom and test sends after eviction at 25 hours and one year, changed-body reuse, the lookup/confirmation/eviction race, real transaction rollback, old protocol transitions and migration backfill.
+- **F6 confirmed:** overlapping attachment removals could splice index -1 after one completion and silently remove the last unrelated file. Removal now has a pending state, excludes simultaneous compose mutation/send and checks the current index before removal. Actual double-click browser cases with withheld 200/404/503 responses preserve the second attachment and inspect the final sent attachment IDs.
+- **F7 confirmed:** settings allowed editing during the pending Save and then replaced all inputs with the response. A native disabled fieldset and operation guard now lock all settings controls until completion; failed saves preserve entered values. Withheld-success/failure browser cases verify the lock and recovery.
+- **F8 confirmed:** HTML escaping a visitor mailbox inside `mailto:{mejl}` left URI delimiters active. Inline destinations now substitute percent-encoded values before HTML escaping, independently of visible text. Renderer tests cover reserved address characters, literal query parameters and ordinary links; a contact-handler regression inspects the actual outgoing notification payload.
+
+Primary contracts checked: [Resend idempotency retention](https://resend.com/changelog/idempotency-keys) and [RFC 6068 mailbox encoding](https://www.rfc-editor.org/rfc/rfc6068.html). Source and regression tests are authored; no local execution or renewed approval is claimed yet.
+
 ## Contract and current evidence
 
 Worktree: `maintenance-clean checkout`. The root owns Git and publication. I do not stage, commit, push, reset, switch branches, install dependencies, run local tests/builds/servers/application code, or touch another worktree. Source changes begin only after an agreed file assignment. Runtime acceptance comes from the reviewed candidate's GitHub jobs; static review is labeled separately.

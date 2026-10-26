@@ -41,7 +41,7 @@ const TYPES = {
 
 const state = { tab: 'receipt', device: 'desktop', selected: null, open: { design: false, text: false }, sent: null, sentError: '', status: {}, settings: null, settingsError: '' };
 // Skriv mejl is never part of the project or Save. Frozen sends survive reload.
-let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null, sending = false, restored = false;
+let ctx, root, observer, previewTimer, sentLoad = null, settingsLoad = null, compose = null, sending = false, settingsSaving = false, restored = false;
 const testRequests = new Map();
 const testSending = new Set();
 const FROZEN_STORAGE = 'studio-mail-frozen';
@@ -85,7 +85,8 @@ const setPath = (object, path, value) => { const parts = keys(path), last = part
 const panel = () => root.querySelector('[data-email-panel]');
 const mounted = () => Boolean(root?.isConnected);
 const composing = () => compose ??= newCompose();
-const composeLocked = () => sending || Boolean(compose?.frozen);
+const removingAttachment = () => Boolean(compose?.attachments.some(file => file.status === 'removing'));
+const composeLocked = () => sending || Boolean(compose?.frozen) || removingAttachment();
 const testLocked = () => testSending.has(state.tab) || Boolean(testRequests.get(state.tab)?.frozen);
 const templateEmail = () => testRequests.get(state.tab)?.frozen ? JSON.parse(testRequests.get(state.tab).body).email ?? DEFAULT_EMAIL : emailOf(ctx.project());
 // The template-shaped object being edited: a draft template, or the compose state.
@@ -222,7 +223,7 @@ const megabytes = bytes => (bytes / 1048576).toFixed(1).replace('.', ',');
 const recipientCount = mail => mail.to.length + mail.cc.length + mail.bcc.length;
 const chipItems = (name, mail) => mail[name].map(address => `<li class="email-chip"><span>${escape(address)}</span><button type="button" data-email-chip-remove="${name}" data-email-address="${escape(address)}" aria-label="Ta bort ${escape(address)}">✕</button></li>`).join('');
 const chipField = (name, label, mail) => `<div class="email-field" data-email-field="${name}"><span class="email-label" id="email-label-${name}">${label}</span><div class="email-chips"><ul class="email-chip-list" data-email-chip-list="${name}" aria-label="${label}, valda adresser">${chipItems(name, mail)}</ul><input type="text" inputmode="email" autocomplete="off" spellcheck="false" placeholder="namn@exempel.se" aria-labelledby="email-label-${name}" data-email-chip-input="${name}"></div></div>`;
-const attachmentState = file => file.status === 'uploading' ? 'Laddar upp…' : file.status === 'error' ? file.message : file.kind === 'resource' ? 'Från Resurser' : 'Uppladdad';
+const attachmentState = file => file.status === 'uploading' ? 'Laddar upp…' : file.status === 'removing' ? 'Tar bort…' : file.status === 'error' ? file.message : file.kind === 'resource' ? 'Från Resurser' : 'Uppladdad';
 const attachmentItems = mail => mail.attachments.map((file, index) => `<li class="email-attachment" data-email-attachment="${file.status}"><span class="email-attachment-name">${escape(file.name)}</span><small>${megabytes(file.bytes)} MB · ${escape(attachmentState(file))}</small><button type="button" data-email-attachment-remove="${index}" aria-label="Ta bort ${escape(file.name)}"${file.status === 'uploading' || composeLocked() ? ' disabled' : ''}>✕</button></li>`).join('') || '<li class="email-hint">Inga bilagor.</li>';
 function attachmentTotal(mail) {
   const files = mail.attachments.filter(file => file.status !== 'error'), bytes = files.reduce((sum, file) => sum + encoded(file.bytes), 0);
@@ -245,7 +246,7 @@ ${blocksSection(mail, '', 'compose')}
 <section class="email-attachments" data-email-field="attachments" aria-label="Bilagor"><h3>Bilagor</h3><div class="email-actions"><button type="button" class="small-button" data-email-pick-resource${locked}>Från Resurser</button></div><div class="email-field"><label class="inspector-field"><span>Från datorn</span><input type="file" multiple data-email-file${locked}></label></div><ul class="email-attachment-list" data-email-attachment-list>${attachmentItems(mail)}</ul><p class="email-hint" data-email-attachment-total>${attachmentTotal(mail)}</p></section>
 ${field('Schemalägg', 'scheduledAt', `<input type="datetime-local" min="${minLocal()}" value="${escape(mail.scheduledAt)}" ${attrs('scheduledAt')}>`, 'Lämna tomt för att skicka direkt. Ett schemalagt mejl kan avbrytas under Skickade tills det skickas.')}
 </fieldset>
-<div class="email-actions"><button type="button" class="small-button primary" data-email-send${sending ? ' disabled' : ''}>${mail.frozen ? 'Försök igen' : mail.scheduledAt ? 'Schemalägg' : 'Skicka'}</button>${mail.frozen ? `<button type="button" class="small-button danger" data-email-discard${sending ? ' disabled' : ''}>Kasta utkastet</button>` : ''}</div>`;
+<div class="email-actions"><button type="button" class="small-button primary" data-email-send${sending || removingAttachment() ? ' disabled' : ''}>${mail.frozen ? 'Försök igen' : mail.scheduledAt ? 'Schemalägg' : 'Skicka'}</button>${mail.frozen ? `<button type="button" class="small-button danger" data-email-discard${sending ? ' disabled' : ''}>Kasta utkastet</button>` : ''}</div>`;
 }
 
 function renderChips() {
@@ -258,6 +259,8 @@ function renderAttachments() {
   const mail = composing();
   root.querySelector('[data-email-attachment-list]').innerHTML = attachmentItems(mail);
   root.querySelector('[data-email-attachment-total]').textContent = attachmentTotal(mail);
+  root.querySelector('[data-email-compose-fields]').disabled = composeLocked();
+  root.querySelector('[data-email-send]').disabled = sending || removingAttachment();
 }
 
 // An address, or the reason it cannot be added.
@@ -332,12 +335,20 @@ async function uploadFiles(files) {
 async function removeAttachment(index) {
   const mail = composing(), file = mail.attachments[index];
   if (!file || file.status === 'uploading' || composeLocked()) return;
-  if (file.kind === 'upload' && file.id) {
-    try { await api('mail/attachment-remove', { id: file.id }); }
-    catch (error) { if (error.status !== 404) throw error; }
-  }
-  mail.attachments.splice(mail.attachments.indexOf(file), 1);
+  const previous = file.status;
+  file.status = 'removing';
   renderAttachments();
+  try {
+    if (file.kind === 'upload' && file.id) {
+      try { await api('mail/attachment-remove', { id: file.id }); }
+      catch (error) { if (error.status !== 404) throw error; }
+    }
+    const current = mail.attachments.indexOf(file);
+    if (current >= 0) mail.attachments.splice(current, 1);
+  } finally {
+    file.status = previous;
+    renderAttachments();
+  }
 }
 
 // Lock every compose field during delivery and after an uncertain outcome.
@@ -353,6 +364,7 @@ function lockSend(locked) {
 async function sendMail(button) {
   const mail = composing();
   if (sending) return;
+  if (removingAttachment()) return markField('attachments', 'Vänta tills bilagan har tagits bort.');
   if (!mail.frozen) {
     for (const [name] of LISTS) if (commitAddresses(name, true)) return;
     const files = mail.attachments.filter(file => file.status === 'ready');
@@ -365,7 +377,7 @@ async function sendMail(button) {
     const scheduledAt = time?.toISOString() ?? null, count = recipientCount(mail);
     if (!await confirmAction({ title: scheduledAt ? 'Schemalägg mejlet?' : 'Skicka mejlet?', message: `Mejlet "${mail.subject}" skickas till ${count} mottagare${scheduledAt ? ` ${dateLabel(scheduledAt)}` : ' direkt'}.`, action: scheduledAt ? 'Schemalägg' : 'Skicka' })) return;
     const { sender, shell } = emailOf(ctx.project());
-    const body = { to: mail.to, cc: mail.cc, bcc: mail.bcc, subject: mail.subject, preheader: mail.preheader, blocks: mail.blocks, design: mail.design, scheduledAt, attachments: files.map(file => ({ kind: file.kind, id: file.id })), identity: { sender, shell } };
+    const body = { intentVersion: 2, to: mail.to, cc: mail.cc, bcc: mail.bcc, subject: mail.subject, preheader: mail.preheader, blocks: mail.blocks, design: mail.design, scheduledAt, attachments: files.map(file => ({ kind: file.kind, id: file.id })), identity: { sender, shell } };
     const fingerprint = JSON.stringify(body);
     if (mail.fingerprint !== fingerprint) { mail.requestId = crypto.randomUUID(); mail.fingerprint = fingerprint; }
   }
@@ -509,7 +521,7 @@ function settingsBody() {
     + settingRow('rateLimit', 'Hastighetsgräns', view.rateLimit ? 'ok' : 'missing', view.rateLimit ? '✓ Aktiv' : '✕ Saknas')
     + settingRow('forwarding', 'Vidarebefordran', 'info', 'Ställs in i Cloudflare. ', '<a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">Öppna Cloudflare</a>');
   const fields = SETTINGS.map(([name, label, kind]) => `<div class="email-field email-setting-field" data-email-field="${name}"><label class="inspector-field"><span>${label}</span><input type="${kind}" autocomplete="off" autocapitalize="off" spellcheck="false"${kind === 'password' ? ' placeholder="Klistra in en ny nyckel"' : ` inputmode="email" value="${escape(settingValue(name))}"`} data-email-setting-input="${name}"></label><button type="button" class="small-button" data-email-clear="${name}" aria-pressed="false">Töm</button></div>`).join('');
-  return `<p class="email-banner" data-email-banner="${view.ready ? 'open' : 'closed'}" role="status">${view.ready ? 'Formuläret är öppet' : `Formuläret är stängt${missing.length ? `: ${escape(missing.join(', '))}` : ''}`}</p><ul class="email-settings-list" data-email-settings-list>${rows}</ul><div class="email-settings-form">${fields}<div class="email-actions"><button type="button" class="small-button primary" data-email-save-settings${view.master === 'ok' ? '' : ' disabled'}>Spara inställningar</button><span class="email-hint">${view.master === 'ok' ? 'Nycklar sparas krypterade och visas aldrig igen. Orörda fält behålls.' : 'Huvudnyckeln saknas, så inget kan sparas.'}</span></div></div>`;
+  return `<p class="email-banner" data-email-banner="${view.ready ? 'open' : 'closed'}" role="status">${view.ready ? 'Formuläret är öppet' : `Formuläret är stängt${missing.length ? `: ${escape(missing.join(', '))}` : ''}`}</p><ul class="email-settings-list" data-email-settings-list>${rows}</ul><fieldset class="email-settings-form email-group" style="border:0;padding:0;margin:0" aria-label="Kontaktinställningar" data-email-settings-fields${settingsSaving ? ' disabled' : ''}>${fields}<div class="email-actions"><button type="button" class="small-button primary" data-email-save-settings${view.master === 'ok' ? '' : ' disabled'}>Spara inställningar</button><span class="email-hint">${view.master === 'ok' ? 'Nycklar sparas krypterade och visas aldrig igen. Orörda fält behålls.' : 'Huvudnyckeln saknas, så inget kan sparas.'}</span></div></fieldset>`;
 }
 
 const settingsHtml = () => `<h2 class="email-panel-title">Inställningar</h2><div data-email-settings-body>${settingsBody()}</div>`;
@@ -531,6 +543,7 @@ function loadSettings() {
 
 // "Töm" marks a field to be cleared on save ('' deletes the saved value).
 function toggleClear(name, button) {
+  if (settingsSaving) return;
   const on = button.getAttribute('aria-pressed') !== 'true', input = settingInput(name);
   button.setAttribute('aria-pressed', String(on));
   button.textContent = on ? 'Ångra' : 'Töm';
@@ -540,6 +553,7 @@ function toggleClear(name, button) {
 
 // Only the fields the owner changed are sent.
 async function saveSettings(button) {
+  if (settingsSaving) return;
   const values = {};
   for (const [name, , kind] of SETTINGS) {
     const typed = settingInput(name).value.trim();
@@ -548,10 +562,21 @@ async function saveSettings(button) {
   }
   if (!Object.keys(values).length) return toast('Det finns inget att spara.');
   await run(button, async () => {
-    state.settings = await api('contact', { values });
-    toast('Inställningarna är sparade.');
-    renderSettingsBody();
-    root.querySelector('[data-email-save-settings]')?.focus();
+    settingsSaving = true;
+    const fields = root.querySelector('[data-email-settings-fields]');
+    fields.disabled = true;
+    try {
+      state.settings = await api('contact', { values });
+      toast('Inställningarna är sparade.');
+      settingsSaving = false;
+      renderSettingsBody();
+      root.querySelector('[data-email-save-settings]')?.focus();
+    } finally {
+      settingsSaving = false;
+      fields.disabled = false;
+      const current = root.querySelector('[data-email-settings-fields]');
+      if (current) current.disabled = false;
+    }
   });
 }
 
@@ -773,7 +798,7 @@ async function sendTest(button) {
   const kind = state.tab;
   if (testSending.has(kind)) return;
   await run(button, async () => {
-    const body = JSON.stringify({ template: kind, email: ctx.project().email ?? null });
+    const body = JSON.stringify({ intentVersion: 2, template: kind, email: ctx.project().email ?? null });
     if (!testRequests.get(kind)?.frozen && testRequests.get(kind)?.body !== body) testRequests.set(kind, { requestId: crypto.randomUUID(), body, frozen: false });
     const request = testRequests.get(kind);
     const wasFrozen = request.frozen;
