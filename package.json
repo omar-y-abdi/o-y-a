@@ -15,7 +15,7 @@
     "pretest": "npm run build",
     "test": "node scripts/run-node-tests.mjs fast && npm run test:slow",
     "test:cms": "node scripts/test-cms-modules-parallel.mjs && node scripts/test-cms-parallel.mjs",
-    "test:public-pages": "playwright test tests/public-pages.spec.mjs tests/card-export.spec.mjs tests/public-startup.spec.mjs --project=chromium --no-deps && playwright test tests/public-pages.spec.mjs tests/skift.spec.mjs --project=chromium-webgl --no-deps",
+    "test:public-pages": "playwright test tests/public-pages.spec.mjs tests/public-review.spec.mjs tests/card-export.spec.mjs tests/public-startup.spec.mjs --project=chromium --no-deps && playwright test tests/public-pages.spec.mjs tests/skift.spec.mjs --project=chromium-webgl --no-deps",
     "test:skift": "playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps",
     "check": "npm run lint && npm test",
     "deploy:cloudflare": "npm run build && node scripts/cms-pull-release.mjs && wrangler d1 migrations apply CMS_DB --remote && wrangler deploy",
@@ -40,5 +40,11 @@
     "miniflare": "5.20261001.0-alpha",
     "wrangler": "4.147.0",
     "@playwright/test": "1.63.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "sharp": "0.35.5",
+      "undici": "7.30.1"
+    }
   }
 }
