@@ -267,7 +267,15 @@ for (const status of [200, 404, 503]) test(`double-click attachment removal pres
     await fillCompose(page);
     await page.locator('[data-email-file]').setInputFiles(['a.pdf', 'b.pdf'].map(name => ({ name, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7 test') })));
     await expect(page.locator('[data-email-attachment="ready"]')).toHaveCount(2);
-    const button = page.locator('[data-email-attachment-remove="0"]'), box = await button.boundingBox();
+    const button = page.locator('[data-email-attachment-remove="0"]');
+    await button.scrollIntoViewIfNeeded();
+    await expect(button).toBeInViewport();
+    await expect(button).toBeEnabled();
+    expect(await button.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+    })).toBe(true);
+    const box = await button.boundingBox();
     await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
     await expect.poll(() => removals.length).toBe(1);
     await expect(page.locator('[data-email-attachment="removing"]')).toHaveCount(1);
