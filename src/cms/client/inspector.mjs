@@ -67,7 +67,9 @@ export function componentInspector(component, editor, { assets, pickImage, chang
   $('#choose-image')?.addEventListener('click', () => pickImage(asset => { component.set('src', asset.src); component.addAttributes({ src: asset.src, alt: asset.alt ?? '' }); change(); }));
   $('#select-parent').addEventListener('click', () => { if (component.parent()) editor.select(component.parent()); });
   $('#duplicate-element')?.addEventListener('click', () => {
-    const copy = component.clone();
+    let copy;
+    try { copy = component.clone(); }
+    catch (error) { if (!error.reported) onError(error.message); return; }
     component.parent().append(copy, { at: component.index() + 1 });
     editor.select(copy); change();
   });

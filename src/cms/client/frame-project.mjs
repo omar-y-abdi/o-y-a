@@ -1,4 +1,5 @@
 import { mapFrameCss } from './frame-css.mjs';
+import { editorCss, editorRuleKey, editorRuleGroups } from './editor-css.mjs';
 
 function fragment(html) {
   // Firefox serializes noscript text from a live-document template as escaped
@@ -40,14 +41,14 @@ export function composeEditorPage(page, frame) {
 
 export function frameSnapshot(editor, frame, page) {
   const projection = editorFrame(frame, page);
-  const owners = new Map();
+  const owners = new Map(), clonedRules = new WeakSet();
   let baseline;
   const attached = component => { for (let node = component; node; node = node.parent()) if (node === editor.getWrapper()) return true; return false; };
   const owner = component => {
     for (let node = component; node; node = node.parent()) if (String(node.get('tagName')).toLowerCase() === 'main') return 'page';
     return 'frame';
   };
-  const key = rule => rule.getAtRule() + '|' + rule.getSelectorsString();
+  const key = editorRuleKey;
   editor.setStyle(mapFrameCss(frame.css, projection.forward));
   const imported = new Map(editor.Css.getAll().models.map(rule => [key(rule), rule]));
   editor.Css.getAll().forEach(rule => owners.set(rule, 'frame'));
@@ -115,7 +116,7 @@ export function frameSnapshot(editor, frame, page) {
     clone(source, copy, run) {
       const before = new Set(editor.Css.getAll().models);
       run();
-      for (const rule of editor.Css.getAll().models) if (!before.has(rule)) owners.set(rule, copy);
+      for (const rule of editor.Css.getAll().models) if (!before.has(rule)) { owners.set(rule, copy); clonedRules.add(rule); }
     },
     snapshot(html) {
       const template = fragment(html), mains = template.content.querySelectorAll('main');
@@ -127,22 +128,35 @@ export function frameSnapshot(editor, frame, page) {
         const original = projection.nodes.get(node.getAttribute('data-cms-node'));
         if (original && node.getAttribute('id') === original.rendered) node.id = original.canonical;
       }
-      const rules = { frame: [], page: [] };
+      const rules = { frame: [], page: [] }, anonymousOwners = new Map();
       for (const rule of editor.Css.getAll().models) {
-        if (rule.get('shallow')) continue;
-        const component = rule.getComponent();
+        if (rule.isNested() || rule.get('shallow')) continue;
+        // A scoped clone rule can retain an unchanged ancestor selector as its
+        // nesting context. Its declarations belong to the copy, not that ancestor.
+        const component = clonedRules.has(rule) ? null : rule.getComponent();
         const prior = owners.get(rule);
         const target = component ?? (typeof prior === 'object' ? prior : null);
         if (target && !attached(target)) continue;
         const kind = component ? owner(component) : typeof prior === 'object' ? owner(prior) : prior;
         if (!kind) throw new Error(`CSS-regeln ${rule.getSelectorsString()} saknar ägare. Ångra den senaste stiländringen innan du fortsätter.`);
+        for (const group of editorRuleGroups(rule)) if (group.header === '@layer') {
+          const previous = anonymousOwners.get(group.id);
+          if (previous && previous !== kind) throw new Error('Ett anonymt CSS-lager skulle delas mellan sidan och sidramen. Ångra flytten eller flytta hela lagrets innehåll tillsammans.');
+          anonymousOwners.set(group.id, kind);
+        }
         rules[kind].push(rule);
         if (component) owners.set(rule, component);
       }
-      const value = { html: pageHtml, css: editor.getCss({ rules: rules.page, keepUnusedStyles: true }), project: null,
-        frame: { html: template.innerHTML, css: mapFrameCss(editor.getCss({ rules: rules.frame, keepUnusedStyles: true }), projection.reverse) } };
-      if (baseline && value.html === baseline.html && value.css === baseline.css) { value.html = page.html; value.css = page.css; }
-      if (baseline && value.frame.html === baseline.frame.html && value.frame.css === baseline.frame.css) value.frame = frame;
+      const value = { html: pageHtml, css: editorCss(rules.page), project: null,
+        frame: { html: template.innerHTML, css: mapFrameCss(editorCss(rules.frame), projection.reverse) } };
+      if (baseline) {
+        const pageStyleUnchanged = value.css === baseline.css;
+        const frameStyleUnchanged = value.frame.css === baseline.frame.css;
+        if (value.html === baseline.html && pageStyleUnchanged) { value.html = page.html; value.css = page.css; }
+        else if (pageStyleUnchanged && !fragment(page.html).content.querySelector('[style]')) value.css = page.css;
+        if (value.frame.html === baseline.frame.html && frameStyleUnchanged) value.frame = frame;
+        else if (frameStyleUnchanged && !fragment(frame.html).content.querySelector('[style]')) value.frame.css = frame.css;
+      }
       return value;
     },
   };

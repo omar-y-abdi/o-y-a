@@ -238,7 +238,7 @@ function openWin(id) {
   const design = win.design ?? defaultWinDesign(win);
   $('#special-stage').hidden = true; $('#editor').hidden = false; $('#preview-stage').hidden = true; $('#loading-state').hidden = false;
   $('#canvas-label').textContent = 'Liten vinst'; $('#canvas-path').textContent = win.id; setInspectorTab(); renderSidebar();
-  active = createEditor({ page: { ...design, id: win.id, path: '/verkstad/', bodyClass: 'page-win' }, cssPath: built.styles.home, assets,
+  active = createEditor({ page: { ...design, id: win.id, path: '/verkstad/', bodyClass: 'page-win' }, cssPath: built.styles.home, assets, onError: showError,
     onChange: values => {
       const document = new DOMParser().parseFromString(values.html, 'text/html');
       document.querySelectorAll('[data-card-text] br').forEach(br => br.replaceWith('\n'));
@@ -374,7 +374,7 @@ async function openSvgAsset(id, recovery = null) {
   svgDraft = { id, version, html, css: '', dirty, asset: source.asset, operation };
   $('#special-stage').hidden = true; $('#editor').hidden = false; $('#preview-stage').hidden = true; $('#loading-state').hidden = false;
   $('#canvas-label').textContent = `SVG · ${source.asset.name}`; $('#canvas-path').textContent = source.asset.editableSrc; setInspectorTab(); renderSidebar();
-  active = createEditor({ page: { html, css: '', project: null, path: source.asset.editableSrc, bodyClass: 'cms-svg-editor' }, cssPath: built.styles.home, assets,
+  active = createEditor({ page: { html, css: '', project: null, path: source.asset.editableSrc, bodyClass: 'cms-svg-editor' }, cssPath: built.styles.home, assets, onError: showError,
     onChange: values => { if (!svgDraft) return; svgDraft.html = values.html; svgDraft.css = values.css; svgDraft.dirty = true; status(); remember(); }, onSelect: inspect, onAssetPick: null,
     onReady: editor => {
       $('#loading-state').hidden = true; setDevice('desktop', false); fit();

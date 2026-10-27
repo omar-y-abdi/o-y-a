@@ -1,6 +1,7 @@
 // Use the package's preoptimized distribution; notice checks pin its bytes and
 // verify its shared sources against the same-version ESM distribution.
 import grapesjs from 'grapesjs/dist/grapes.min.js';
+import { installEditorCss, editorCss } from './editor-css.mjs';
 import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
 import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle, pastedTextHtml } from './editor-policy.mjs';
@@ -58,6 +59,7 @@ export function createEditor({ page, frame, cssPath, assets, onChange, onBoundar
     ] },
     assetManager: { assets: assets.filter(asset => asset.mime.startsWith('image/')).map(asset => ({ src: asset.src, name: asset.name, width: asset.width, height: asset.height })), upload: false, custom: true },
   });
+  const css = installEditorCss(editor);
   editor.on('block:click', () => { if (!editor.getSelected()) editor.select(editor.getWrapper().find('main')[0] ?? editor.getWrapper().components().at(0)); });
   const fontOptions = [...Object.entries(fontFamilies).map(([label, id]) => ({ id, label })), ...assets.filter(asset => asset.mime === 'font/woff2').map(asset => ({ id: `cms-font-${asset.id}`, label: asset.name }))];
   const applyFontOptions = () => editor.StyleManager.getProperty('typografi', 'font-family')?.set('options', fontOptions);
@@ -71,7 +73,11 @@ export function createEditor({ page, frame, cssPath, assets, onChange, onBoundar
   };
   applyFontOptions();
   let framed;
-  editor.on('component:create', component => { ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg }); component.on('component:clone', clone => framed ? framed.clone(component, clone, () => remapClone(component, clone, editor)) : remapClone(component, clone, editor)); });
+  editor.on('component:create', component => {
+    ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg });
+    installCloneGuard(component, editor, onError);
+    component.on('component:clone', clone => framed ? framed.clone(component, clone, () => remapClone(component, clone, editor)) : remapClone(component, clone, editor));
+  });
   // The same validated HTML/CSS powers editing, preview and publication.
   // Editor JSON is legacy import metadata, never a second content authority.
   if (frame) framed = frameSnapshot(editor, frame, page);
@@ -89,7 +95,7 @@ export function createEditor({ page, frame, cssPath, assets, onChange, onBoundar
   function snapshot(force = false) {
     if (disposed || loading || !force && !typing && editor.getDirtyCount() === 0) return null;
     const html = liveHtml(editor, textView);
-    return framed ? framed.snapshot(html) : { html, css: editor.getCss(), project: null };
+    return framed ? framed.snapshot(html) : { html, css: editorCss(editor.Css.getAll().models), project: null };
   }
   function flush(force = false, reportOnly = false) {
     clearTimeout(timer);
@@ -124,6 +130,7 @@ export function createEditor({ page, frame, cssPath, assets, onChange, onBoundar
     doc.documentElement.classList.add('js-ready');
     doc.querySelectorAll('.js-only').forEach(node => { node.hidden = false; });
     doc.querySelectorAll('[data-memory-card],[data-print]').forEach(node => { node.disabled = false; });
+    css.render();
     loading = false;
     editor.clearDirtyCount();
     onReady(editor);
@@ -175,6 +182,6 @@ export function createEditor({ page, frame, cssPath, assets, onChange, onBoundar
     });
   });
   // Capture synchronous edits before GrapesJS's deferred dirty count on close.
-  return { editor, flush, snapshot, setStyleMode, destroy() { flush(true); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); rightPanel.removeEventListener('pointerdown', keepResizer); editor.destroy(); } };
+  return { editor, flush, snapshot, setStyleMode, destroy() { flush(true); disposed = true; clearTimeout(timer); labels.disconnect(); blocksPanel.removeEventListener('keydown', blockKeys); rightPanel.removeEventListener('pointerdown', keepResizer); css.destroy(); editor.destroy(); } };
 }
-import { remapClone } from './clone.mjs';
+import { remapClone, installCloneGuard } from './clone.mjs';

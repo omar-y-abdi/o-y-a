@@ -154,7 +154,15 @@ test('production transfer budgets stay small without framework bundles', async (
   for (const name of lazyFiles) lazy += gzipSync(await readFile('dist/cms-public/' + name)).byteLength;
   assert.ok(lazy < 8000, `Lazy win rendering/export JavaScript gzip ${lazy} > 8 KB`);
   let admin = 0;
-  for (const name of await readdir('dist/admin/assets')) if (name.endsWith('.mjs')) admin += gzipSync(await readFile('dist/admin/assets/' + name)).byteLength;
+  const adminFiles = [];
+  for (const name of await readdir('dist/admin/assets', { recursive: true })) if (/\.(?:m?js)$/.test(name)) {
+    const bytes = gzipSync(await readFile('dist/admin/assets/' + name)).byteLength;
+    adminFiles.push({ name, gzip: bytes }); admin += bytes;
+  }
+  const graph = JSON.parse(await readFile('.generated/cms-metafile.json', 'utf8'));
+  const inputs = new Map();
+  for (const output of Object.values(graph.outputs)) for (const [name, input] of Object.entries(output.inputs ?? {})) inputs.set(name, (inputs.get(name) ?? 0) + input.bytesInOutput);
+  console.log('CMS transfer receipt', JSON.stringify({ totalGzip: admin, files: adminFiles.sort((a, b) => b.gzip - a.gzip), largestBundledInputs: [...inputs].sort((a, b) => b[1] - a[1]).slice(0, 12) }));
   // 375 KB since the Mejl tab (owner request 2026-10-24); its view is a lazy chunk, so the studio boot does not load it.
   assert.ok(admin < 375000, `Isolated editor JavaScript gzip ${admin} > 375 KB`);
   for(const route of routes) {

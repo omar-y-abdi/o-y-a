@@ -8,7 +8,7 @@ const fail = () => { throw new Error('Sidramens CSS kan inte kopplas säkert til
 // The server owns full AST validation. In the browser, edit token spans in
 // validated/imported or Grapes-exported CSS without another CSSOM roundtrip or
 // shipping the complete grammar. Colours, comments and strings keep their bytes.
-export function mapFrameCss(source, ids) {
+export function mapFrameCss(source, ids, inspectAttribute) {
   if (!source || !ids.size) return source;
   // Idless public nodes receive a temporary editor ID before this boundary.
   // Only server publication needs the separate null-target marker format.
@@ -49,6 +49,7 @@ export function mapFrameCss(source, ids) {
     }
     if (cursor !== tokens.length) fail();
     const node = { type: 'AttributeSelector', name: { name }, matcher, value, flags };
+    inspectAttribute?.(node);
     checkAttributeIds(node, ids, source.slice(stream.getTokenStart(start), stream.getTokenEnd(end)));
     const target = ids.get(selectorId(node));
     if (target) edit(valueIndex, valueIndex, string.encode(target.id));

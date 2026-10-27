@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { parseFragment, serialize } from 'parse5';
 import { preparePage, validateCss, validateHtml } from '../src/cms/validation.mjs';
-import { splitPage } from '../src/cms/frame.mjs';
+import { splitPage, composePage, frameCss } from '../src/cms/frame.mjs';
 import { elements } from '../src/cms/html-tree.mjs';
 
 // The studio's own createEditor runs in a bare page, so the tests reach the
@@ -631,4 +631,307 @@ test('B8: CssComposer follows a component across main, keeps clone rules and sur
   expect(result.refused).toBe(true);
   expect(result.kept).toBe(1);
   expect(result.error).toContain('saknar ägare');
+});
+
+// ROOT_NESTING: exercise the production parser, canvas and snapshot boundary.
+test('built studio loads the exact external vendor module before creating its canvas', async ({ page, context }) => {
+  test.setTimeout(60_000);
+  const [{ cmsRuntime }, { initial }, { waitCanvas }] = await Promise.all([
+    import('./helpers/cms-runtime.mjs'), import('../.generated/cms-seed.mjs'), import('./helpers/cms-browser-qa.mjs'),
+  ]);
+  const vendor = JSON.parse(await readFile('.generated/cms-vendor.json', 'utf8'));
+  const runtime = await cmsRuntime({ project: initial });
+  try {
+    await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const errors = [];
+    page.on('pageerror', error => errors.push(String(error)));
+    const loaded = page.waitForResponse(response => new URL(response.url()).pathname === vendor.path);
+    await page.goto(runtime.url + '/admin/');
+    const response = await loaded;
+    expect(response.status()).toBe(200);
+    expect(await response.body()).toEqual(await readFile(vendor.source));
+    await waitCanvas(page);
+    expect(await page.evaluate(() => globalThis.grapesjs.version)).toBe(vendor.version);
+    expect(errors).toEqual([]);
+  } finally { await runtime.close(); }
+});
+
+for (const alias of [undefined, 'older-root']) test(`nested CSS keeps cascade and frame identity (${alias ?? 'canonical'})`, async ({ page, context }) => {
+  const html = '<main><h1>Innehåll</h1></main>';
+  const frame = {
+    html: '<header data-cms-node="heading"><p>Rubrik</p></header><main></main><footer id="nest-root" class="root match" data-cms-node="nested-root"><span class="match child repeat">Barn</span><span class="layer layer-two">Lager</span><span class="cascade">Ordning</span></footer>',
+    css: validateCss(`
+      #nest-root {
+        color:rgb(10,20,30); padding-left:2px; --literal:"#nest-root";
+        &.match {border-top:3px solid rgb(1,2,3)}
+        & .match {border-bottom:4px solid rgb(4,5,6)}
+        & > .repeat {background-color:rgb(11,12,13)}
+        & > .repeat {background-color:rgb(21,22,23)}
+        color:rgb(31,32,33);
+        @media (min-width:1px) { & > .child {margin-left:7px} }
+      }
+      #nest-root::before {content:"";display:block;color:rgb(1,2,3);@media(min-width:1px){color:rgb(4,5,6)}color:rgb(41,42,43)}
+      .root,#unused-specificity { & > .child {outline:3px solid rgb(51,52,53)} }
+      .root > .child {outline-color:rgb(61,62,63)}
+      @layer { .layer {color:rgb(71,72,73)!important} .layer.layer-two {color:rgb(81,82,83)!important} }
+      .cascade {color:rgb(91,92,93)}
+      @media all {.cascade {color:rgb(101,102,103)}}
+      .cascade {color:rgb(111,112,113)}
+      @supports(display:block) { @media(min-width:1px) { .child {padding-right:9px} } }
+    `),
+  };
+  const frameIds = alias ? { 'nested-root': ['nest-root', alias] } : undefined;
+  const input = { html, frame, frameIds };
+  await openStudio(page, input);
+  const canvas = page.frameLocator('#editor iframe.gjs-frame');
+  const expected = {
+    root: { color: 'rgb(31, 32, 33)', borderTopWidth: '3px', borderBottomWidth: '0px', paddingLeft: '2px' },
+    child: { backgroundColor: 'rgb(21, 22, 23)', borderTopWidth: '0px', borderBottomWidth: '4px', marginLeft: '7px', paddingRight: '9px', outlineColor: 'rgb(51, 52, 53)' },
+    layer: { color: 'rgb(81, 82, 83)' }, cascade: { color: 'rgb(111, 112, 113)' }, pseudo: { color: 'rgb(41, 42, 43)' },
+  };
+  async function check(locator, padding = '2px') {
+    const result = await locator.evaluate(root => {
+      const read = (node, properties, pseudo) => { const style = getComputedStyle(node, pseudo); return Object.fromEntries(properties.map(property => [property, style[property]])); };
+      return {
+        root: read(root, ['color', 'borderTopWidth', 'borderBottomWidth', 'paddingLeft']),
+        child: read(root.querySelector('.child'), ['backgroundColor', 'borderTopWidth', 'borderBottomWidth', 'marginLeft', 'paddingRight', 'outlineColor']),
+        layer: read(root.querySelector('.layer'), ['color']), cascade: read(root.querySelector('.cascade'), ['color']),
+        pseudo: read(root, ['color'], '::before'),
+      };
+    });
+    expect(result).toEqual({ ...expected, root: { ...expected.root, paddingLeft: padding } });
+  }
+  await expect(canvas.locator('footer')).toHaveAttribute('id', alias ?? 'nest-root');
+  await check(canvas.locator('footer'));
+  const editedText = await page.evaluate(() => {
+    window.__ed.getWrapper().find('header p')[0].components('Ändrad rubrik');
+    return window.__studio.snapshot(true);
+  });
+  expect(editedText.frame.html).toContain('Ändrad rubrik');
+  expect(editedText.frame.css).toBe(frame.css);
+  await openStudio(page, { ...input, frame: editedText.frame });
+  await check(canvas.locator('footer'));
+  const styled = await page.evaluate(() => {
+    window.__ed.getWrapper().find('footer')[0].addStyle({ 'padding-left': '12px' });
+    return window.__studio.snapshot(true);
+  });
+  await expect(canvas.locator('footer')).toHaveCSS('padding-left', '12px');
+  await check(canvas.locator('footer'), '12px');
+  if (alias) expect(styled.frame.css).not.toContain(alias);
+  expect(styled.frame.css).toContain('#nest-root');
+  const canonical = { ...styled.frame, css: validateCss(styled.frame.css) };
+  await openStudio(page, { ...input, frame: canonical });
+  await check(canvas.locator('footer'), '12px');
+  // The server's real frame composer/projection consumes the saved source.
+  const publishedPage = { ...styled, path: '/t/', frameIds };
+  const publicPage = await context.newPage();
+  await publicPage.setContent(`<style>${frameCss(canonical, publishedPage)}${styled.css}</style>${composePage(canonical, publishedPage)}`);
+  await check(publicPage.locator('footer'), '12px');
+  await publicPage.close();
+});
+
+test('frame snapshots retain extracted inline styles and generated style targets after text edits', async ({ page }) => {
+  const frame = { html: '<header data-cms-node="inline-head"><p style="color:rgb(17,34,51)">Original</p></header><main></main><footer data-cms-node="inline-foot">Slut</footer>', css: '' };
+  const html = '<main><p style="padding-left:13px">Innehåll</p></main>';
+  await openStudio(page, { html, frame });
+  const saved = await page.evaluate(() => {
+    window.__ed.getWrapper().find('header p')[0].components('Ny rubrik');
+    window.__ed.getWrapper().find('main p')[0].components('Ny text');
+    return window.__studio.snapshot(true);
+  });
+  validateCss(saved.css); validateCss(saved.frame.css);
+  await openStudio(page, { html: saved.html, css: saved.css, frame: saved.frame });
+  const canvas = page.frameLocator('#editor iframe.gjs-frame');
+  await expect(canvas.locator('header p')).toHaveText('Ny rubrik');
+  await expect(canvas.locator('header p')).toHaveCSS('color', 'rgb(17, 34, 51)');
+  await expect(canvas.locator('main p')).toHaveText('Ny text');
+  await expect(canvas.locator('main p')).toHaveCSS('padding-left', '13px');
+  const styled = await page.evaluate(() => {
+    window.__ed.getWrapper().find('header p')[0].addStyle({ color: 'rgb(51,34,17)' });
+    return window.__studio.snapshot(true);
+  });
+  await openStudio(page, { html: styled.html, css: styled.css, frame: styled.frame });
+  await expect(canvas.locator('header p')).toHaveCSS('color', 'rgb(51, 34, 17)');
+});
+
+test('an anonymous CSS layer cannot silently split between frame and page', async ({ page }) => {
+  const frame = { html: '<header data-cms-node="layer-head">Ram</header><main></main><footer data-cms-node="layer-foot"><p id="layer-one">Ett</p><p id="layer-two">Två</p></footer>', css: '@layer{#layer-one{color:red}#layer-two{color:blue}}' };
+  await openStudio(page, { html: '<main><h1>Sida</h1></main>', frame });
+  const result = await page.evaluate(() => {
+    const root = window.__ed.getWrapper(), main = root.find('main')[0];
+    root.find('#layer-one')[0].move(main);
+    let refusal;
+    try { window.__studio.snapshot(true); } catch (error) { refusal = error.message; }
+    root.find('#layer-two')[0].move(main);
+    return { refusal, saved: window.__studio.snapshot(true) };
+  });
+  expect(result.refusal).toContain('anonymt CSS-lager skulle delas');
+  expect(result.saved.frame.css).toBe('');
+  expect(result.saved.css.match(/@layer/g)).toHaveLength(1);
+  await openStudio(page, { html: result.saved.html, css: result.saved.css, frame: result.saved.frame });
+  const canvas = page.frameLocator('#editor iframe.gjs-frame');
+  await expect(canvas.locator('main #layer-one')).toHaveCSS('color', 'rgb(255, 0, 0)');
+  await expect(canvas.locator('main #layer-two')).toHaveCSS('color', 'rgb(0, 0, 255)');
+});
+
+test('selected pseudo-state preview remains canvas-only', async ({ page }) => {
+  await openStudio(page, { html: '<main><p id="state-target">Tillstånd</p></main>', css: '#state-target{color:rgb(1,2,3)}#state-target:hover{color:rgb(4,5,6)}' });
+  const target = page.frameLocator('#editor iframe.gjs-frame').locator('#state-target');
+  await expect(target).toHaveCSS('color', 'rgb(1, 2, 3)');
+  await page.evaluate(() => {
+    const editor = window.__ed, component = editor.getWrapper().find('#state-target')[0];
+    editor.select(component); editor.Selectors.setState('hover'); editor.StyleManager.select(component);
+  });
+  expect(await target.evaluate(node => node.matches(':hover'))).toBe(false);
+  await expect(target).toHaveCSS('color', 'rgb(4, 5, 6)');
+  expect((await page.evaluate(() => window.__studio.snapshot(true))).css).not.toContain('gjs-selected');
+  await page.evaluate(() => { window.__ed.Selectors.setState(''); window.__ed.StyleManager.select(window.__ed.getSelected()); });
+  await expect(target).toHaveCSS('color', 'rgb(1, 2, 3)');
+});
+
+// ASTRA_CLONE_NESTING
+test('cloning nested frame styles preserves conditions, layer identity and untouched ancestor cascade', async ({ page }) => {
+  const frame = {
+    html: '<header>Ram</header><main></main><footer id="outside"><section id="copy-root" class="special"><h2 id="copy-child" class="child">Kopia</h2><svg><defs><clipPath id="copy-clip"><circle cx="5" cy="5" r="5"></circle></clipPath></defs><rect width="10" height="10" clip-path="url(#copy-clip)"></rect></svg></section></footer>',
+    css: validateCss(`
+      @supports(display:block){@media(min-width:1px){#copy-root{padding-left:17px;&>.child{color:rgb(201,32,17)}@media(min-width:1px){&>.child{margin-left:9px}}}}}
+      @layer{#copy-root{border-top:3px solid red!important}#copy-root.special{border-top-color:blue!important}}
+      #outside{color:red;& #copy-child{font-size:23px}}
+      #outside{color:green}
+      #outside{& #copy-child{letter-spacing:2px}& :is(.child,#unused){letter-spacing:5px}}
+      .child{--clip:url(#copy-clip);--literal:"#copy-clip"}
+      .child::before{content:"";--clip:url(#copy-clip)}
+      [id="copy-child"]{border-bottom:2px solid rgb(71,72,73)}
+      [id="copy-\\63 hild"]{--attribute-literal:"copy-child";padding-right:11px}
+    `),
+  };
+  const html = '<main><h1>Sida</h1></main>';
+  await openStudio(page, { html, frame });
+  const canvas = page.frameLocator('#editor iframe.gjs-frame');
+  await expect(canvas.locator('#outside')).toHaveCSS('color', 'rgb(0, 128, 0)');
+  const copied = await page.evaluate(() => {
+    const original = window.__ed.getWrapper().find('#copy-root')[0], copy = original.clone();
+    original.parent().append(copy);
+    return { root: copy.getId(), child: copy.find('h2')[0].getId(), clip: copy.find('clipPath')[0]?.getId() ?? copy.find('clippath')[0].getId(), saved: window.__studio.snapshot(true) };
+  });
+  const check = async () => {
+    await expect(canvas.locator('#outside')).toHaveCSS('color', 'rgb(0, 128, 0)');
+    for (const [id, clip] of [['copy-root', 'copy-clip'], [copied.root, copied.clip]]) {
+      const root = canvas.locator(`[id="${id}"]`), child = root.locator('h2');
+      await expect(root).toHaveCSS('padding-left', '17px');
+      await expect(root).toHaveCSS('border-top-width', '3px');
+      await expect(root).toHaveCSS('border-top-color', 'rgb(0, 0, 255)');
+      await expect(child).toHaveCSS('color', 'rgb(201, 32, 17)');
+      await expect(child).toHaveCSS('margin-left', '9px');
+      await expect(child).toHaveCSS('font-size', '23px');
+      await expect(child).toHaveCSS('letter-spacing', '5px');
+      await expect(child).toHaveCSS('border-bottom-color', 'rgb(71, 72, 73)');
+      await expect(child).toHaveCSS('padding-right', '11px');
+      expect(await child.evaluate(node => getComputedStyle(node).getPropertyValue('--attribute-literal'))).toContain('copy-child');
+      expect(await child.evaluate(node => getComputedStyle(node).getPropertyValue('--clip'))).toContain('#' + clip);
+      expect(await child.evaluate(node => getComputedStyle(node, '::before').getPropertyValue('--clip'))).toContain('#' + clip);
+      expect(await child.evaluate(node => getComputedStyle(node).getPropertyValue('--literal'))).toContain('#copy-clip');
+      await expect(root.locator('rect')).toHaveAttribute('clip-path', 'url(#' + clip + ')');
+    }
+  };
+  await check();
+  expect(copied.saved.frame.css.match(/@layer/g)).toHaveLength(1);
+  validateCss(copied.saved.frame.css);
+  const deleted = await page.evaluate(id => {
+    window.__ed.getWrapper().find(`[id="${id}"]`)[0].remove();
+    return window.__studio.snapshot(true);
+  }, copied.root);
+  for (const id of [copied.root, copied.child, copied.clip]) expect(deleted.frame.css + deleted.css).not.toContain('#' + id);
+  await expect(canvas.locator('#copy-root')).toHaveCSS('border-top-color', 'rgb(0, 0, 255)');
+  await openStudio(page, { html, frame: copied.saved.frame });
+  await check();
+});
+
+test('copied ancestor-wrapped CSS follows its copy across main and is removed with it', async ({ page }) => {
+  const frame = { html: '<header>Ram</header><main></main><footer id="ancestor"><p id="original">Kopia</p></footer>', css: '#ancestor{& #original{color:rgb(17,34,51)}}' };
+  await openStudio(page, { html: '<main><h1>Sida</h1></main>', frame });
+  const result = await page.evaluate(() => {
+    const root = window.__ed.getWrapper(), original = root.find('#original')[0], copy = original.clone();
+    original.parent().append(copy);
+    const id = copy.getId(), created = window.__studio.snapshot(true);
+    copy.move(root.find('main')[0]);
+    const moved = window.__studio.snapshot(true);
+    copy.remove();
+    return { id, created, moved, removed: window.__studio.snapshot(true) };
+  });
+  expect(result.created.frame.css).toContain('#' + result.id);
+  expect(result.moved.frame.css).not.toContain('#' + result.id);
+  expect(result.moved.css).toContain('#ancestor');
+  expect(result.moved.css).toContain('#' + result.id);
+  expect(result.removed.css + result.removed.frame.css).not.toContain('#' + result.id);
+  await expect(page.frameLocator('#editor iframe.gjs-frame').locator('#original')).toHaveCSS('color', 'rgb(17, 34, 51)');
+});
+
+for (const refusal of ['layer', 'selector', 'condition', 'nested-condition', 'global']) test(`refusing ${refusal} clone ambiguity leaves models, CSS and Draft untouched`, async ({ page }) => {
+  const html = '<main><section id="blocked"><p id="blocked-child">Stanna</p></section><p id="ordinary">Vanlig kopia</p></main>';
+  const cases = {
+    layer: '#blocked{color:red;@layer{&{color:blue!important}}}',
+    selector: '#blocked{color:blue}[id$="-2"]{padding-right:19px}',
+    condition: '#blocked{color:blue;--clip:url(#blocked-child)}@container style(--clip:url(#blocked-child)){#blocked{padding-right:19px}}',
+    'nested-condition': '#blocked{color:blue;--clip:url(#blocked-child);@container style(--clip:url(#blocked-child)){&{padding-right:19px}}}',
+    global: '@keyframes shared{to{clip-path:url(#blocked-child)}}#blocked{color:blue;animation:shared 2s}',
+  };
+  const css = validateCss(cases[refusal] + '#ordinary{padding-left:13px}');
+  await openStudio(page, { html, css });
+  await page.evaluate(async ({ html, css }) => {
+    window.__studio.destroy();
+    const item = { id: 'page', html, css, path: '/t/', bodyClass: '', project: null };
+    window.__draft = new window.Draft({ schemaVersion: 1, pages: [item], cards: [] }, 1);
+    window.__cloneErrors = [];
+    await new Promise(resolve => {
+      window.__studio = window.createEditor({ page: item, cssPath: '/canvas.css', assets: [], onSelect() {},
+        onChange(values) { window.__draft.change({ ...window.__draft.project, pages: [{ ...item, ...values }] }); },
+        onError(error) { window.__cloneErrors.push({ code: error.code, message: error.message }); },
+        onReady(editor) { window.__ed = editor; resolve(); },
+      });
+    });
+    window.__studio.flush(true);
+  }, { html, css });
+  const result = await page.evaluate(refusal => {
+    const editor = window.__ed;
+    const receipt = () => ({
+      snapshot: window.__studio.snapshot(true), models: JSON.stringify(editor.getWrapper().toJSON()),
+      rules: JSON.stringify(editor.Css.getAll().toJSON()), undo: editor.UndoManager.getStack().length,
+      draft: JSON.stringify(window.__draft), dirty: editor.getDirtyCount(),
+    });
+    const before = receipt();
+    let failure;
+    try { editor.getWrapper().find('#blocked')[0].clone(); }
+    catch (error) { failure = { code: error.code, reported: error.reported }; }
+    window.__studio.flush(true);
+    const after = receipt();
+    // A harmless probe cannot establish the actual future suffix predicate.
+    let actualFutureId;
+    if (refusal === 'selector') {
+      const rule = editor.Css.getAll().find(rule => rule.getSelectorsString().includes('[id$='));
+      editor.Css.getAll().remove(rule);
+      const source = editor.getWrapper().find('#blocked')[0], copy = source.clone();
+      source.parent().append(copy);
+      actualFutureId = copy.getId();
+    }
+    const original = editor.getWrapper().find('#ordinary')[0], copy = original.clone();
+    original.parent().append(copy);
+    window.__studio.flush(true);
+    return { before, after, failure, actualFutureId, errors: window.__cloneErrors, copyId: copy.getId(), saved: window.__studio.snapshot(true) };
+  }, refusal);
+  const code = { layer: 'CMS_CLONE_LAYER', selector: 'CMS_CLONE_SELECTOR', condition: 'CMS_CLONE_CONDITION', 'nested-condition': 'CMS_CLONE_CONDITION', global: 'CMS_CLONE_GLOBAL' }[refusal];
+  expect(result.failure).toEqual({ code, reported: true });
+  if (refusal === 'selector') {
+    expect(result.actualFutureId).toBe('blocked-2');
+    expect(['blocked', 'blocked-cms-copy-check', result.actualFutureId].map(id => id.endsWith('-2'))).toEqual([false, false, true]);
+  }
+  expect(result.errors).toHaveLength(1);
+  expect(result.errors[0].message).toContain('Originalet är oförändrat');
+  expect(result.after).toEqual(result.before);
+  const canvas = page.frameLocator('#editor iframe.gjs-frame');
+  await expect(canvas.locator('#blocked')).toHaveCSS('color', 'rgb(0, 0, 255)');
+  await expect(canvas.locator(`[id="${result.copyId}"]`)).toHaveCSS('padding-left', '13px');
+  expect(result.saved.html).toContain(result.copyId);
+  validateCss(result.saved.css);
 });

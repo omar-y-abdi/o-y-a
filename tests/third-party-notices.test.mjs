@@ -68,6 +68,11 @@ test('optimized editor distribution contains the reviewed ESM sources and is the
   assert.deepEqual([...optimized.keys()].filter(source => !esm.has(source)), ['webpack://grapesjs/webpack/universalModuleDefinition']);
   for (const [source, content] of optimized) if (esm.has(source)) assert.equal(content, esm.get(source), source);
   const graph = JSON.parse(await readFile('.generated/cms-metafile.json', 'utf8'));
-  assert.ok(Object.hasOwn(graph.inputs, 'node_modules/grapesjs/dist/grapes.min.js'));
+  const vendor = JSON.parse(await readFile('.generated/cms-vendor.json', 'utf8'));
+  assert.equal(vendor.source, 'node_modules/grapesjs/dist/grapes.min.js');
+  assert.deepEqual(await readFile('dist' + vendor.path), await readFile(vendor.source));
+  assert.deepEqual(await readFile(join(dirname('dist' + vendor.path), 'grapes.min.js.map')), await readFile(vendor.source + '.map'));
+  assert.ok(Object.values(graph.outputs).some(output => output.imports.some(item => item.external && item.path === vendor.path)));
+  assert.ok(!Object.hasOwn(graph.inputs, vendor.source), 'The reviewed raw artifact must not also be rebundled');
   assert.ok(!Object.hasOwn(graph.inputs, 'node_modules/grapesjs/dist/grapes.mjs'));
 });

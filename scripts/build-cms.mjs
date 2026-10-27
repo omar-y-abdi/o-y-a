@@ -36,7 +36,24 @@ export async function buildCms({ styles, js }) {
     stylesheet('node_modules/grapesjs/dist/css/grapes.min.css', 'grapes'),
     stylesheet('src/cms/login.css', 'login', 'cms-public'),
   ]);
-  const bundle = await build({ entryPoints: { studio: 'src/cms/client/app.mjs', preview: 'src/cms/client/preview.mjs' }, outdir: 'dist/admin/assets', entryNames: '[name].[hash]', chunkNames: '[name].[hash]', outExtension: { '.js': '.mjs' }, bundle: true, splitting: true, format: 'esm', minify: true, sourcemap: false, target: ['es2022'], metafile: true, legalComments: 'linked' });
+  const vendorSource = 'node_modules/grapesjs/dist/grapes.min.js';
+  const vendorCode = await readFile(vendorSource), vendorMap = await readFile(vendorSource + '.map');
+  const vendorDir = `/admin/assets/grapes-${hash(Buffer.concat([vendorCode, vendorMap]))}`;
+  const vendorPath = vendorDir + '/grapes.min.mjs';
+  await mkdir('dist' + vendorDir, { recursive: true });
+  await writeFile('dist' + vendorPath, vendorCode);
+  // Keep the upstream sourceMappingURL valid within the immutable directory.
+  await writeFile('dist' + vendorDir + '/grapes.min.js.map', vendorMap);
+  const vendorVersion = JSON.parse(await readFile('node_modules/grapesjs/package.json', 'utf8')).version;
+  await verifyBundleNotices({ inputs: { [vendorSource]: {} } });
+  await writeFile('.generated/cms-vendor.json', JSON.stringify({ source: vendorSource, path: vendorPath, version: vendorVersion }));
+  const bundle = await build({ entryPoints: { studio: 'src/cms/client/app.mjs', preview: 'src/cms/client/preview.mjs' }, outdir: 'dist/admin/assets', entryNames: '[name].[hash]', chunkNames: '[name].[hash]', outExtension: { '.js': '.mjs' }, bundle: true, splitting: true, format: 'esm', minify: true, sourcemap: false, target: ['es2022'], metafile: true, legalComments: 'linked',
+    plugins: [{ name: 'reviewed-grapes-distribution', setup(builder) {
+      builder.onResolve({ filter: /^grapesjs\/dist\/grapes\.min\.js$/ }, () => ({ path: 'grapes', namespace: 'cms-vendor' }));
+      builder.onResolve({ filter: /^\/admin\/assets\// }, args => args.path === vendorPath ? { path: vendorPath, external: true } : undefined);
+      builder.onLoad({ filter: /^grapes$/, namespace: 'cms-vendor' }, () => ({ contents: `import ${JSON.stringify(vendorPath)};const editor=globalThis.grapesjs;if(editor?.version!==${JSON.stringify(vendorVersion)}||typeof editor.init!=="function")throw new Error("Editorn kunde inte laddas. Ladda om sidan.");export default editor;`, loader: 'js' }));
+    } }],
+  });
   await verifyBundleNotices(bundle.metafile);
   await writeFile('.generated/cms-metafile.json', JSON.stringify(bundle.metafile));
   for (const name of await readdir('dist/admin/assets')) if (name.endsWith('.LEGAL.txt')) {

@@ -54,3 +54,9 @@ A newly identified GrapesJS nesting import/render/export boundary remains open. 
 ## Follow-up qualification at3816005
 
 Run40546477180 passed functional-browser, both editor compatibility jobs and standalone release. The ZIP timing correction is remotely exercised. Verify had744 passing cases and3 failures:379036-byte editor gzip plus two inverse ID-spelling assertions. Strict forward CSS projection checks passed. The next change preserves the375000-byte budget, chooses GrapesJS's reviewed same-version optimized artifact, and compares inverse ID semantics while retaining unrelated-byte checks. The editor nesting/clone follow-up is still in progress. Public O1/O2 and integrated I1 remain behind verify's Node gate.
+
+## Follow-up qualification at 5cc563e
+
+Run 40550422163 passed functional-browser, Firefox, WebKit and standalone release; 747 Node tests passed, with only the 379020-byte editor transfer failure remaining. The next candidate retains the 375000-byte cap and ships the reviewed upstream editor bytes without rebundling, with recursive accounting, exact-copy/source-map checks and actual studio startup coverage.
+
+Root and Astra have agreed on the new nesting/clone source boundary after reciprocal review. Canvas and capture retain native nested order, selector specificity and anonymous group identity. Clone regressions cover local references, duplicate/sibling rules, ownership and atomic refusal of unsupported imported CSS dependencies; the precise limits are documented in CMS-FRAME-MIGRATION. These are authored and statically reviewed changes, not yet remote runtime proof. Public O1/O2 and integrated I1 remain pending behind the transfer gate.
