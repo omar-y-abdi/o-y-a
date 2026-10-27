@@ -1,3 +1,5 @@
+import { captureHostProcesses } from './browser-processes.mjs';
+
 async function bounded(operation, timeout = 1500) {
   let timer;
   const startedAt = Date.now();
@@ -32,9 +34,11 @@ export async function captureCardFailure(page, browser, readPoll) {
     const version = connection.session ? bounded(connection.session.send('Browser.getVersion')) : null;
     const processes = connection.session ? (async () => {
       const before = await bounded(connection.session.send('SystemInfo.getProcessInfo'));
+      const hostBefore = before.value ? await bounded(captureHostProcesses(before.value.processInfo), 750) : null;
       await new Promise(resolve => setTimeout(resolve, 500));
       const after = await bounded(connection.session.send('SystemInfo.getProcessInfo'));
-      return { before, after };
+      const hostAfter = after.value ? await bounded(captureHostProcesses(after.value.processInfo), 750) : null;
+      return { before, after, hostBefore, hostAfter };
     })() : null;
     const dom = target.session ? bounded(target.session.send('Runtime.evaluate', {
       // The fresh protocol session uses the default context, independently of
