@@ -1,4 +1,4 @@
-const OPERATIONS = new Set(['state', 'history', 'revision', 'assets', 'upload', 'recover', 'replace-resource', 'resource-usage', 'validate', 'preview', 'save', 'media', 'public']);
+const OPERATIONS = new Set(['state', 'history', 'revision', 'assets', 'upload', 'recover', 'replace-resource', 'resource-usage', 'validate', 'preview', 'save', 'media', 'public', 'contact', 'mail']);
 
 export function reportFailure(error, operation = '') {
   const requestId = crypto.randomUUID();
@@ -8,4 +8,10 @@ export function reportFailure(error, operation = '') {
   const code = /\bD1\b|D1_ERROR|SQLITE_/.test(message) ? 'storage-d1' : /\bR2\b|R2_ERROR/.test(message) ? 'storage-r2' : error instanceof TypeError ? 'type-error' : 'unexpected';
   console.error(JSON.stringify({ event: 'cms_failure', requestId, operation: OPERATIONS.has(operation) ? operation : 'admin', code }));
   return requestId;
+}
+
+// The key is a server-made private path, never a secret, so it can be logged
+// to find the orphan later.
+export function reportMailOrphan(key) {
+  console.error(JSON.stringify({ event: 'mail_orphan', key }));
 }

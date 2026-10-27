@@ -225,14 +225,12 @@ class CMSBrowserQA:
 
     @staticmethod
     def open_assets(page: Page, section: str = "media") -> None:
-        """Open the resource tab before selecting its unique sidebar entry."""
+        """Open the matching top-level library tab."""
         if section not in {"media", "wins"}:
             raise ValueError(f"Unknown resource section: {section}")
         # Selecting this tab already opens media; clicking its sidebar row too
         # starts another fetch and can match the detail view's back button.
-        page.locator('[data-library=assets]').click()
-        if section == "wins":
-            page.locator('#library-list [data-special=wins]').click()
+        page.locator('[data-library=wins]' if section == "wins" else '[data-library=assets]').click()
         target = '#win-search' if section == "wins" else '[data-media-state=active]'
         page.locator(f'#special-stage {target}').wait_for(state="visible", timeout=20000)
 

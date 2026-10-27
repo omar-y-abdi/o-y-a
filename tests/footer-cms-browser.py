@@ -79,7 +79,13 @@ with sync_playwright() as pw:
         context = browser.new_context(storage_state=str(qa.STATE_PATH), viewport={'width':width,'height':900}, reduced_motion='reduce')
         try:
             page = context.new_page(); page.on('dialog', lambda dialog: dialog.accept())
-            page.goto(BASE+'/admin/'); Q.wait_canvas(page)
+            page.goto(BASE+'/admin/')
+            page.wait_for_selector('iframe.gjs-frame, [data-shared-content-repair]')
+            repair = page.locator('[data-shared-content-repair]')
+            if repair.count():
+                # Explicit owner choice preserves the legacy home's custom frame.
+                repair.locator('button[type=submit]').click()
+            Q.wait_canvas(page)
             page.locator(f'[data-device={"mobile" if width <= 760 else "desktop"}]').click()
             frame = Q.frame(page)
             link = frame.locator('footer a[href="/developers/"], footer a[href="/developers/#main"]').first
@@ -109,8 +115,13 @@ with sync_playwright() as pw:
 
             # Reproduce the user's ordinary edit on another footer element.
             frame.locator('footer a[href="/tillganglighet/"]').click(); props(page)
-            page.locator('#element-text').fill('Tillgänglighet och stöd')
-            close_props(page); save(page)
+            accessibility_label = f'Tillgänglighet och stöd {width}'
+            assert page.locator('#element-text').input_value() != accessibility_label, 'Each viewport must perform a new edit on the shared Worker'
+            page.locator('#element-text').fill(accessibility_label)
+            close_props(page)
+            expect(page.locator('[data-action=save]')).to_be_enabled()
+            save(page)
+            expect(Q.frame(page).locator('footer a[href="/tillganglighet/"]')).to_have_text(accessibility_label)
 
             # Keep explicit CMS size editing, but it must not clip wrapped text.
             frame = Q.frame(page)

@@ -1,8 +1,8 @@
 # Portfolio Studio
 
-## Logga in och välj miljö
+## Logga in
 
-Öppna `/login/`. Cloudflare skickar en kod till den enda tillåtna ägaradressen. Sessionen varar högst en timme. Profilknappen loggar ut. En utgången session raderar inte utkastet: logga in i en ny flik och försök Save igen. **Testmiljö** i sidhuvudet betyder att Save bara ändrar staging.
+Öppna `/login/`. Cloudflare skickar en kod till den enda tillåtna ägaradressen. Sessionen varar högst en timme. Profilknappen loggar ut. En utgången session raderar inte utkastet: logga in i en ny flik och försök Save igen. Den driftsatta studion publicerar till produktion. En förhandsversion från en gren använder också produktionens D1 och R2; den är ingen isolerad testmiljö.
 
 ## Arbetsytan
 
@@ -27,17 +27,19 @@ Layout, rutnät/flex, avstånd, position, transformering, bakgrund, kanter och s
 
 PNG, JPEG, WebP, GIF och WOFF2 stöds för uppladdning. AVIF kräver stöd i den konfigurerade bildtjänsten. Rasterbilder kontrolleras både strukturellt och genom avkodning på servern innan de registreras. Max 10 MiB per fil; rasterbilder högst 8192 px per sida och 32 megapixlar. Vektorliknande originalillustrationer använder en sanerad SVG-källa som redigerbar källa. Godtycklig SVG-uppladdning är fortfarande blockerad; script, externt aktivt innehåll och osäkra referenser accepteras inte. När en befintlig konsument behöver raster skapas ett PNG-derivat, medan SVG-källan förblir redigerbar.
 
-Uppladdade och inbyggda resurser visas i **Aktiva / Arkiverade / Papperskorg**. Arkivering döljer resursen från normalvyn men bryter inga befintliga länkar. Flytt till papperskorg blockeras om aktuellt utkast fortfarande använder resursen. Permanent radering finns bara i papperskorgen och blockeras så länge aktuell webbplats eller någon sparad historikversion refererar till resursen. Resursdetaljen visar referensantal innan en destruktiv åtgärd. Metadata och ersättning sparas separat från publicering; Save publicerar projektets nya referenser.
+Uppladdade resurser visas i **Aktiva / Arkiverade / Papperskorg**. Inbyggda illustrationer visas separat med sina egna redigerings- och ersättningsvägar; de använder inte uppladdningsbibliotekets papperskorgsflöde. Arkivering döljer resursen från normalvyn men bryter inga befintliga länkar. Flytt till papperskorg blockeras om aktuellt utkast fortfarande använder resursen. Permanent radering finns bara i papperskorgen och blockeras så länge aktuell webbplats eller någon sparad historikversion refererar till resursen. Resursdetaljen visar referensantal innan en destruktiv åtgärd. Metadata och ersättning sparas separat från publicering; Save publicerar projektets nya referenser.
 
 Små vinster har sökning, kategorier och **Aktiva / Arkiverade / Papperskorg**. Kryssrutor kan markera enstaka kort, alla synliga eller alla träffar i aktuell sökning/filter. Markerade kort kan arkiveras, återställas, flyttas till papperskorg, raderas permanent, byta kategori eller exporteras tillsammans i `omar-wins/v1` JSON. Import validerar hela paketet före ändring och hanterar ID-krock med Skip, Replace eller Import as copy. Aktiva kort används i den vanliga slumpningen; arkiverade kort kan fortfarande nås via sina stabila direkta ID-länkar; kort i papperskorgen visas inte publikt.
 
 Lekarnas texter samlar JavaScript-styrda meddelanden för maskin, memory, fika, bubblor, SKIFT och kontakt. SKIFT-gruppen innehåller starttexter på svenska och engelska. Behåll dynamiska värden inom klamrar, exempelvis `{number}`. Servern avvisar ändringar som tar bort eller skapar sådana värden.
 
-**SKIFT** finns under Sidor med sidmetadata, visuell redigering, Dator/Mobil, Lock view och samma Save-/historik-/backupflöde som övriga sidor. Spelet använder webbplatsens gemensamma sidhuvud och sidfot. Spelkontroller och funktionskopplingar skyddas; språk, ljud, musik, rörelse, kvalitet och svårighetsgrad väljs av spelaren i spelets egna inställningar. [Integrationsguiden](SKIFT.md) beskriver sidan och uppdateringar.
+**SKIFT** är inte en redigerbar sida i studion. Sidan serveras alltid från bygget. Spelet använder webbplatsens gemensamma sidhuvud och sidfot. Spelkontroller och funktionskopplingar ligger kvar i koden; språk, ljud, musik, rörelse, kvalitet och svårighetsgrad väljs av spelaren i spelets egna inställningar. [Integrationsguiden](SKIFT.md) beskriver sidan och uppdateringar.
 
 Memorykortens grundmarkup finns i editorn. Kort, fram-/baksida och SVG-behållare behåller sina stilar efter omblandning. Spelets sex symboler och matchningslogik styrs av koden. Funktionselement får inte flyttas ut ur sin funktion; flytta hela gruppen. Vanliga komponenter kan flyttas, dupliceras och tas bort. Direkt nudge ändrar bara visuell `translate` och byter aldrig komponentens parent/index; strukturell omordning görs uttryckligen i Lager.
 
-Återkommande innehåll länkas med en CMS-nyckel i stället för genom att råka ha samma text. Sidfotens **“Lite hjärna. Lite hjärta. Ganska mycket nyfikenhet.”** är den första gemensamma platsen: redigera den på en sida så uppdateras alla länkade sidfötter i samma utkast och som ett undo-steg. Save vägrar publicera om länkade instanser har blivit olika.
+Sidhuvud, sidfot och gemensamma paneler lagras i en enda sidram. En ramändring från en sida uppdaterar hela webbplatsens ram i samma utkast och som ett undo-steg. Sidornas huvudinnehåll lagras separat. Vid öppning av äldre innehåll kontrolleras ramarna; motstridiga ramversioner behöver väljas uttryckligen innan Save.
+
+Om den aktuella publicerade versionen har motstridiga ramar visar studion ett samordningsval innan arbetsytan öppnas. Dialogen anger att valet publiceras som en ny version. Vid ett osäkert svar låses valet och **Försök spara samma val igen** behåller samma sparförsök. Har Save bekräftats, eller en annan flik hunnit publicera, läser **Läs in den aktuella versionen** först in det aktuella läget. Historik och återställda reservutkast läses däremot in som utkast; deras val publiceras först med Save.
 
 ## Spara och återställa
 
@@ -45,13 +47,13 @@ Memorykortens grundmarkup finns i editorn. Kort, fram-/baksida och SVG-behållar
 | --- | --- |
 | Edit | Återgå till redigering. |
 | Save / Cmd eller Ctrl+S | Validera och publicera hela utkastet som ny version. |
-| Ångra / Gör om | Ändra utkast, aldrig publicerad sida. Upp till 50 steg i sessionen. Canvasposition, iframe-scroll, vald komponent, device/zoom och panelens scroll återställs så arbetet inte hoppar till toppen. |
+| Ångra / Gör om | Ändra utkast, aldrig publicerad sida. Knappar och globala kortkommandon är avstängda på Mejl-flikarna Skriv mejl, Skickade och Inställningar; de flikarna ändrar inte projektutkastets historik. Mallflikarna behåller historiken och textfält behåller webbläsarens egna ångrasteg. Upp till 50 steg i sessionen. Canvasposition, iframe-scroll, vald komponent, device/zoom och panelens scroll återställs så arbetet inte hoppar till toppen. |
 | Revert | Bekräfta och hämta senast publicerad version. |
 | History | Läs historik; Granska påverkar inte utkastet. |
 | Restore | Läs vald version som utkast. Save krävs för publicering. |
 | Lock view | Lås redigering och visa validerad förhandsvisning. |
 
-Reservutkast sparas lokalt i IndexedDB och kan återupptas vid nästa inloggning. Exportera utkast ger en JSON-reservkopia vid nätverks- eller sessionsproblem. Den innehåller HTML, CSS, övrigt innehåll och resursreferenser, inga inloggningsuppgifter. Äldre editor-JSON används inte som en separat innehållskälla. Vid öppning av en sådan version visas en möjlighet att exportera originalet; granska det kanoniska utkastet före Save.
+Reservutkast sparas lokalt i IndexedDB och kan återupptas vid nästa inloggning. Exportera utkast ger en JSON-reservkopia vid nätverks- eller sessionsproblem. Den innehåller HTML, CSS, övrigt innehåll och resursreferenser, inga inloggningsuppgifter. Äldre editor-JSON används inte som en separat innehållskälla. Exportera utkast ger den kanoniska modellen som studion har läst in, inte en byteexakt kopia av äldre lagrad JSON. Behåll en separat databasbackup för originalrevisionerna och granska det konverterade utkastet före Save.
 
 Under återställning visas **Återställer utkastet** medan reservkopian kontrolleras, läses in och reservlagringen uppdateras för den nya sessionen. Dialogen håller arbetsytan låst under tiden. Vid fel finns originalkopian kvar och kan exporteras.
 

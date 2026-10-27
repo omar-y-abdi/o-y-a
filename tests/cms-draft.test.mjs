@@ -31,6 +31,20 @@ test('grouped typing undoes as one edit while a new edit invalidates the redo br
   assert.equal(draft.project.text, 'Nytt');
 });
 
+test('boundary ends the current group so the next change is its own undo step', () => {
+  const draft = new Draft({ text: '' }, 3);
+  draft.change({ text: 'a' }, 'page');
+  draft.boundary();
+  draft.change({ text: 'ab' }, 'page');
+  draft.change({ text: 'abc' }, 'page');
+  draft.boundary();
+  draft.change({ text: 'abcd' }, 'page');
+  draft.undo(); assert.equal(draft.project.text, 'abc');
+  draft.undo(); assert.equal(draft.project.text, 'a');
+  draft.undo(); assert.equal(draft.project.text, '');
+  assert.equal(draft.undo(), false);
+});
+
 test('beginSave captures changed page as a compact intent without the full saved project', () => {
   const saved = {
     schemaVersion: 1,

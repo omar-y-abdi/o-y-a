@@ -2,17 +2,17 @@
 
 ## Agreed outcome
 
-Omar alone edits his portfolio through a real visual CMS. The existing yellow/cobalt site, all twelve routes, interactive workshop, contact form, navigation, policies and artwork remain the starting content. Use a maintained editor library rather than building a drag-and-drop engine. The owner approved visual editing with protected application code, an isolated test environment and a pull request. Production deployment happens after merge.
+Omar alone edits his portfolio through a real visual CMS. The yellow/cobalt site, public routes, interactive workshop, contact form, navigation, policies and artwork remain the starting content. GrapesJS provides the visual editor; application code stays protected. Local verification uses isolated Worker runtimes. Production deployment follows [DEPLOYMENT.md](DEPLOYMENT.md).
 
 The confirmed storage choice is Cloudflare R2 Standard, activated by the owner. Its free allowance is not an unlimited spending cap. The exact owner email is supplied as private deployment configuration; an unset identity denies access.
 
 ## Architecture
 
 - Keep the existing static build and Cloudflare Worker. Public pages require no editor framework. Load the editor and its dependencies only under the admin route.
-- Use open-source GrapesJS for components, drag-and-drop, resizing, layer navigation, typography, CSS controls, responsive devices and undo/redo. Store its project JSON so editing information survives reloads. Publish independently validated HTML and CSS, never executable editor code.
+- Use open-source GrapesJS for components, drag-and-drop, resizing, layer navigation, typography, CSS controls, responsive devices and undo/redo. Persist validated HTML and CSS as the canonical page representation, never executable editor code or a competing GrapesJS component tree.
 - Use Cloudflare Access for authentication. Independently verify JWT signature, issuer, audience, lifetime and the exact owner email in the Worker with `jose`. Protect all admin API operations. No password database, browser-stored service credentials, shared magic admin URL or production development bypass.
 - Use D1 for immutable revisions and an atomic current-revision pointer. Use R2 for immutable uploaded media. A successful save exposes the new revision to public requests. Never rely on browser state or a successful upload alone to claim publication.
-- Separate production and staging resources, hosts, identities and deployment commands. Preserve the existing production contact and analytics configuration.
+- Keep local test identities and D1/R2 isolated from production. The repository has one deployed Worker configuration; branch previews use its production bindings. Preserve the production contact and analytics configuration.
 
 ## Editing workspace
 
@@ -54,13 +54,11 @@ A save includes its base revision and a unique request ID. D1 commits a new immu
 
 ## Observable acceptance
 
-- A real authenticated owner session can edit, save, reload and see the same values on the public staging site. Unauthenticated, expired, malformed and wrong-owner requests cannot read private content or mutate state.
+- An authorized release check verifies that the authenticated owner can edit, save, reload and see the same values on the public site. Unauthenticated, expired, malformed and wrong-owner requests cannot read private content or mutate state.
 - Every existing page is visually reviewed at desktop and mobile widths. Review every admin view and important loading, error, unsaved, conflict, history, restore and asset state. Save screenshots from actual browser rendering.
 - Exercise adding, moving, duplicating, resizing and deleting ordinary components; editing content and styling; independent mobile styles; creating pages; changing metadata; uploading/replacing media; editing wins; exporting images; undo/redo; reverting; restoring; locked interactive preview; login expiry and simultaneous edits.
 - Prove stored-XSS rejection, request-boundary rejection, invalid uploads, state conflicts and storage failure behavior with adversarial tests. Run integration checks against the actual Cloudflare runtime and D1/R2 semantics, not only in-memory mocks.
 - Run the existing regression suite. Preserve public transfer budgets and lazy loading. Measure cold public/admin loads and interaction behavior, disclose lab conditions and retain machine-readable results.
-- The primary agent independently inspects final visuals. The sole Luna Max agent handles repetitive tests and inventories. No other agents are used.
-- Finish with a reviewable PR, verified checks, deployment/rollback documentation and all captured CMS screenshots. Do not merge or deploy production in this task.
 
 ## Primary references
 

@@ -2,6 +2,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { publishSite } from '../src/cms/store.mjs';
+import { DEFAULT_EMAIL } from '../src/server/email-render.mjs';
+import { CSP } from '../src/csp.mjs';
 
 let runtime, authorization;
 before(async () => { runtime = await cmsRuntime(); authorization = await runtime.token(); });
@@ -52,6 +54,7 @@ test('real Worker publishes a complete draft, new page and theme, then serves pe
   project.pages[0].html = project.pages[0].html.replace('</main>', '<p>Publicerad E2E-markör</p></main>');
   project.theme.blue = '#123456';
   project.cards[0].text = 'En sparad vinst från riktig Worker.';
+  project.runtime['runtime.nav.menu.open'] = 'Publicerad meny </script><!-- $&';
   project.pages.push({ ...state.blank, id: 'new-public-page', sourceId: 'blank', path: '/en-ny-ide/', name: 'Ny idé' });
   const payload = { project, baseVersion: 0, requestId: crypto.randomUUID() };
   const saved = await admin('save', payload);
@@ -59,10 +62,16 @@ test('real Worker publishes a complete draft, new page and theme, then serves pe
   assert.equal((await saved.json()).version, 1);
   const publicPage = await call('/');
   assert.equal(publicPage.status, 200);
-  assert.match(await publicPage.text(), /Publicerad E2E-markör/);
+  const html = await publicPage.text();
+  assert.match(html, /Publicerad E2E-markör/);
+  const runtimeBlock = html.match(/<script type="application\/json" id="cms-runtime">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(runtimeBlock);
+  assert.ok(!runtimeBlock.includes('<'));
+  assert.deepEqual(JSON.parse(runtimeBlock), project.runtime);
   assert.equal(publicPage.headers.get('X-CMS-Version'), '1');
   assert.equal(publicPage.headers.get('Cache-Control'), 'no-store');
-  assert.doesNotMatch(publicPage.headers.get('Content-Security-Policy'), /unsafe-eval/);
+  assert.equal(publicPage.headers.get('Content-Security-Policy'), CSP);
+  assert.deepEqual(await (await call('/data/runtime.json')).json(), project.runtime);
   assert.match(await (await call('/cms-public/v1/home.css')).text(), /--blue:#123456/);
   assert.equal((await call('/en-ny-ide/')).status, 200);
   assert.equal((await call('/login/')).status, 200, 'Publishing must not hide the public login route');
@@ -304,4 +313,31 @@ test('version-zero deltas are rejected while legacy full-snapshot recovery remai
     assert.equal(legacyRecovery.status, 200, await legacyRecovery.clone().text());
     assert.deepEqual((await legacyRecovery.json()).pendingSave, legacyPending);
   } finally { await isolated.close(); }
+});
+
+test('a revision without email gets default templates and restores', async () => {
+  const emailRow = async version => (await runtime.db.prepare("SELECT html FROM cms_rendered WHERE version = ? AND path = '@email'").bind(version).first())?.html;
+  const first = await versionedState();
+  assert.equal(Object.hasOwn(first.project, 'email'), false);
+  assert.equal(await emailRow(first.version), 'null');
+
+  const email = structuredClone(DEFAULT_EMAIL);
+  email.templates.receipt.subject = 'Ett nytt litet kvitto';
+  const edit = await admin('save', { baseVersion: first.version, requestId: crypto.randomUUID(), changes: { email } });
+  assert.equal(edit.status, 200, await edit.clone().text());
+  const edited = await (await admin('state')).json();
+  assert.deepEqual(edited.project.email, email);
+  assert.deepEqual(JSON.parse(await emailRow(edited.version)), email);
+
+  // Restoring the first revision as a delta removes the key with email: null.
+  const historical = await (await admin(`revision/${first.version}`)).json();
+  const pendingSave = { baseVersion: edited.version, requestId: crypto.randomUUID(), changes: { email: null } };
+  const recovered = await admin('recover', { project: historical.project, pendingSave });
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  assert.deepEqual((await recovered.json()).pendingSave, pendingSave);
+  const restored = await admin('save', pendingSave);
+  assert.equal(restored.status, 200, await restored.clone().text());
+  const head = await (await admin('state')).json();
+  assert.equal(Object.hasOwn(head.project, 'email'), false);
+  assert.equal(await emailRow(head.version), 'null');
 });

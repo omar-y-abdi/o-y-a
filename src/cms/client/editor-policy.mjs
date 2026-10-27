@@ -26,12 +26,44 @@ export const svgStyleSectors = [
 export function configureVisualComponent(component, { managedSvg = false } = {}) {
   const tag = String(component.get?.('tagName') ?? '').toLowerCase();
   component.set({
-    resizable: managedSvg && tag === 'svg' ? false : tag === 'g' ? svgGroupResizeOptions(component) : isResizableComponent(component),
+    resizable: managedSvg && tag === 'svg' ? false : tag === 'g' ? svgGroupResizeOptions(component) : isResizableComponent(component) && { currentUnit: 0, unitWidth: 'px', unitHeight: 'px' },
     // Canvas move can reparent/reorder. Structural movement belongs in Layers;
     // precise visual movement is exposed by the inspector nudge controls.
     toolbar: [],
+    ...(managedSvg && component.get('type') === 'svg-in' && { selectable: true, hoverable: true, layerable: true }),
   });
   return component;
+}
+
+function resizeExtraSpace(computed, sides) {
+  return computed.boxSizing === 'border-box' ? 0 : sides.reduce((sum, side) => sum + (parseFloat(computed[`padding${side}`]) || 0) + (parseFloat(computed[`border${side}Width`]) || 0), 0);
+}
+
+function resizeContentLength(value, extra) {
+  return extra ? `${+Math.max(0, parseFloat(value) - extra).toFixed(3)}px` : value;
+}
+
+// GrapesJS supplies border-box dimensions; content-box CSS excludes padding and borders.
+// A drag writes px into the device's rule. Width caps at the container and
+// height becomes a floor over `auto`, so one drag never fixes the box on other
+// widths. `height: auto` also replaces a stored px height in the same rule.
+export function responsiveResizeStyle(style, tag, computed = {}) {
+  const next = { ...style };
+  if (next.width && next.width !== 'auto') {
+    const extra = resizeExtraSpace(computed, ['Left', 'Right']);
+    next.width = `min(${resizeContentLength(next.width, extra)},${extra ? `calc(100% - ${extra}px)` : '100%'})`;
+  }
+  if (next.height && next.height !== 'auto') {
+    if (tag !== 'img') next['min-height'] = resizeContentLength(next.height, resizeExtraSpace(computed, ['Top', 'Bottom']));
+    next.height = 'auto';
+  }
+  return next;
+}
+
+// Pasted content is plain text only: Word and Docs markup would fail validation
+// or publish foreign inline styles. Line breaks become <br>.
+export function pastedTextHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n|\r|\n/g, '<br>');
 }
 
 export function applyStyleMode(editor, mode = 'normal') {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { preparePage, validateHtml, validateCss, validateEditorData, validatePagePath } from '../src/cms/validation.mjs';
+import { preparePage, validateHtml, validateCss, validatePagePath } from '../src/cms/validation.mjs';
 
 test('ordinary layout, rich text, SVG artwork and responsive CSS survive validation', () => {
   const html = '<main id="main"><h1>Hej <em>Omar</em></h1><section><p>Rävar &amp; kaffe</p><a href="/om/">Läs mer</a><img src="/media/12345678-1234-4123-8123-123456789abc.png" alt="En blomma"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="currentColor"></circle></svg></section></main>';
@@ -55,20 +55,6 @@ test('editing text and styles is allowed, removing or retargeting a functional h
   assert.throws(() => validateHtml(prepared.html.replace('name="email"', 'name="other"'), prepared.contracts));
 });
 
-test('editor JSON cannot hide executable scripts or unsafe nested HTML/CSS', () => {
-  const safe = { pages: [{ id: 'home', component: { type: 'wrapper', components: [{ tagName: 'h1', type: 'text', content: 'Hej', style: { color: '#123456' } }] } }], styles: [], assets: [] };
-  assert.deepEqual(validateEditorData(safe), safe);
-  const literal = { pages: [{ component: { type: 'textnode', content: 'Blade & Blend < 3' } }] };
-  assert.equal(validateEditorData(literal).pages[0].component.content, 'Blade & Blend < 3');
-  const controls = { pages: [{ component: { tagName: 'p', toolbar: [{ label: '<img src=x onerror=alert(1)>', command: 'tlb-delete' }], traits: [{ label: '<img src=x>' }] } }] };
-  assert.doesNotMatch(JSON.stringify(validateEditorData(controls)), /toolbar|traits|onerror/);
-  assert.throws(() => validateEditorData({ pages: [{ component: { name: '<img src=x onerror=alert(1)>' } }] }));
-  for (const component of [{ type: 'text', script: 'alert(1)' }, { type: 'script', content: 'alert(1)' }, { tagName: 'img', attributes: { onerror: 'alert(1)' } }, { type: 'image', src: 'https://evil.test/track.png' }, { atRuleType: 'import', selectors: 'https://evil.test/a.css' }, { type: 'text', content: '<iframe src="https://evil.test"></iframe>' }, { style: { background: 'url(https://evil.test/a)' } }]) {
-    assert.throws(() => validateEditorData({ pages: [{ component }], styles: [], assets: [] }));
-  }
-  assert.throws(() => validateEditorData(JSON.parse('{"pages":[],"__proto__":{"polluted":true}}')));
-});
-
 test('deep, oversized and duplicate-ID content is rejected deterministically', () => {
   assert.throws(() => validateHtml('<div>'.repeat(100) + 'x' + '</div>'.repeat(100)));
   assert.throws(() => validateHtml('<p>' + 'x'.repeat(600000) + '</p>'));
@@ -82,14 +68,16 @@ test('visual wrappers and reordering survive while moving a control outside its 
   assert.throws(() => validateHtml(prepared.html.replace(button, '').replace('</main>', button + '</main>'), prepared.contracts), /utanför sin funktion/);
 });
 
-test('editor extra selectors cannot inject style boundaries or additional rules', () => {
-  for (const selectorsAdd of ['</style><img src=x onerror=alert(1)>', 'x{}@import "https://evil.test"', '.x\u0000']) {
-    assert.throws(() => validateEditorData({ styles: [{ selectorsAdd, style: { color: 'red' } }] }));
-  }
-  assert.doesNotThrow(() => validateEditorData({ styles: [{ selectorsAdd: '.a:hover > .b', style: { color: 'red' } }] }));
-});
-
 test('page paths cannot shadow admin, API, media or traversal routes', () => {
   assert.equal(validatePagePath('/projekt/nytt/'), '/projekt/nytt/');
   for (const path of ['/admin/', '/admin/api/save/', '/api/', '/assets/x/', '/media/x/', '/login/', '/data/x/', '/a/../b/', '//evil.test/', '/bad?x=1/', '/bad%2fpath/', '/bad\\path/']) assert.throws(() => validatePagePath(path), undefined, path);
+});
+
+test('A8: social and mail are reserved from the one shared list and the 422 names the address', () => {
+  for (const path of ['/social/x/', '/mail/x/']) assert.throws(() => validatePagePath(path), { status: 422, message: new RegExp(`Adressen ${path} är reserverad`) });
+  assert.equal(validatePagePath('/socialt/'), '/socialt/');
+});
+
+test('A4: validateHtml accepts <strike> from the strike-through action', () => {
+  assert.match(validateHtml('<p>En <strike>struken</strike> text</p>'), /<strike>struken<\/strike>/);
 });

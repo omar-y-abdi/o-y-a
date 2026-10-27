@@ -1,0 +1,2173 @@
+{
+  "base": "80630c7d280c71314702af791dbc0828d9ff8b0a",
+  "head": "71b30dc18b073f310fed386bba7664d7afb77abf",
+  "pr": "https://github.com/omar-y-abdi/o-y-a/pull/14",
+  "files": [
+    {
+      "status": "M",
+      "paths": [
+        ".github/workflows/ci.yml"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        ".gitignore"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        ".node-version"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "README.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/404.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/_headers"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/chunk.35ADBXS6.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/chunk.P26OSDAQ.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/grapes.fb55e939b334.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/preview.ZP5VQATO.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/studio.56c58a7812ec.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/studio.YNRZFIJJ.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/studio.YNRZFIJJ.mjs.LEGAL.txt"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/assets/win.SQJ7PMFR.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/admin/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/apple-touch-icon.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/cards.7445450e93d0.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/contact.0754027d6d94.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/copy.46755f96c139.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/games.9aced906e981.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/joy.e58fa0407110.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/main.d5cc08fe6873.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/memory.2a2519efff0b.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/playlogic.92e6e1470703.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/previewdata.c0c063c9f4b2.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/privacy.969e756f7a55.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/site.69c093c2f69e.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/site.8c9faccc7524.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/site.c284c6ca6254.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/site.d12fc177b64b.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/site.ea65c6ee77d1.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/assets/site.fd595f4e3084.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/cms-public/login.c3bca71510b4.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/cms-public/win.57b79af9c719.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/data/cards.json"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/data/runtime.json"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/developers/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/favicon.svg"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/integritet/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/kakor/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/kontakt/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/llms.txt"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/login/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/mail/omar-smile.gif"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/mail/omar-smile.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/mail/omar-smile.svg"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/om/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/openapi.json"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/play/skift/RELEASE.json"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/play/skift/THIRD-PARTY-LICENSES.txt"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/play/skift/assets/app.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/play/skift/assets/app.js"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/play/skift/assets/app.js.LEGAL.txt"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/play/skift/assets/bootstrap.js"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/play/skift/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/projekt/backhaul/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/projekt/blade-blend/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/projekt/furl/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/robots.txt"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/sitemap.xml"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/social/omar-yusuf.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/tillganglighet/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/verkstad/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "dist/villkor/index.html"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/AGENT-READINESS-2026-10-09.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/ASSET-SIZES.json"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/CARD-EXPORT-LAYOUT-FIX.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/CMS-BROWSER-HARNESS-FIX.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/CMS-DESIGN.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "docs/CMS-FRAME-MIGRATION.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/CMS-GUIDE.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/CMS-LOCAL-VERIFICATION.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/CMS-REVIEW-REMEDIATION.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/CMS-SECURITY.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/CMS-UNIFIED-PACKAGE.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/CONTACT-SETUP.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/DEPLOYMENT.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/DESIGN.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/ENVIRONMENT.json"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/MACHINE-DEPTH.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/PLAN.md"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "docs/revision/PRIVACY-DECISIONS.md",
+        "docs/PRIVACY-DECISIONS.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/QA.md"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "docs/SKIFT.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/SOURCES.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/cms/screenshots/compare.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/cms/screenshots/editor-desktop.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/cms/screenshots/editor-mobile.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/cms/screenshots/login-desktop.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/cms/screenshots/media-library.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/cms/screenshots/win-design.png"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/handoff-cms-save-cpu.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/revision/CHANGES.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/revision/FILE-HASHES.json"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/superpowers/plans/2026-09-13-portfolio-cms.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/superpowers/plans/2026-09-15-cms-editor-usability-expansion.md"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "docs/superpowers/plans/2026-10-09-footer-cms-regressions.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/CREDITS.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/README.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/START.bat"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/START.command"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/docs/DESIGN.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/docs/INTEGRATION.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/docs/PLAN.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/docs/VERIFICATION.md"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/index.html"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/package-lock.json"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/package.json"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/boss.wav",
+        "games/skift/public/audio/boss.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/cell.wav",
+        "games/skift/public/audio/cell.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/clear.wav",
+        "games/skift/public/audio/clear.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/dash.wav",
+        "games/skift/public/audio/dash.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/fail.wav",
+        "games/skift/public/audio/fail.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/hit.wav",
+        "games/skift/public/audio/hit.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/pulse.wav",
+        "games/skift/public/audio/pulse.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/scrap.wav",
+        "games/skift/public/audio/scrap.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/shift.mp3",
+        "games/skift/public/audio/shift.mp3"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/shot.wav",
+        "games/skift/public/audio/shot.wav"
+      ]
+    },
+    {
+      "status": "R100",
+      "paths": [
+        "dist/play/skift/audio/strike.wav",
+        "games/skift/public/audio/strike.wav"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/public/icon.svg"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/scripts/audio.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/scripts/build-options.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/scripts/build-portfolio.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/scripts/build.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/scripts/release.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/scripts/verify.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/art.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/copy.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/game.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/i18n.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/input.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/levels.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/main.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/page.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/physics.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/rules.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/sound.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/style.css"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/ui.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/src/view.js"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/start.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/art.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/browser.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/campaign.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/compatibility.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/game.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/input.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/levels.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/lifecycle.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/performance.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/physics.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/release_test.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/released.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/rules.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "games/skift/tests/smoke.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "migrations/0007_contact_mail.sql"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "package-lock.json"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "package.json"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "playwright.config.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/RELEASE.json"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/THIRD-PARTY-LICENSES.txt"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/assets/app.css"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/assets/app.js"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/assets/app.js.LEGAL.txt"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/boss.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/cell.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/clear.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/dash.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/fail.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/hit.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/pulse.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/scrap.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/shift.mp3"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/shot.wav"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "public/play/skift/audio/strike.wav"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/build-cms.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/cms-check-release.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/cms-dev.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "scripts/cms-migrate-frame.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "scripts/cms-prune-rendered.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "scripts/cms-pull-release.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "scripts/cms-release-errors.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "scripts/cms-strip-media.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "scripts/import-skift.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "scripts/legacy-keys.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/lint.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "scripts/prepare-footer-migration.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/quality.sh"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/run-quality-browser.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "scripts/serve.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/smoke-live.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/test-cms-compat.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/test-cms-modules-parallel.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/test-cms-modules.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/test-cms-parallel.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/test-cms.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "scripts/test-footer-cms.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "scripts/test-python.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/client/copy.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/client/main.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/client/skift-bootstrap.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/api.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/assets.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/api.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/app.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/backups.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/draft.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/editor-policy.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/editor.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/client/email.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/client/frame-project.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/inspector.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "src/cms/client/legacy.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/library.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/merge.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/client/position.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "src/cms/client/shared-project.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/compatibility.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/diagnostics.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "src/cms/editor-schema.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/email-api.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/email-validate.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "src/cms/footer.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/frame-converter.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/frame.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/legacy-keys.json"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/cms/legacy-project.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/project-changes.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/project.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/raster-integrity.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/render.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/resources.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/routes.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "src/cms/shared-content.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/skift.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/store.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/styles.css"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/templates.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/cms/validation.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "src/content/skift-copy.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/csp.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/server/contact-secrets.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/server/contact.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "src/server/email-render.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/server/emails.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/styles/base.css"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/styles/pages.css"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/styles/skift.css"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/templates/layout.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "src/templates/skift.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "src/worker.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/agent-readiness.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/assets.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/auth-token-age.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/browser.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/card-export.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/card_export.py"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-api.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-assets.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-browser.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-browser.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-consent-css.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-content.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-cpu-budget.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-draft.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-editor-usability.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-editor.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-email.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-frame-gate.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-frame-initial.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-frame-migration.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-frame-public.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-frame.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-home-responsive.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-hotfix.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-interactions.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-interactions.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-legacy.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-library-api.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-library.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-library.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-manipulation.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-modules.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-modules.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-position.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-project.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-prune-rendered.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-release-errors.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-rendered-retention.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-review-browser.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-review-browser.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-review-final-browser.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-review-final.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-review.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-save-boundaries.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-shared-conflict.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-store.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-strip-media.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/cms-template-drift.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/cms-usability.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/contact-secrets.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/contact.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/docs.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/email-api.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/email-model.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/email-render.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/email-validate.test.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "tests/email_render.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/cms-v185-project.json"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/notification-empty.html"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/notification-empty.subject"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/notification-empty.txt"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/notification.html"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/notification.subject"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/notification.txt"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/receipt.html"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/receipt.subject"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/fixtures/email/receipt.txt"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/footer-cms-browser.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/footer-cms-browser.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/footer-cms.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/foundation.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/helpers/cms-browser-library.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/helpers/cms-browser-qa.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/helpers/cms-module-entry.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/helpers/cms-runtime.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/helpers/modules-card-export.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/helpers/modules-runtime.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/helpers/pre-agent-footer.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/helpers/public-test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/helpers/review-browser.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/helpers/revision-scroll.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/http-checks.test.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "tests/http_checks.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/lint.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/managed-svg-fidelity.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/public-evidence.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/public-pages.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/public-render.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/public-runtime.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/public-startup.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/quality-gates.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/raster-metadata.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/revision_browser.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/shared-content-lifecycle.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/skift-build.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/skift.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/skift.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/stored-revisions.test.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/test-python.test.mjs"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "tests/test_card_export_helpers.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/test_cms_asset_usage.spec.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "tests/test_cms_browser_helpers.py"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/test_cms_browser_helpers.spec.mjs"
+      ]
+    },
+    {
+      "status": "A",
+      "paths": [
+        "tests/wrangler-config.test.mjs"
+      ]
+    },
+    {
+      "status": "M",
+      "paths": [
+        "wrangler.jsonc"
+      ]
+    },
+    {
+      "status": "D",
+      "paths": [
+        "wrangler.staging.jsonc"
+      ]
+    }
+  ]
+}

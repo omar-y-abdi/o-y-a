@@ -3,6 +3,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      historical_errors_json:
+        description: 'Reviewed JSON object mapping versions 1-4 and 84-88 to their exact recorded compatibility errors'
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
@@ -11,9 +17,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # Historical Worker builds pin the real deployed BASE.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version-file: '.node-version'
           cache: npm
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -21,16 +29,25 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-test.txt
       - run: npm ci
+      - name: Audit current locked dependencies
+        run: npm audit --audit-level=moderate
       - run: python -m pip install -r requirements-test.txt
       - run: python -m playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium
       - name: Build, security, storage and public browser regressions
         run: npm run quality
+      - name: SKIFT game unit regressions
+        run: node --test --test-concurrency=1 games/skift/tests/*.test.mjs
       - name: Worker deploy dry-run
-        run: npm run edge:check:built
+        run: npx wrangler deploy --dry-run --outdir artifacts/worker-build --metafile artifacts/worker-build/bundle-meta.json
+      - name: Verify full notices against the deployed Worker bundle
+        run: node scripts/third-party-notices.mjs artifacts/worker-build/bundle-meta.json
       - name: Real Worker CMS browser verification
         run: npm run test:cms
       - name: Legacy footer CMS edit and reload regression
-        run: npm run test:cms:footer
+        run: node scripts/test-footer-cms.mjs
+      - name: Editor resize, paste, SVG and mail regressions
+        run: npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps
       - name: Retain browser evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -51,7 +68,39 @@ jobs:
             output/revision/browser/revision-browser.json
             output/logs/footer-*.log
             output/visual/footer/**/*.png
-            output/card-export/card-export-report.json
+            output/playwright/artifacts/**
+          retention-days: 14
+
+  skift-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: games/skift
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+          cache-dependency-path: games/skift/package-lock.json
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Standalone source, extracted rebuild and released browser regression
+        run: npm run release
+      - name: Retain distributable and exact browser receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: skift-release
+          path: |
+            games/skift/SKIFT-*.zip
+            games/skift/SKIFT-*.zip.sha256
+            games/skift/evidence/released-archive.json
+            games/skift/evidence/released-trace.zip
           retention-days: 14
 
   editor-compatibility:
@@ -67,7 +116,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '24'
+          node-version-file: '.node-version'
           cache: npm
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -75,10 +124,18 @@ jobs:
       - run: npm ci
       - run: python -m pip install -r requirements-test.txt
       - run: python -m playwright install --with-deps ${{ matrix.browser }}
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run build
-      - run: npm run test:cms:modules
+      # Run the engine's editor/serialization gate before legacy Python failures
+      # can prevent it from executing; each suite owns independent fixtures.
+      - run: npx playwright test --project=${{ matrix.browser }} --no-deps
+        # Four concurrent heavy WebKit studios stalled a click. Isolate resources
+        # without changing deadlines; this experiment does not establish an app cause.
+        env:
+          PLAYWRIGHT_WORKERS: ${{ matrix.browser == 'webkit' && '1' || '4' }}
+      - run: node scripts/test-cms-modules-parallel.mjs
       - run: node scripts/test-cms-parallel.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
-      - run: npm run test:cms:footer
+      - run: node scripts/test-footer-cms.mjs
       - name: Retain compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -92,4 +149,71 @@ jobs:
             output/cms-modules/*.png
             output/logs/footer-*.log
             output/visual/footer/**/*.png
+            output/playwright/artifacts/**
           retention-days: 14
+
+  functional-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      # Independent port-0 fixtures; retain the original Python gates in verify
+      # and editor-compatibility until runtime parity and retirement are verified.
+      - name: Frame parity, browser ports and library regressions
+        run: >-
+          npx playwright test
+          tests/cms-frame-public.spec.mjs
+          tests/cms-frame-recovery.spec.mjs
+          tests/cms-browser.spec.mjs
+          tests/cms-interactions.spec.mjs
+          tests/cms-review-browser.spec.mjs
+          tests/cms-review-final-browser.spec.mjs
+          tests/cms-modules.spec.mjs
+          tests/footer-cms-browser.spec.mjs
+          tests/test_cms_browser_helpers.spec.mjs
+          tests/test_cms_asset_usage.spec.mjs
+          tests/revision_browser.spec.mjs
+          tests/cms-library.spec.mjs
+          tests/managed-svg-fidelity.spec.mjs
+          --project=chromium --no-deps --workers=2
+      - name: Retain functional browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: functional-browser-evidence
+          path: output/playwright/**
+          retention-days: 14
+
+  # Manual only. Needs repository secrets CLOUDFLARE_D1_READ_TOKEN (D1 read)
+  # and CLOUDFLARE_ACCOUNT_ID; CI has no D1 credentials by default.
+  stored-revisions:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Validate reviewed historical exceptions
+        env:
+          HISTORICAL_ERRORS_JSON: ${{ inputs.historical_errors_json }}
+        run: |
+          errors_file="$(mktemp "$RUNNER_TEMP/cms-allow-errors.XXXXXX.json")"
+          HISTORICAL_ERRORS_FILE="$errors_file" node scripts/cms-release-errors.mjs
+          printf 'CMS_ALLOW_ERRORS_FILE=%s\n' "$errors_file" >> "$GITHUB_ENV"
+      # Exact error matching only; the current head is never tolerated.
+      - run: node scripts/cms-pull-release.mjs --all --allow=1-4,84-88 --allow-errors="$CMS_ALLOW_ERRORS_FILE"

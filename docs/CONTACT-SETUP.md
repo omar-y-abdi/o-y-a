@@ -16,7 +16,7 @@ Site key är offentlig till sin natur, men lagras här på serversidan och lämn
 
 Den kontrollerade Resend-domänen `hej.omaryusuf.se` var verifierad för sändning den 12 september 2026. Öppnings- och klickspårning var avstängda. Inkommande mejl var avstängt. Detta är ett kontostatusprov, inte ett leveranstest av revisionen.
 
-Skapa en Resend-nyckel med begränsad sändbehörighet för den avsedda domänen. Håll spårningen avstängd. Avsändaren är fast i servermallen: `Omar Yusuf <hej@hej.omaryusuf.se>`.
+Skapa en Resend-nyckel för den avsedda domänen. Begränsad sändbehörighet räcker för att skicka; status och avbryt i studion kräver en nyckel som även tillåter dessa anrop. Håll spårningen avstängd. Standardavsändaren är `Omar Yusuf <hej@hej.omaryusuf.se>`; studions mejlinställningar kan ändra visningsnamn och lokal adress inom den serverbestämda domänen `hej.omaryusuf.se`.
 
 Lägg in din privata mottagaradress som **`CONTACT_TO`**. Den ska inte skrivas i publika filer, klientkod, mottagningskvittot eller en versionshanterad konfiguration.
 
@@ -36,17 +36,27 @@ Varje kommando frågar efter värdet. Lägg aldrig värdena som kommandoradsargu
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-Detta värde används för HMAC av hastighetsnycklar och idempotens, inte för besökarspårning. Spara samma värde mellan normala publiceringar så att identiska omsändningar behåller sin nyckel.
+`CONTACT_HASH_SECRET` är huvudnyckeln för tre funktioner: kontaktformulärets HMAC-baserade hastighets- och idempotensnycklar, kryptering av de fyra kontaktvärden som sparas i D1 via studion, samt signerade privata bilagelänkar. Spara samma värde mellan normala publiceringar. Ett byte gör tidigare sparade värden oläsbara, ogiltigförklarar gamla bilagelänkar och ändrar kontaktformulärets idempotensnycklar. Värdet används inte för besökarspårning.
+
+De fyra värdena kan också sparas i **Mejl → Inställningar** efter att D1-migreringarna och huvudnyckeln finns. Ett sparat D1-värde ersätter motsvarande miljövärde. Ett oläsbart sparat värde stänger funktionen; servern använder inte tyst miljövärdet som reserv. Ett uttryckligt tomt värde tar däremot bort D1-värdet och återgår till miljökonfigurationen.
 
 `wrangler.jsonc` innehåller redan en `CONTACT_RATE_LIMIT`-binding med fem försök per minut. Servern prövar separata HMAC-nycklar för IP-adress och destination. Bindingen är Cloudflares distribuerade hastighetsbegränsning, inte en garanterad global spärr mot all spam. Ändra inte namespace till ett som används av en annan funktion.
 
 ## 4. Publicera på din vanliga väg
 
-Behåll din befintliga repo-/Cloudflare-koppling. Byggkommandot är `npm run build`; statiska filer ligger i `dist/` och Workern i `src/worker.mjs`. Om du använder Wrangler direkt:
+Vid uppgradering från bilagelänkar av formen `/mail-file/{id}/{exp}/{token}` behöver befintliga bilageutskick först avslutas eller avbrytas. Den här versionen utfärdar och accepterar endast `/mail-file/{id}/{exp}?token=…`. Äldre länkar avvisas, eftersom deras hemlighet ligger i sökvägen och inte kan döljas med querymaskering. Kontrollera schemalagda mejl och alla obekräftade utskick i Resend, även sådana som finns frysta i en öppen studioflik. Bekräfta leverans eller avbryt hos Resend innan uppgraderingen; skapa inte en ny identitet för ett utskick vars resultat fortfarande är okänt. Stäng gamla skrivflikar under övergången. Om inga sådana utskick finns, dokumentera den kontrollen i releaseunderlaget.
+
+`wrangler.jsonc` aktiverar `observability.redact_query_string`, som enligt [Cloudflares inställningskontrakt](https://developers.cloudflare.com/api/typescript/resources/workers/subresources/scripts/subresources/settings/methods/get/) tar bort query-strängar från begäransadresser i loggar och traces. Efter publiceringen ska kontots effektiva inställning kontrolleras med en egen ofarlig test-token. Det ändrar inte historiska loggar eller andra tjänsters loggning. Dela aldrig fullständiga bilagelänkar i felrapporter.
+
+Behåll din befintliga repo-/Cloudflare-koppling. Deploykommandot `npm run deploy:cloudflare` bygger självt före publicering. Kontrollera kontots faktiska bygg- och deploykommandon enligt [DEPLOYMENT.md](DEPLOYMENT.md); en separat byggfas i dashboarden kan annars bygga samma källor två gånger. Statiska filer skapas i `dist/` och Workern finns i `src/worker.mjs`. För manuell verifiering och publicering:
 
 ```sh
-npm run edge:check
-npm run deploy
+npm run edge:check &&
+npm run quality &&
+npm run test:cms &&
+node scripts/test-footer-cms.mjs &&
+node scripts/test-cms-compat.mjs &&
+npm run deploy:cloudflare
 ```
 
 `edge:check` gör en dry-run utan publicering. Den nya kontaktfunktionen behöver Workern och dess bindings: en uppladdning av enbart statiska filer till en annan hostingtjänst aktiverar inte API:t.
@@ -75,4 +85,30 @@ GIF-filen är färdig och används inne i kvittot. En avsändarbild i Gmail, Out
 
 API:t accepterar bara samma origin, JSON, begränsad kroppsstorlek, tillåtna fält, giltiga kontaktuppgifter och ett serververifierat Turnstile-svar. Samma försök får en HMAC-baserad idempotensnyckel hos Resend. Inget vanligt inmatningsfel eller leverantörsfel ger ett låtsat lyckat utskick.
 
-Läs också [integritetsbesluten](revision/PRIVACY-DECISIONS.md). Verkliga leverantörsavtal, eventuell överföring, kontologgar, mottagarbrevlådans hantering och gallring behöver motsvara policyn. Detta paket är inte en juridisk certifiering.
+Studions utskick har en separat beständig identitet och ett D1-register över varje försök innan Resend anropas. Ett 409-svar kan betyda att samma utskick fortfarande behandlas eller redan har accepterats med andra data; det får därför inte radera avsikten eller frigöra bilagor. En vägran får bara rensa en ny avsikt som inget annat försök har använt. Se [Resends idempotenskontrakt](https://resend.com/changelog/idempotency-keys).
+
+Resend behåller en idempotensnyckel i 24 timmar. Studion sparar därför ett litet permanent kvitto i `cms_mail_receipts` för varje bekräftad identitet, oberoende av de senaste 100 raderna i visningshistoriken. Kvittot innehåller identitet, Resend-id, avsändare och tider; mottagarlistor, ämne och meddelandetext ingår inte. Bekräftelse och kvitto skrivs i samma D1-transaktion före gallring. Ett gammalt fryst återförsök får det tidigare resultatet utan ett nytt leverantörsanrop. Obekräftade avsikter gallras inte och får efter 23 timmar bara utredas manuellt.
+
+Migrering `0010_mail_receipts.sql` kopierar kvarvarande bekräftelser till kvittoregistret. Identiteter som en tidigare Worker redan har gallrat går inte att återskapa från D1. Nya klientförsök har därför `intentVersion: 2` i sin frysta kropp. Äldre försök utan den markören får fortsätta endast om deras avsikt eller kvitto fortfarande finns; ett okänt äldre försök spärras och kräver kontroll i Resend. Klienten lägger aldrig till markören på ett återställt fryst mejl. Kontrollera resultatet innan ett sådant mejl kastas och ersätts med ett nytt. Ladda om gamla studioflikar för nya utskick, och låt inte äldre Worker-kod skriva under eller efter övergången. Återställ inte en gammal mail-Worker som saknar kvittoskyddet utan en separat kontrollerad plan för dessa identiteter.
+
+Under borttagning av en bilaga är mejlets fält och skickaknapp låsta tills svaret kommer. Ett misslyckat borttagningsförsök behåller bilagan. Inställningarnas samtliga fält är låsta medan de sparas; ett fel lämnar de inskrivna värdena kvar för rättning. Aviseringens inline-länkar kodar besökaruppgifter som URL-värden innan HTML-kodning, så specialtecken i en giltig mejladress inte kan skapa nya mottagare eller headers i en `mailto:`-länk; se [RFC 6068](https://www.rfc-editor.org/rfc/rfc6068.html).
+
+Privata bilagor registreras i D1 innan filen strömmas till R2. Först en slutförd uppladdning får användas i ett utskick. Normalt löper filen ut efter 24 timmar; en schemalagd sändning förlänger tiden till minst en timme efter sändningstiden. Borttagning spärrar filen i D1 innan R2 raderas. Om lagringen inte svarar behålls raderingsavsikten och nästa städning försöker igen.
+
+En schemalagd Worker-körning sker varje timme, minut 17 UTC, även när studion inte används. Varje körning behandlar högst 20 förfallna eller tidigare raderingsmarkerade D1-filer och läser högst 20 objekt i `mail-private/` med en beständig sidmarkör. Den senare genomgången tar endast bort objekt som är minst 24 timmar gamla och saknar D1-rad; den fångar även avbrutna uppladdningar och äldre övergivna objekt. Fel rapporteras och arbetet återkommer. En större kö eller lagringsstörning fördröjer den fysiska raderingen, men D1-status och utgångstid spärrar hämtning och nya utskick direkt.
+
+Migreringarna `0008_mail_send_attempts.sql`, `0009_mail_file_lifecycle.sql` och `0010_mail_receipts.sql` måste vara tillämpade före denna Worker. Kontrollera efter publicering att cron-triggern finns och att schemalagda körningar lyckas. Vid återgång till en äldre Worker behöver även triggerkonfigurationen återställas; den gamla koden känner inte till de nya bilagestatusarna. Låt inte en gammal mail-Worker skriva samtidigt med denna version under en övergång.
+
+## Kontrollerat byte av huvudnyckel
+
+Nyckelbyte är ett planerat driftavbrott, inte en vanlig publicering. Koden har ingen överlappning mellan gamla och nya huvudnycklar.
+
+1. Förvara den gamla huvudnyckeln och alla fyra aktuella kontaktvärden i ägarens säkra hemlighetsförvaring. Studion lämnar inte ut de två privata värdena i klartext; kontrollera att de kan återställas innan något ändras. Ta en D1-backup som hör till den gamla nyckeln.
+2. Stoppa nya kontakt- och studiosändningar under bytet, och stäng öppna skrivflikar. Avsluta eller avbryt schemalagda bilageutskick hos Resend. Utred varje obekräftat utskick och varje fryst omsändning innan du byter nyckel; ett nytt idempotensvärde får inte användas för att försöka kringgå ett okänt tidigare resultat.
+3. Lägg in den nya `CONTACT_HASH_SECRET` via Wranglers hemlighetsprompt. Befintliga sparade inställningar blir nu oläsbara och kontaktfunktionen stängs. Spara därefter samtliga fyra bevarade värden genom **Mejl → Inställningar**, så att de krypteras med den nya huvudnyckeln. En avsiktlig miljöbaserad konfiguration återställs i stället genom att uttryckligen tömma respektive D1-värde och kontrollera miljövärdet.
+4. Kontrollera inställningsstatus och `/api/contact/config`. Ett godkänt konfigurationssvar bevisar inte leverans. Gör ett separat ägargodkänt leveranstest och ett nytt privat bilagetest innan sändningarna öppnas igen. Gamla bilagelänkar blir inte giltiga av att inställningarna sparas på nytt; ladda upp bilagor på nytt för nya utskick.
+5. Om återställning behövs före första omsparningen, återställ den gamla huvudnyckeln. Efter att värden sparats med den nya nyckeln krävs även motsvarande D1-backup eller att alla fyra värden åter sparas under den återställda nyckeln. Byt aldrig bara nyckeln och anta att blandade ciphertext-rader går att läsa.
+
+Om en huvudnyckel misstänks vara röjd kan omedelbar återkallelse behövas även om gamla bilageutskick då misslyckas. Den driftbedömningen och kontots verkliga utskicksstatus måste ägaren göra; koden kan inte bevisa dem från en PR-körning.
+
+Läs också [integritetsbesluten](PRIVACY-DECISIONS.md). Verkliga leverantörsavtal, eventuell överföring, kontologgar, mottagarbrevlådans hantering och gallring behöver motsvara policyn. Detta paket är inte en juridisk certifiering.

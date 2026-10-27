@@ -198,9 +198,16 @@ with sync_playwright() as p:
             for iteration in range(3):
                 frame=qa.frame(page)
                 frame.locator('h1').click()
-                page.locator('#element-text').fill('Omar\nYusuf' + '.' * (iteration+1))
-                save(page)
+                text = 'Omar\nYusuf' + '.' * (iteration+2)
+                expect(page.locator('#element-text')).not_to_have_value(text)
+                page.locator('#element-text').fill(text)
+                expect(page.locator('[data-action=save]')).to_be_enabled()
+                with page.expect_response(lambda response: response.url.endswith('/admin/api/save') and response.request.method == 'POST') as saved:
+                    save(page)
+                assert saved.value.status == 200, saved.value.text()
                 page.reload();qa.wait_canvas(page)
+                qa.frame(page).locator('h1').click()
+                expect(page.locator('#element-text')).to_have_value(text)
                 link=qa.frame(page).locator('h3 a[href="/projekt/blade-blend/"]')
                 expect(link).to_have_text('Blade & Blend ')
                 public=context.request.get(BASE+'/').text()

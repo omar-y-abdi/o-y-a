@@ -471,7 +471,8 @@ with sync_playwright() as pw:
               const after=el.getBoundingClientRect();
               return {resize:{text:text.get('resizable'),link:link.get('resizable'),image:image.get('resizable'),button:button.get('resizable'),vector:vector.get('resizable'),group:Boolean(groupResize?.onStart&&groupResize?.updateTarget),shape:shape.get('resizable')},groupBounds:{before:{w:before.width,h:before.height},after:{w:after.width,h:after.height}},groupTransform:group.getAttributes().transform,toolbar:text.get('toolbar'),moved,sectors,normalProps};
             }""")
-            assert result['resize'] == {'text': True, 'link': True, 'image': True, 'button': False, 'vector': True, 'group': True, 'shape': False}, result
+            px = {'currentUnit': 0, 'unitWidth': 'px', 'unitHeight': 'px'}
+            assert result['resize'] == {'text': px, 'link': px, 'image': px, 'button': False, 'vector': px, 'group': True, 'shape': False}, result
             assert result['groupBounds']['before']['w'] > 0 and result['groupBounds']['before']['h'] > 0, result
             assert result['groupBounds']['after']['w'] > result['groupBounds']['before']['w'] * 1.4, result
             assert result['groupBounds']['after']['h'] > result['groupBounds']['before']['h'] * 1.15, result
@@ -486,6 +487,49 @@ with sync_playwright() as pw:
             for forbidden in ['position','top','left','margin','padding','font-size','font-family']:
                 assert forbidden not in props, (forbidden, result)
             assert 'font-family' in result['normalProps'], result
+            return result
+        finally: page.close()
+
+    def extra_style_rejects_image_urls():
+        page = make_page()
+        try:
+            editor(page, {**PAGE, 'html': '<main><p id="text">Style me</p></main>', 'css': '', 'project': None})
+            result = page.evaluate("""()=>{
+              const ed=handle.editor, text=ed.getWrapper().find('#text')[0];
+              const errors=[], changes=[];
+              cmsTest.componentInspector(text, ed, {assets:[], pickImage(){}, change:()=>changes.push(1), onError:message=>errors.push(message)});
+              const fill=(selector,value)=>{document.querySelector(selector).value=value;};
+              fill('#extra-property','background-image'); fill('#extra-value','url(https://example.com/x.png)');
+              document.querySelector('#apply-property').click();
+              const rejected={errors:[...errors], changes:changes.length, background:text.getStyle()['background-image']??null};
+              fill('#extra-property','background-image'); fill('#extra-value','u\\\\72l(https://example.com/x.png)');
+              document.querySelector('#apply-property').click();
+              const escaped={errors:[...errors], changes:changes.length, background:text.getStyle()['background-image']??null};
+              errors.length=1;
+              fill('#extra-property','aspect-ratio'); fill('#extra-value','1 / 1');
+              document.querySelector('#apply-property').click();
+              return {rejected, escaped, accepted:{errors:errors.length, changes:changes.length, aspect:text.getStyle()['aspect-ratio']??null}};
+            }""")
+            assert result['rejected'] == {'errors': ['Använd Byt bild för bilder.'], 'changes': 0, 'background': None}, result
+            assert result['escaped'] == {'errors': ['Använd Byt bild för bilder.', 'Skriv värdet utan omvända snedstreck.'], 'changes': 0, 'background': None}, result
+            assert result['accepted'] == {'errors': 1, 'changes': 1, 'aspect': '1 / 1'}, result
+            return result
+        finally: page.close()
+
+    def page_metadata_maxlength_and_input():
+        page = make_page()
+        try:
+            result = page.evaluate("""()=>{
+              const calls=[];
+              cmsTest.pageInspector({name:'Om',path:'/om/',title:'Om mig',description:'Kort text'},{update:(key,value)=>calls.push([key,value]),addPage(){},removePage(){},protectedPage:false});
+              const limits={name:document.querySelector('#page-name').maxLength,title:document.querySelector('#page-title').maxLength,description:document.querySelector('#page-description').maxLength};
+              const title=document.querySelector('#page-title');
+              title.value='Ny titel';
+              title.dispatchEvent(new Event('input',{bubbles:true}));
+              return {limits, calls};
+            }""")
+            assert result['limits'] == {'name': 80, 'title': 160, 'description': 320}, result
+            assert result['calls'] == [['title', 'Ny titel']], result
             return result
         finally: page.close()
 
@@ -559,17 +603,15 @@ with sync_playwright() as pw:
         page = make_page()
         try:
             result=page.evaluate("""()=>{
-              const project={sharedContent:{'footer.tagline':'Old'},pages:[
-                {id:'a',html:'<footer><p data-cms-node="a-node" data-cms-shared="footer.tagline">Old</p></footer>'},
-                {id:'b',html:'<footer><p data-cms-node="b-node" data-cms-shared="footer.tagline">Old</p></footer>'}
-              ]};
-              const next={...project.pages[0],html:'<footer><p data-cms-node="a-node" data-cms-shared="footer.tagline">New <strong>value</strong></p></footer>'};
-              return cmsTest.synchronizeSharedPageClient(project,'a',next);
+              const frame={html:'<main></main><footer><p data-cms-node="f-node" data-cms-shared="footer.tagline">New <strong>value</strong></p></footer>',css:''};
+              const pages=[{id:'a',path:'/a/',html:'<main id="main"><h1>A</h1></main>'},{id:'b',path:'/b/',html:'<main id="main"><h1>B</h1></main>'}];
+              return {frame,pages:pages.map(page=>cmsTest.composeEditorPage(page,frame)),stored:pages};
             }""")
-            assert result['sharedContent']['footer.tagline'] == 'New <strong>value</strong>', result
-            assert 'data-cms-node="a-node"' in result['pages'][0]['html'], result
-            assert 'data-cms-node="b-node"' in result['pages'][1]['html'], result
+            assert 'New <strong>value</strong>' in result['frame']['html'], result
+            assert 'data-cms-node="f-node"' in result['pages'][0]['html'], result
+            assert 'data-cms-node="f-node"' in result['pages'][1]['html'], result
             assert 'New <strong>value</strong>' in result['pages'][1]['html'], result
+            assert all('footer' not in item['html'] for item in result['stored']), result
             return {'propagated':True,'stable_ids':True}
         finally: page.close()
 
@@ -663,6 +705,8 @@ with sync_playwright() as pw:
     run('CI-preview-srcdoc-readiness', preview_readiness)
     run('merge-export-inherited-theme-and-current-width', export_context)
     run('cms-usability-resize-nudge-and-style-mode', usability_editor_primitives)
+    run('cms-extra-style-rejects-image-urls', extra_style_rejects_image_urls)
+    run('cms-page-metadata-maxlength-and-input', page_metadata_maxlength_and_input)
     run('cms-usability-view-state-and-mobile-center', usability_view_state_and_mobile_center)
     run('cms-usability-selection-identity-structural-history', usability_selection_identity_survives_structural_history)
     run('cms-client-shared-content-sync', client_shared_content_sync)

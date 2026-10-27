@@ -1,0 +1,32 @@
+{
+  "name": "skift",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An original, tactile browser action game for the Omar Yusuf portfolio.",
+  "scripts": {
+    "assets": "python3 scripts/audio.py",
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --serve",
+    "start": "python3 start.py",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "node scripts/verify.mjs --quick",
+    "check": "npm test && npm run build",
+    "test:all": "node scripts/verify.mjs",
+    "release": "npm run check && python3 tests/release_test.py && python3 scripts/release.py && node tests/released.mjs",
+    "test:package": "python3 tests/release_test.py",
+    "test:release": "node tests/released.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0",
+    "cannon-es": "0.20.0",
+    "howler": "2.2.4"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "@playwright/test": "1.63.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

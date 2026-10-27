@@ -133,6 +133,16 @@ export async function loadCopy() {
       return activeCopy;
     }
     try {
+      const runtime = globalThis.document?.head?.querySelector('script#cms-runtime[type="application/json"]');
+      if (runtime) {
+        const embedded = JSON.parse(runtime.textContent);
+        if (embedded && typeof embedded === 'object' && !Array.isArray(embedded)) {
+          copyFromRuntime(embedded);
+          return activeCopy;
+        }
+      }
+    } catch { /* A malformed embedded block falls through to the public endpoint. */ }
+    try {
       const response = await fetch('/data/runtime.json', { credentials:'same-origin', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(1500) });
       if (response.ok) copyFromRuntime(await response.json());
     } catch { /* Public runtime copy is optional; built-in copy remains authoritative. */ }

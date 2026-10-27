@@ -5,6 +5,7 @@
 .dev.vars
 .dev.vars.*
 node_modules/
+/dist/
 .generated/
 .wrangler/
 artifacts/
@@ -13,3 +14,6 @@ output/
 *.log
 __pycache__/
 .test-venv/
+/games/skift/dist/
+/games/skift/evidence/
+/public/play/skift/

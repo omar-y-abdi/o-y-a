@@ -70,11 +70,20 @@ function mapProject(project, handlers, editorData = true) {
   const design = value => ({ ...value, html: mapHtml(value.html, handlers), css: mapCss(value.css ?? '', handlers), ...(editorData ? { project: mapEditor(value.project, handlers) } : {}) });
   return {
     ...project,
+    ...(project.frame ? { frame: { html: mapHtml(project.frame.html, handlers), css: mapCss(project.frame.css ?? '', handlers) } } : {}),
     pages: project.pages.map(design),
     cards: project.cards.map(card => card.design ? { ...card, design: design(card.design) } : card),
     theme: { ...project.theme, fontFamily: handlers.font(project.theme.fontFamily) },
     resources: Object.fromEntries(Object.entries(project.resources ?? defaultResources).map(([key, value]) => [key, handlers.url(value)])),
+    ...(project.email ? { email: mapEmail(project.email, handlers) } : {}),
   };
+}
+
+// Mail images name a slot key or an uploaded /media/ file; only files are references.
+function mapEmail(email, handlers) {
+  const media = value => typeof value === 'string' && value.startsWith('/media/') ? handlers.url(value) : value;
+  const templates = Object.fromEntries(Object.entries(email.templates).map(([kind, template]) => [kind, { ...template, blocks: template.blocks.map(block => block.type === 'image' ? { ...block, src: media(block.src), msoSrc: media(block.msoSrc) } : block) }]));
+  return { ...email, templates };
 }
 
 export function resourceReferences(project, origin = SITE_ORIGIN) {

@@ -5,7 +5,8 @@ import { nudgeComponent, resetComponentPosition } from './position.mjs';
 
 export function pageInspector(page, { update, addPage, removePage, protectedPage }) {
   $('#custom-inspector').innerHTML = `<section class="inspector-section"><h2>Sidans innehåll</h2>${field('Namn i studion', 'page-name', page.name)}${field('Adress', 'page-path', page.path, { readonly: true })}${field('Titel för sök och delning', 'page-title', page.title)}${field('Beskrivning', 'page-description', page.description, { textarea: true })}<div class="inspector-actions"><button type="button" class="small-button" id="duplicate-page">Duplicera sida</button>${protectedPage ? '' : '<button type="button" class="small-button danger" id="delete-page">Ta bort sida</button>'}</div><p class="inspector-help">Klicka på text eller en form i arbetsytan för att redigera den direkt.</p></section>`;
-  for (const key of ['name', 'title', 'description']) $(`#page-${key}`).addEventListener('input', event => update(key, event.target.value));
+  // Same limits as text() in src/cms/project.mjs (name 80, title 160, description 320).
+  for (const [key, maxLength] of Object.entries({ name: 80, title: 160, description: 320 })) { const input = $(`#page-${key}`); input.maxLength = maxLength; input.addEventListener('input', event => update(key, event.target.value)); }
   $('#duplicate-page').addEventListener('click', addPage);
   $('#delete-page')?.addEventListener('click', removePage);
   $('#traits-panel').hidden = true;
@@ -20,7 +21,7 @@ export function componentInspector(component, editor, { assets, pickImage, chang
   const image = component.get('type') === 'image' || tag === 'img';
   const textTypes = new Set(['text', 'textnode', 'link']);
   const svg = ['svg', 'path', 'circle', 'rect', 'ellipse', 'line', 'polygon', 'polyline', 'g'].includes(tag);
-  const textLike = textTypes.has(component.get('type')) && !component.find('img,svg,input,button').length;
+  const textLike = textTypes.has(component.get('type')) && component.get('editable') !== false && !component.find('img,svg,input,button').length;
   const label = component.getName();
   $('#selection-name').textContent = label;
   $('#selection-type').textContent = `${tag.toUpperCase()}${attributes.id ? ` · #${attributes.id}` : ''}`;
@@ -48,6 +49,8 @@ export function componentInspector(component, editor, { assets, pickImage, chang
     $('#custom-inspector').append(advanced);
     $('#apply-property').addEventListener('click', () => {
       const property = $('#extra-property').value.trim(), value = $('#extra-value').value.trim();
+      if (value.includes('\\')) { onError('Skriv värdet utan omvända snedstreck.'); return; }
+      if (/url\(|image-set\(/i.test(value)) { onError('Använd Byt bild för bilder.'); return; }
       if (!/^(?:--)?[a-z][a-z0-9-]*$/.test(property) || value && !CSS.supports(property, value)) { onError('Ange en CSS-egenskap och ett värde som webbläsaren stöder.'); return; }
       if (value) component.addStyle({ [property]: value }); else component.removeStyle(property);
       change();
@@ -64,7 +67,9 @@ export function componentInspector(component, editor, { assets, pickImage, chang
   $('#choose-image')?.addEventListener('click', () => pickImage(asset => { component.set('src', asset.src); component.addAttributes({ src: asset.src, alt: asset.alt ?? '' }); change(); }));
   $('#select-parent').addEventListener('click', () => { if (component.parent()) editor.select(component.parent()); });
   $('#duplicate-element')?.addEventListener('click', () => {
-    const copy = component.clone();
+    let copy;
+    try { copy = component.clone(); }
+    catch (error) { if (!error.reported) onError(error.message); return; }
     component.parent().append(copy, { at: component.index() + 1 });
     editor.select(copy); change();
   });

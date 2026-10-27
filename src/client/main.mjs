@@ -1,10 +1,14 @@
 import { readConsent, consentCookie } from './privacy.mjs';
 import { loadCopy, t } from './copy.mjs';
 
-await loadCopy();
+const copyLoaded = loadCopy();
 
 // The 3D runtime is fetched only on its own page, including CMS previews.
-if (document.querySelector('[data-skift-root]')) await import('/play/skift/assets/bootstrap.js');
+// Keep the shell usable and give module-load failures a native reload action.
+if (document.querySelector('[data-skift-root]')) import('./skift-bootstrap.mjs').catch(() => {
+  document.querySelector('[data-skift-load-error]').hidden = false;
+  document.querySelector('#load-status').hidden = true;
+});
 
 document.documentElement.classList.add('js-ready');
 document.querySelectorAll('.js-only').forEach(element => { element.hidden = false; });
@@ -21,18 +25,23 @@ export function toast(message) {
 
 const menuButton = document.querySelector('[data-menu-toggle]');
 const menu = document.querySelector('#mobile-menu');
+async function updateMenuLabel() {
+  await copyLoaded;
+  menuButton?.setAttribute('aria-label', t(menuButton.getAttribute('aria-expanded') === 'true' ? 'runtime.nav.menu.close' : 'runtime.nav.menu.open'));
+}
 function closeMenu(returnFocus = false) {
   menu.hidden = true;
   menuButton.setAttribute('aria-expanded', 'false');
-  menuButton.setAttribute('aria-label', t('runtime.nav.menu.open'));
+  updateMenuLabel();
   if (returnFocus) menuButton.focus();
 }
 menuButton?.addEventListener('click', () => {
   const open = menuButton.getAttribute('aria-expanded') !== 'true';
   menuButton.setAttribute('aria-expanded', String(open));
-  menuButton.setAttribute('aria-label', t(open ? 'runtime.nav.menu.close' : 'runtime.nav.menu.open'));
+  updateMenuLabel();
   menu.hidden = !open;
 });
+copyLoaded.then(updateMenuLabel);
 menu?.addEventListener('click', event => { if (event.target.closest('a')) closeMenu(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && menu && !menu.hidden) closeMenu(true); });
 matchMedia('(min-width: 1001px)').addEventListener('change', event => { if (event.matches && menu) closeMenu(); });
@@ -40,7 +49,8 @@ matchMedia('(min-width: 1001px)').addEventListener('change', event => { if (even
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const motionButton = document.querySelector('[data-motion-toggle]');
 let motionChoice = /(?:^|;\s*)oy_motion=off(?:;|$)/.test(document.cookie);
-function applyMotion() {
+async function applyMotion() {
+  await copyLoaded;
   const off = reduced.matches || motionChoice;
   root.dataset.motion = off ? 'off' : 'auto';
   const label = reduced.matches ? t('runtime.motion.label.systemPaused') : off ? t('runtime.motion.label.enable') : t('runtime.motion.label.pause');
@@ -49,14 +59,15 @@ function applyMotion() {
   if (motionButton) { motionButton.title = label; motionButton.disabled = reduced.matches; }
   window.dispatchEvent(new Event('oy:motionchange'));
 }
-motionButton?.addEventListener('click', () => {
+motionButton?.addEventListener('click', async () => {
+  await copyLoaded;
   motionChoice = !motionChoice;
   document.cookie = `oy_motion=${motionChoice ? 'off' : 'on'}; Path=/; Max-Age=15552000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
   applyMotion();
   toast(t(motionChoice ? 'runtime.motion.toast.paused' : 'runtime.motion.toast.enabled'));
 });
 reduced.addEventListener('change', applyMotion);
-applyMotion();
+copyLoaded.then(applyMotion);
 document.addEventListener('visibilitychange', () => { root.dataset.background = String(document.hidden); });
 
 const dialog = document.querySelector('[data-privacy-dialog]');
@@ -93,15 +104,18 @@ function updatePrivacyStatus() {
     : t('runtime.privacy.status.unset');
   document.querySelectorAll('[data-consent="allow"]').forEach(button => { button.disabled = !analyticsAvailable || privacySignal(); });
 }
-function openPrivacy(event) {
-  returnTo = event.currentTarget;
+async function openPrivacy(event) {
+  const trigger = event.currentTarget;
+  await copyLoaded;
+  returnTo = trigger;
   updatePrivacyStatus();
   dialog?.showModal();
 }
 document.querySelectorAll('[data-privacy-open]').forEach(button => button.addEventListener('click', openPrivacy));
 document.querySelector('[data-dialog-close]')?.addEventListener('click', () => dialog.close());
 dialog?.addEventListener('close', () => { returnTo?.focus(); });
-document.querySelectorAll('[data-consent]').forEach(button => button.addEventListener('click', () => {
+document.querySelectorAll('[data-consent]').forEach(button => button.addEventListener('click', async () => {
+  await copyLoaded;
   const choice = button.dataset.consent;
   if (choice === 'allow' && (!analyticsAvailable || privacySignal())) return;
   if (choice === 'deny') {
@@ -122,13 +136,14 @@ document.querySelectorAll('[data-consent]').forEach(button => button.addEventLis
   else toast(t(choice === 'allow' ? 'runtime.privacy.toast.allowed' : 'runtime.privacy.toast.denied'));
   if (choice === 'allow' && persisted) track('page_view');
 }));
-updatePrivacyStatus();
+copyLoaded.then(updatePrivacyStatus);
 (!document.body.dataset.cmsPreview ? fetch('/api/config', { credentials:'same-origin', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(4000) }) : Promise.resolve(new Response('{"analytics":false}')))
   .then(response => response.ok ? response.json() : null)
   .then(config => { analyticsAvailable = config?.analytics === true; })
   .catch(() => { analyticsAvailable = false; })
-  .finally(() => {
+  .finally(async () => {
     configChecked = true;
+    await copyLoaded;
     updatePrivacyStatus();
     if (banner) banner.hidden = !analyticsAvailable || !!readConsent(document.cookie) || privacySignal();
     track('page_view');
@@ -136,7 +151,8 @@ updatePrivacyStatus();
 
 document.querySelectorAll('a[href="/projekt/furl/"]').forEach(link => link.addEventListener('click', () => track('project_open')));
 const fold = document.querySelector('[data-fold]');
-fold?.addEventListener('click', () => {
+fold?.addEventListener('click', async () => {
+  await copyLoaded;
   const folded = fold.getAttribute('aria-pressed') !== 'true';
   fold.setAttribute('aria-pressed', String(folded));
   fold.childNodes[0].textContent = t(folded ? 'runtime.fold.button.expand' : 'runtime.fold.button.collapse');
@@ -146,7 +162,8 @@ fold?.addEventListener('click', () => {
 });
 
 if (document.querySelector('[data-machine], [data-bubble]')) {
-  import('./joy.mjs').then(module => module.initJoy({ toast, track })).catch(() => {
+  import('./joy.mjs').then(async module => { await copyLoaded; module.initJoy({ toast, track }); }).catch(async () => {
+    await copyLoaded;
     const note = document.querySelector('[data-machine-status]');
     if (note) note.textContent = t('runtime.error.machineInit');
   });
@@ -159,10 +176,12 @@ document.querySelector('[data-back-top]')?.addEventListener('click', event => {
   window.scrollTo({ top:0, left:0, behavior:root.dataset.motion === 'off' ? 'instant' : 'smooth' });
 });
 if (document.querySelector('[data-contact-form]')) {
-  import('./contact.mjs').then(module => module.initContact()).catch(() => {
+  import('./contact.mjs').then(async module => { await copyLoaded; module.initContact(); }).catch(async () => {
+    await copyLoaded;
     document.querySelector('[data-contact-status]').textContent = t('runtime.error.contactInit');
   });
 }
-if (document.querySelector('[data-memory-grid]')) import('./games.mjs').then(module => module.initGames()).catch(() => {
+if (document.querySelector('[data-memory-grid]')) import('./games.mjs').then(async module => { await copyLoaded; module.initGames(); }).catch(async () => {
+  await copyLoaded;
   document.querySelector('[data-memory-status]').textContent = t('runtime.error.gamesInit');
 });

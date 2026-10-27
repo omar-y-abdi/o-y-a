@@ -5,6 +5,9 @@
   "compatibility_date": "2026-09-11",
   "workers_dev": false,
   "preview_urls": false,
+  "triggers": {
+    "crons": ["17 * * * *"]
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
@@ -48,8 +51,20 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
+    "redact_query_string": true,
     "logs": {
-      "invocation_logs": false
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": false,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "issues": {
+      "enabled": true
     }
   },
   "vars": {

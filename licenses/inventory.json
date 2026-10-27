@@ -1,0 +1,151 @@
+{
+  "packages": [
+    {
+      "name": "css-tree",
+      "version": "3.2.1",
+      "file": "LICENSE",
+      "sha256": "719a251ceca49c057ea90a1152af6546b767ec88e6d573bb6324454267b32c22"
+    },
+    {
+      "name": "mdn-data",
+      "version": "2.27.1",
+      "file": "LICENSE",
+      "sha256": "36ffd9dc085d529a7e60e1276d73ae5a030b020313e6c5408593a6ae2af39673"
+    },
+    {
+      "name": "source-map-js",
+      "version": "1.2.2",
+      "file": "LICENSE",
+      "sha256": "6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd"
+    },
+    {
+      "name": "grapesjs",
+      "version": "0.23.6",
+      "file": "LICENSE",
+      "sha256": "1a7603ac82661e3ec4f0ad015e37f68ab62c85c725f07659b81760edb459ff8d"
+    },
+    {
+      "name": "backbone",
+      "version": "1.4.1",
+      "file": "LICENSE",
+      "sha256": "3a9bdf3d9bd0f4305453364bfcb036cee1fa8a20291f2e5fb5381d8194bc2d26"
+    },
+    {
+      "name": "backbone-undo",
+      "version": "0.2.6",
+      "file": "README.md",
+      "from": "## License (MIT License)",
+      "sha256": "8500af1c4055d083553a0667359a3746488b34e1298e0a4c4720e4fb4d98de21"
+    },
+    {
+      "name": "codemirror",
+      "version": "5.63.0",
+      "file": "LICENSE",
+      "sha256": "a3f2fe2ac6b471aa80c737c5d283dd049bdc903a73835ee6d4d2cac02fdd53bf"
+    },
+    {
+      "name": "html-entities",
+      "version": "1.4.0",
+      "file": "LICENSE",
+      "sha256": "f8bcf3c7ea910a266c97007a3b93a11a4a9d735c2d1a86b71132a4dffd7cf8e8"
+    },
+    {
+      "name": "promise-polyfill",
+      "version": "8.3.0",
+      "file": "LICENSE",
+      "sha256": "453a712c58161b74efa998578aaf10fd7ad8204120730de38ca04d7f47f3ea46"
+    },
+    {
+      "name": "underscore",
+      "version": "1.13.8",
+      "file": "LICENSE",
+      "sha256": "92905fb54f5d168a27e6d5dc7c2197020add11842be4c70689d084bae3bfe37a"
+    },
+    {
+      "name": "html-to-image",
+      "version": "1.11.13",
+      "file": "LICENSE",
+      "sha256": "9fe73723f7a9e91057f73aafc9b6a3c3b2174db2b3ddc0a3a6a8ddf2bad68e37"
+    },
+    {
+      "name": "image-dimensions",
+      "version": "2.5.1",
+      "file": "license",
+      "sha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3"
+    },
+    {
+      "name": "jose",
+      "version": "6.2.12",
+      "file": "LICENSE.md",
+      "sha256": "8078b0829d6c3e9ecde2f003e1966e4cad3efc6e7a640efbab0313cc166b1af1"
+    },
+    {
+      "name": "parse5",
+      "version": "8.0.1",
+      "file": "LICENSE",
+      "sha256": "8c535800331e1e4439835555b3f9edc7fe9dee2fab0d8bbbd5a982e8b8343d4d"
+    },
+    {
+      "name": "entities",
+      "version": "8.1.0",
+      "file": "LICENSE",
+      "sha256": "cb992345949ccd6e8394b2cd6c465f7b897c864f845937dbf64e8997f389e164"
+    },
+    {
+      "name": "three",
+      "version": "0.180.0",
+      "file": "LICENSE",
+      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+    },
+    {
+      "name": "cannon-es",
+      "version": "0.20.0",
+      "file": "LICENSE",
+      "sha256": "4714d0272f50cb21fe46fe29333c7c600d3c85b5ebd2a80f4db07e8cfccbf5b2"
+    },
+    {
+      "name": "howler",
+      "version": "2.2.4",
+      "file": "LICENSE.md",
+      "sha256": "0ad5aef7beeb552832fe01db1c46933f948dfe5da35017bd0efa0006ffd2ced9"
+    },
+    {
+      "name": "esbuild",
+      "version": "0.28.2",
+      "file": "LICENSE.md",
+      "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+    },
+    {
+      "name": "codemirror-formatting",
+      "version": "1.0.0",
+      "file": "formatting.js",
+      "sha256": "9cdaafd3bf4cb5f4cfa3ed473c03e368d7c80aad93b90ca164551538f396977a",
+      "notice": "licenses/codemirror-2.txt",
+      "noticeSha256": "ac8c2d7724613151f5874fb48365c6a29ad43e8f8efa12413499625955b6c8c5"
+    }
+  ],
+  "embedded": [
+    {
+      "name": "Cash (GrapesJS headless adaptation)",
+      "file": "licenses/cash.txt",
+      "sha256": "f6ac7afe526a705bfbbb3c1672443cc31608a7cdec638da6513442eee05cf717"
+    },
+    {
+      "name": "Spectrum (GrapesJS JavaScript and CSS adaptations)",
+      "file": "licenses/spectrum.txt",
+      "sha256": "d6c217fc60dbb9d06192a768f2bda26ec8dd870dab6bcae1d661f880aed7084f"
+    },
+    {
+      "name": "TinyColor 1.1.2 (embedded in Spectrum)",
+      "file": "licenses/tinycolor.txt",
+      "sha256": "47e3e139f1d917d16d249291c388792debd2bea2ffcf9b52eb8cdaa33a275c89"
+    }
+  ],
+  "reviewedVendorFiles": {
+    "node_modules/grapesjs/dist/grapes.mjs": "b322eed26aee2d6de3a9d4b5e9d2a95cff6d20a94a1e798e69521990505d59b8",
+    "node_modules/grapesjs/dist/grapes.mjs.map": "4f0bf04d1e75018b51fa1878868b5ee637572e8a5502998be2c6f8d3615af905",
+    "node_modules/grapesjs/dist/css/grapes.min.css": "fb55e939b3349c280d68c0617dc87e56baa3eab55ea56a1855db9f5efcc7268d",
+    "node_modules/grapesjs/dist/grapes.min.js": "5bd56443ecf56ee28a99f5bcdf161754867ef97638b7f3a549f55c62a82beb66",
+    "node_modules/grapesjs/dist/grapes.min.js.map": "40ac4027cc0a19e1b5db1ac560b6c1d3c4a1411ed2c3e04c3e9a64efd8872ded"
+  }
+}

@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { publishSite, publicationMedia, readSite, readPublicPage, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';
+import { publishSite, publicationMedia, readSite, readPublicPage, readPublicData, readHistory, retainedResourceUsage } from '../src/cms/store.mjs';
 import { defaultTheme } from '../src/cms/project.mjs';
 import { fontCss } from '../src/cms/theme.mjs';
 import { migrateCmsDb } from './helpers/cms-runtime.mjs';
@@ -19,12 +19,19 @@ test('unpublished database has an explicit empty state', async () => {
 });
 
 test('a durable publication is immediately visible to a separate public read', async () => {
-  const result = await publishSite(db, { project: project('Första'), baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
+  const published = project('Första');
+  published.runtime = { 'runtime.nav.menu.open': 'Första menyn' };
+  const result = await publishSite(db, { project: published, baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
   revision = result.version;
   assert.equal(revision, 1);
   const state = await readSite(db);
   assert.equal(state.project.pages[0].html, '<main id="main"><h1>Första</h1></main>');
-  assert.match((await readPublicPage(db, '/')).html, /Första/);
+  let queries = 0;
+  const page = await readPublicPage({ prepare(sql) { queries++; return db.prepare(sql); } }, '/');
+  assert.match(page.html, /Första/);
+  assert.equal(page.runtimeJson, JSON.stringify(published.runtime));
+  assert.equal(page.version, result.version);
+  assert.equal(queries, 1, 'Page and runtime must use one D1 round trip');
 });
 
 test('simultaneous tabs cannot both overwrite the same base revision', async () => {
@@ -35,6 +42,7 @@ test('simultaneous tabs cannot both overwrite the same base revision', async () 
   assert.equal(failure.reason.status, 409);
   revision = (await readSite(db)).version;
   assert.equal(revision, baseVersion + 1);
+  assert.equal((await readPublicPage(db, '/')).runtimeJson, '{}', 'Current page must not reuse an older revision\'s runtime');
 });
 
 test('retrying a committed request is idempotent but reusing its ID for different content fails', async () => {
@@ -52,7 +60,10 @@ test('history restore produces a new revision and preserves intervening history'
   const old = await readSite(db, 1);
   const restored = await publishSite(db, { project: old.project, baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
   revision = restored.version;
-  assert.match((await readPublicPage(db, '/')).html, /Första/);
+  const page = await readPublicPage(db, '/');
+  assert.match(page.html, /Första/);
+  assert.equal(page.version, revision);
+  assert.equal(page.runtimeJson, JSON.stringify(old.project.runtime));
   const history = await readHistory(db);
   assert.equal(history.items.length, revision);
   assert.equal(history.items[0].version, revision);
@@ -90,6 +101,33 @@ test('an absent page in a published revision is distinct from an unpublished sit
   assert.equal(page.page, null);
 });
 
+test('only HTML reads join runtime, preserving its stored JSON bytes even when corrupt', async () => {
+  const stored = await db.prepare("SELECT html FROM cms_rendered WHERE version=? AND path='@runtime'").bind(revision).first();
+  const queries = [];
+  const traced = { prepare(sql) { queries.push(sql); return db.prepare(sql); } };
+  try {
+    for (const raw of ['{\n  "runtime.nav.menu.open": "Ägarens <meny>"\n}', 'broken </script><!--']) {
+      await db.prepare("UPDATE cms_rendered SET html=? WHERE version=? AND path='@runtime'").bind(raw, revision).run();
+      queries.length = 0;
+      assert.equal((await readPublicPage(traced, '/')).runtimeJson, raw);
+      assert.equal(queries.length, 1);
+      assert.match(queries[0], /LEFT JOIN cms_rendered r /);
+      for (const path of ['@cards', '@card/k01', '@manifest', '@runtime']) {
+        queries.length = 0;
+        const row = await readPublicPage(traced, path);
+        assert.ok(row.html);
+        assert.ok(!Object.hasOwn(row, 'runtimeJson'), path);
+        assert.equal(queries.length, 1);
+        assert.doesNotMatch(queries[0], /JOIN cms_rendered r |r\.html|@runtime/);
+      }
+      assert.equal((await readPublicData(traced, 'cards')).value[0].id, 'k01');
+      assert.equal((await readPublicData(traced, 'manifest')).value[0].path, '/');
+    }
+  } finally {
+    await db.prepare("UPDATE cms_rendered SET html=? WHERE version=? AND path='@runtime'").bind(stored.html, revision).run();
+  }
+});
+
 test('publication media and page fonts reuse a trusted reference index without rescanning the project', async () => {
   const id = crypto.randomUUID();
   const src = `/media/${id}.woff2`;
@@ -109,4 +147,19 @@ test('publication media and page fonts reuse a trusted reference index without r
   const media = await publicationMedia(mediaDb, project, references);
   assert.match(query, /cms_media/);
   assert.equal(media[0].src, src);
+});
+
+test('C1: invalidating media between preflight and the publication batch prevents every publication write', async () => {
+  const id = crypto.randomUUID();
+  await db.prepare('INSERT INTO cms_media(id,object_key,name,mime,bytes,sha256,created_at,validation_version) VALUES(?,?,?,?,?,?,?,1)').bind(id, `${id}.woff2`, 'Font', 'font/woff2', 48, 'fixture', new Date().toISOString()).run();
+  const candidate = project('Förlorat sparförsök');
+  candidate.theme = { ...defaultTheme, fontFamily: `cms-font-${id}` };
+  const before = await db.prepare('SELECT version,path FROM cms_rendered ORDER BY version,path').all();
+  const racedDb = { prepare: sql => db.prepare(sql), async batch(statements) {
+    await db.prepare('UPDATE cms_media SET validation_version=0 WHERE id=?').bind(id).run();
+    return db.batch(statements);
+  } };
+  await assert.rejects(publishSite(racedDb, { project: candidate, baseVersion: revision, requestId: crypto.randomUUID(), actor: 'owner@example.test' }), { status: 409 });
+  assert.equal((await readSite(db)).version, revision);
+  assert.deepEqual((await db.prepare('SELECT version,path FROM cms_rendered ORDER BY version,path').all()).results, before.results);
 });
