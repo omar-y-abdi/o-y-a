@@ -144,6 +144,8 @@
   "reviewedVendorFiles": {
     "node_modules/grapesjs/dist/grapes.mjs": "b322eed26aee2d6de3a9d4b5e9d2a95cff6d20a94a1e798e69521990505d59b8",
     "node_modules/grapesjs/dist/grapes.mjs.map": "4f0bf04d1e75018b51fa1878868b5ee637572e8a5502998be2c6f8d3615af905",
-    "node_modules/grapesjs/dist/css/grapes.min.css": "fb55e939b3349c280d68c0617dc87e56baa3eab55ea56a1855db9f5efcc7268d"
+    "node_modules/grapesjs/dist/css/grapes.min.css": "fb55e939b3349c280d68c0617dc87e56baa3eab55ea56a1855db9f5efcc7268d",
+    "node_modules/grapesjs/dist/grapes.min.js": "5bd56443ecf56ee28a99f5bcdf161754867ef97638b7f3a549f55c62a82beb66",
+    "node_modules/grapesjs/dist/grapes.min.js.map": "40ac4027cc0a19e1b5db1ac560b6c1d3c4a1411ed2c3e04c3e9a64efd8872ded"
   }
 }

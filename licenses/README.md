@@ -31,3 +31,5 @@ embedded-code update cannot silently inherit this review. Backbone.Undo's full
 MIT notice is extracted from its packaged README, where upstream publishes it.
 These source records describe the material inspected; they are not a blanket
 legal opinion or evidence about assets uploaded separately through the CMS.
+
+The editor imports GrapesJS's same-version `dist/grapes.min.js` distribution through the bundler's CommonJS interop. This uses upstream's optimized artifact without changing vendor code. Its JavaScript and source map are pinned alongside the ESM files. The notice regression compares every common source-map input byte and permits only the ESM underscore export barrels and the UMD entry wrapper to differ; it also checks the actual CMS build graph uses the reviewed optimized entry. Full tracked notices remain part of the distribution, independent of minified comments.

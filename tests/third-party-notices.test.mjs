@@ -58,3 +58,16 @@ test('standalone packaging cannot silently omit a library license', async t => {
   await cp('games/skift/THIRD-PARTY-LICENSES.txt', join(root, 'THIRD-PARTY-LICENSES.txt'));
   await assert.rejects(gameNotices(root, join(root, 'node_modules')), { code: 'ENOENT' });
 });
+
+test('optimized editor distribution contains the reviewed ESM sources and is the shipped entry', async () => {
+  const maps = await Promise.all(['grapes.mjs', 'grapes.min.js'].map(async name => JSON.parse(await readFile(`node_modules/grapesjs/dist/${name}.map`, 'utf8'))));
+  const [esm, optimized] = maps.map(map => new Map(map.sources.map((source, index) => [source, map.sourcesContent[index]])));
+  const esmOnly = [...esm.keys()].filter(source => !optimized.has(source)).sort();
+  assert.deepEqual(esmOnly.map(source => source.split('/modules/').at(-1)), ['index-all.js', 'index.js']);
+  assert.ok(esmOnly.every(source => source.includes('/underscore@1.13.8/node_modules/underscore/modules/')));
+  assert.deepEqual([...optimized.keys()].filter(source => !esm.has(source)), ['webpack://grapesjs/webpack/universalModuleDefinition']);
+  for (const [source, content] of optimized) if (esm.has(source)) assert.equal(content, esm.get(source), source);
+  const graph = JSON.parse(await readFile('.generated/cms-metafile.json', 'utf8'));
+  assert.ok(Object.hasOwn(graph.inputs, 'node_modules/grapesjs/dist/grapes.min.js'));
+  assert.ok(!Object.hasOwn(graph.inputs, 'node_modules/grapesjs/dist/grapes.mjs'));
+});

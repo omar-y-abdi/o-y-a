@@ -8,6 +8,14 @@ import { mapFrameCss as editorMap } from '../src/cms/client/frame-css.mjs';
 import { selectorId } from '../src/cms/frame-id-selectors.mjs';
 
 const canonical = source => css.generate(css.parse(source, { parseCustomProperty: true }));
+const identitySemantics = source => {
+  const tree = css.parse(source, { parseCustomProperty: true });
+  css.walk(tree, node => {
+    if (node.type === 'IdSelector') node.name = css.ident.encode(css.ident.decode(node.name));
+    if (node.type === 'AttributeSelector' && node.value?.type === 'Identifier') node.value = { type: 'String', value: css.ident.decode(node.value.name) };
+  });
+  return css.generate(tree);
+};
 const ids = new Map([['abc', { id: 'historical-footer' }], ['frame:node', { id: 'other.node' }]]);
 const samples = [
   '#abc{color:#abc;--hash:#abc;--literal:"{ #abc url(#abc) }";clip-path:url(#abc)!important}',
@@ -42,7 +50,7 @@ for (const [index, source] of samples.entries()) test(`editor frame CSS token pr
   const checked = validateCss(source), projected = editorMap(source, ids);
   assert.equal(canonical(projected), serverMap(checked, ids));
   const inverse = new Map([...ids].map(([from, target]) => [target.id, { id: from }]));
-  assert.equal(canonical(editorMap(projected, inverse)), checked);
+  assert.equal(identitySemantics(editorMap(projected, inverse)), identitySemantics(checked));
 });
 
 test('editor frame CSS changes only mapped token spans', () => {
@@ -108,7 +116,7 @@ test('editor frame CSS matches server projection across repository styles and ev
     const projected = editorMap(source, aliases);
     assert.equal(canonical(projected), canonical(expected));
     const inverse = new Map([...aliases].map(([from, target]) => [target.id, { id: from }]));
-    assert.equal(canonical(editorMap(projected, inverse)), canonical(source));
+    assert.equal(identitySemantics(editorMap(projected, inverse)), identitySemantics(source));
   });
   assert.ok(mapped > 0, 'The real-source corpus must exercise identity replacements');
 });

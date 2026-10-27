@@ -1,4 +1,6 @@
-import grapesjs from 'grapesjs';
+// Use the package's preoptimized distribution; notice checks pin its bytes and
+// verify its shared sources against the same-version ESM distribution.
+import grapesjs from 'grapesjs/dist/grapes.min.js';
 import { fontFamilies, assetFontCss } from '../theme-core.mjs';
 import { liveHtml } from './live-text.mjs';
 import { normalStyleSectors, applyStyleMode, configureVisualComponent, responsiveResizeStyle, pastedTextHtml } from './editor-policy.mjs';
