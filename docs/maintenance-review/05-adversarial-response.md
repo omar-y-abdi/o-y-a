@@ -47,7 +47,7 @@ The follow-up additionally keeps valid page-only historical IDs out of the canon
 
 ## Follow-up qualification at8c4d353
 
-Run40277471512 passed functional-browser and both editor compatibility jobs. Verify stopped at the unchanged375000-byte editor gzip gate; all other691 Node cases passed. The next candidate replaces the browser's full CSS parser import with a lossless token adapter and adds differential/corpus regressions against the authoritative server AST. The standalone movement probe now uses explicit animation time with the original movement threshold and a new game-time bound, because the failure trace established slow software-rendered frame delivery. These repairs still need GitHub execution.
+Run40277471512 passed functional-browser and both editor compatibility jobs. Verify stopped at the unchanged 375,000-byte editor gzip gate; all other691 Node cases passed. The next candidate replaces the browser's full CSS parser import with a lossless token adapter and adds differential/corpus regressions against the authoritative server AST. The standalone movement probe now uses explicit animation time with the original movement threshold and a new game-time bound, because the failure trace established slow software-rendered frame delivery. These repairs still need GitHub execution.
 
 A newly identified GrapesJS nesting import/render/export boundary remains open. Its handling of accepted nested selectors and declaration order must be repaired and tested in real editor canvases before final acceptance. Public O1/O2 and the integrated district checkpoint regression remain pending after the earlier budget gate. PR15 stays draft.
 
@@ -60,3 +60,9 @@ Run40546477180 passed functional-browser, both editor compatibility jobs and sta
 Run 40550422163 passed functional-browser, Firefox, WebKit and standalone release; 747 Node tests passed, with only the 379020-byte editor transfer failure remaining. The next candidate retains the 375000-byte cap and ships the reviewed upstream editor bytes without rebundling, with recursive accounting, exact-copy/source-map checks and actual studio startup coverage.
 
 Root and Astra have agreed on the new nesting/clone source boundary after reciprocal review. Canvas and capture retain native nested order, selector specificity and anonymous group identity. Clone regressions cover local references, duplicate/sibling rules, ownership and atomic refusal of unsupported imported CSS dependencies; the precise limits are documented in CMS-FRAME-MIGRATION. These are authored and statically reviewed changes, not yet remote runtime proof. Public O1/O2 and integrated I1 remain pending behind the transfer gate.
+
+## Follow-up qualification at a86dd1c
+
+Run 40557762688 passed functional-browser, Firefox, WebKit and standalone release. Verify passed 749 Node cases, backup recovery and the 374,164-byte editor transfer total under the unchanged 375,000-byte cap. O1/O2's four static/default probes and all five translated-v185 pointer cases passed in pinned Chromium 153.0.8010.12, so those external-environment observations are not reproduced by this supported-browser receipt.
+
+The remaining verify failure was k16 in the 240-export group: 362 public cases passed. Its card JSON, module and independent HTTP probe completed promptly, but the initial locator's implicit readiness wait never returned a DOM sample before the outer 8-second deadline. The next candidate removes nested auto-waiting and records bounded DOM/resource evidence if it recurs, preserving every product assertion, deadline, retry policy and workload order. The underlying observation stall remains unexplained. WebGL/I1 and the final Chromium mail/editor step remain pending because of the existing sequential gate.
