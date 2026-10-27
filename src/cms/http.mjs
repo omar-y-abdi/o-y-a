@@ -1,4 +1,5 @@
 import { reportFailure } from './diagnostics.mjs';
+import { BodyTooLarge, readBounded } from '../api/http.mjs';
 
 export class HttpError extends Error {
   constructor(status, message, details) {
@@ -31,30 +32,11 @@ export function requireWriteRequest(request, contentType = 'application/json') {
 }
 
 export async function readBytes(request, limit) {
-  const length = request.headers.get('Content-Length');
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > limit)) throw new HttpError(413, 'Innehållet är för stort.');
-  const reader = request.body?.getReader();
-  if (!reader) throw new HttpError(400, 'Innehåll saknas.');
-  const chunks = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > limit) {
-        await reader.cancel();
-        throw new HttpError(413, 'Innehållet är för stort.');
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const result = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; }
-  return result;
+  let bytes;
+  try { bytes = await readBounded(request, limit); }
+  catch (error) { if (error instanceof BodyTooLarge) throw new HttpError(413, 'Innehållet är för stort.'); throw error; }
+  if (bytes === null) throw new HttpError(400, 'Innehåll saknas.');
+  return bytes;
 }
 
 export async function readJson(request, limit = 4 * 1024 * 1024) {

@@ -1,6 +1,7 @@
 import { DEFAULT_EMAIL, isEmailAddress, renderEmail } from './email-render.mjs';
 import { readContactSettings } from './contact-secrets.mjs';
 import { resourceSlots } from '../content/resources.mjs';
+import { readBounded } from '../api/http.mjs';
 const json=(body,status=200,headers={})=>Response.json(body,{status,headers:{'Cache-Control':'no-store',...headers}});
 export function contactReady(env) {
   return isEmailAddress(env.CONTACT_TO) && typeof env.RESEND_API_KEY==='string' && !!env.RESEND_API_KEY && typeof env.TURNSTILE_SECRET_KEY==='string' && !!env.TURNSTILE_SECRET_KEY && typeof env.TURNSTILE_SITE_KEY==='string' && !!env.TURNSTILE_SITE_KEY && typeof env.CONTACT_HASH_SECRET==='string' && env.CONTACT_HASH_SECRET.length>=32 && typeof env.CONTACT_RATE_LIMIT?.limit==='function';
@@ -11,15 +12,6 @@ export async function contactConfig(env){env=await withSettings(env);return json
 export async function contactDigest(value,secret) {
   const encoder=new TextEncoder();const key=await crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   return [...new Uint8Array(await crypto.subtle.sign('HMAC',key,encoder.encode(value)))].map(n=>n.toString(16).padStart(2,'0')).join('');
-}
-async function readBody(request) {
-  const declared=request.headers.get('Content-Length');
-  if(declared!==null && (!/^\d+$/.test(declared)||Number(declared)>16384))throw new RangeError();
-  const reader=request.body?.getReader();if(!reader)throw new Error();
-  let size=0;const chunks=[];
-  try {while(true){const {value,done}=await reader.read();if(done)break;size+=value.byteLength;if(size>16384){await reader.cancel();throw new RangeError();}chunks.push(value);}}finally{reader.releaseLock();}
-  const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
-  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
 }
 export async function handleContact(request,env,transport=fetch) {
   env=await withSettings(env);
@@ -42,7 +34,7 @@ export async function handleContact(request,env,transport=fetch) {
   const url=new URL(request.url);
   if(request.headers.get('Origin')!==url.origin || request.headers.get('Sec-Fetch-Site')==='cross-site')return fail('Öppna formuläret på webbplatsen och försök igen.',403);
   if(request.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase()!=='application/json')return fail('Fel format på meddelandet.',415);
-  let data;try{data=await readBody(request);}catch(error){return fail('Meddelandet kunde inte läsas.',error instanceof RangeError?413:400);}
+  let data;try{data=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await readBounded(request,16384)??new Uint8Array()));}catch(error){return fail('Meddelandet kunde inte läsas.',error instanceof RangeError?413:400);}
   if(!data||Array.isArray(data)||typeof data!=='object'||Object.keys(data).some(k=>!['name','email','message','website','token','submission','contentVersion'].includes(k)))return fail('Kontrollera formuläret.');
   const contentVersion=data.contentVersion??0;
   if(!Number.isSafeInteger(contentVersion)||contentVersion<0)return fail('Kontrollera formulärets version.');
