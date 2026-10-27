@@ -76,7 +76,12 @@ export function createEditor({ page, frame, cssPath, assets, onChange, onBoundar
   editor.on('component:create', component => {
     ensureComponentIdentity(component); configureVisualComponent(component, { managedSvg });
     installCloneGuard(component, editor, onError);
-    component.on('component:clone', clone => framed ? framed.clone(component, clone, () => remapClone(component, clone, editor)) : remapClone(component, clone, editor));
+    component.on('component:clone', clone => {
+      const changed = framed ? framed.clone(component, clone, () => remapClone(component, clone, editor)) : remapClone(component, clone, editor);
+      // Callers can append and measure the clone synchronously. Publish its CSS
+      // once after the outer remap, before returning from component.clone().
+      if (changed) css.render();
+    });
   });
   // The same validated HTML/CSS powers editing, preview and publication.
   // Editor JSON is legacy import metadata, never a second content authority.

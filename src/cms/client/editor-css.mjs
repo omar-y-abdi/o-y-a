@@ -125,7 +125,7 @@ export function installEditorCss(editor) {
     const css = editorCss(rules.models);
     if (style.textContent !== css) style.textContent = css;
   }
-  function schedule() { if (!queued && !disposed) { queued = true; queueMicrotask(render); } }
+  function schedule() { if (!queued && !disposed) { queued = true; queueMicrotask(() => { if (queued) render(); }); } }
   // Grapes's transient selected-state preview is canvas-only. Its shallow rule
   // still uses the native view; exported/owned CSS deliberately excludes it.
   const suppress = event => { if (!event.rule.get('shallow')) event.css = ''; schedule(); };

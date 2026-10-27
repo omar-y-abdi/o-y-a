@@ -2,7 +2,8 @@ import { ID_REFERENCES } from '../id-references.mjs';
 import { hasCloneSelector, mapCloneCss } from './clone-css.mjs';
 import { resolveSiteLink } from '../routes.mjs';
 import { ensureComponentIdentity } from './view-state.mjs';
-import { tokenize, TokenStream, tokenTypes as T } from 'css-tree/tokenizer';
+import { tokenize } from 'css-tree/tokenizer';
+import { cssTokenIndex, tokenTypes as T } from './css-tokens.mjs';
 import { editorRuleBody, editorRuleGroups } from './editor-css.mjs';
 import { mapFrameCss } from './frame-css.mjs';
 import { ident } from 'css-tree/utils';
@@ -14,7 +15,7 @@ const descendants = component => [component, ...component.components().map(desce
 // Restrict the selector's subject, retaining specificity and pseudo-elements.
 // Token balances keep commas/colons inside :is(), strings and attributes intact.
 function scopeSelector(source, cloneId) {
-  const stream = new TokenStream(source, tokenize), parts = [];
+  const stream = cssTokenIndex(source), parts = [];
   let start = 0, pseudo;
   const finish = end => {
     const at = pseudo ?? end;
@@ -137,7 +138,7 @@ export function installCloneGuard(component, editor, onError) {
 
 export function remapClone(original, clone, editor) {
   const transaction = transactions.get(editor);
-  if (transaction?.depth > 1 || remapped.has(clone)) return;
+  if (transaction?.depth > 1 || remapped.has(clone)) return false;
   const pairs = [];
   function pair(source, copy) {
     pairs.push([source, copy]);
@@ -181,4 +182,5 @@ export function remapClone(original, clone, editor) {
     collection.add(copied, { at: collection.indexOf(source) + 1 });
   }
   for (const [, copy] of pairs) remapped.add(copy);
+  return true;
 }

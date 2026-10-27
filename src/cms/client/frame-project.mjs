@@ -115,8 +115,9 @@ export function frameSnapshot(editor, frame, page) {
     capture(html) { baseline = this.snapshot(html); },
     clone(source, copy, run) {
       const before = new Set(editor.Css.getAll().models);
-      run();
+      const changed = run();
       for (const rule of editor.Css.getAll().models) if (!before.has(rule)) { owners.set(rule, copy); clonedRules.add(rule); }
+      return changed;
     },
     snapshot(html) {
       const template = fragment(html), mains = template.content.querySelectorAll('main');

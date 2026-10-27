@@ -1,4 +1,4 @@
-import { tokenize, TokenStream, tokenTypes as T } from 'css-tree/tokenizer';
+import { cssTokenIndex, tokenTypes as T } from './css-tokens.mjs';
 import { ident, string, url } from 'css-tree/utils';
 import { selectorId, checkAttributeIds } from '../frame-id-selectors.mjs';
 
@@ -13,7 +13,9 @@ export function mapFrameCss(source, ids, inspectAttribute) {
   // Idless public nodes receive a temporary editor ID before this boundary.
   // Only server publication needs the separate null-target marker format.
   for (const target of ids.values()) if (typeof target?.id !== 'string' || !target.id) fail();
-  const stream = new TokenStream(source, tokenize), edits = [];
+  let stream;
+  try { stream = cssTokenIndex(source); } catch { fail(); }
+  const edits = [];
   const type = index => Number.isInteger(index) ? stream.getTokenType(index) : T.EOF;
   const text = index => Number.isInteger(index) ? source.slice(stream.getTokenStart(index), stream.getTokenEnd(index)) : '';
   const ignored = index => [T.WhiteSpace, T.Comment].includes(type(index));

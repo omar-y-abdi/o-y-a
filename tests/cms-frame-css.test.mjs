@@ -18,6 +18,7 @@ const identitySemantics = source => {
 };
 const ids = new Map([['abc', { id: 'historical-footer' }], ['frame:node', { id: 'other.node' }]]);
 const samples = [
+  '\ufeff /* keep leading offsets */ :is(#abc,[id="abc"]){--literal:"([{}])";clip-path:url("#abc")}',
   '#abc{color:#abc;--hash:#abc;--literal:"{ #abc url(#abc) }";clip-path:url(#abc)!important}',
   '/* #abc { untouched } */ #abc, [id = "abc" s], [id=abc] { color: #abc; --label: "#abc"; }',
   ':is(#abc,[id="abc"]):not([data-label="#abc"]),#frame\\:node{color:#abc;filter:url("#abc")}',
@@ -77,7 +78,7 @@ test('editor frame CSS requires concrete editor IDs; public null markers remain 
 });
 
 test('editor frame CSS refuses unknown or unbalanced structures instead of partially rewriting', () => {
-  for (const source of ['#abc{color:red', '#abc:is(.other{color:red}', '[id="abc"{color:red}', '@unknown{#abc{color:red}}', '@import url("/other.css");', '#abc{--literal:"bad\n}', '#abc{clip-path:url(bad value)}']) assert.throws(() => editorMap(source, ids), /CSS kan inte kopplas säkert/);
+  for (const source of ['#abc{color:red', '#abc:is(.other{color:red}', '[id="abc"{color:red}', '#abc:is([id="abc")]{}', '#abc{color:red]}', '@unknown{#abc{color:red}}', '@import url("/other.css");', '#abc{--literal:"bad\n}', '#abc{clip-path:url(bad value)}']) assert.throws(() => editorMap(source, ids), /CSS kan inte kopplas säkert/);
 });
 
 test('editor frame CSS refuses nesting that the authoritative validator cannot parse safely', () => {
