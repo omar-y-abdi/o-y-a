@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { seed, initial } from '../.generated/cms-seed.mjs';
 import { releaseVerdict, gateFailures } from '../scripts/cms-pull-release.mjs';
+import { digest } from '../src/cms/store.mjs';
+import { textParts } from '../src/cms/studio-store.mjs';
 
 const stored = project => gzipSync(JSON.stringify(project));
 const head = await readFile('tests/fixtures/cms-v185-project.json', 'utf8');
@@ -42,4 +44,30 @@ test('A1c: allowlisted historical failures pass only outside the head revision',
   assert.equal(result.revisions.find(item => item.version === 1).error, expected);
   assert.deepEqual(gateFailures(result, 2, new Map([[1, expected]])), []);
   assert.deepEqual(gateFailures(result, 2).map(item => item.version), [1]);
+});
+
+test('canonical studio text is independently checked against its raw revision and metadata', async () => {
+  const original = structuredClone(initial), serialized = JSON.stringify(original);
+  const canonical = { version: 185, buildKey: seed.studioKey, hash: await digest(serialized), resources: original.resources, parts: textParts(serialized) };
+  const run = studio => releaseVerdict({ revisions: [{ version: 185, project: stored(original) }], media: [], studio: [studio] }, { seed, initial });
+  assert.equal((await run(canonical)).compatible, true);
+  const oldBuild = await run({ ...canonical, buildKey: 'earlier-build' });
+  assert.equal(oldBuild.compatible, true, 'equal content is still readable under the proposed policy');
+  assert.deepEqual(oldBuild.studioRefreshRequired, [{ version: 185, reason: 'build-key-changed' }], 'release reports the post-deploy cache refresh prerequisite');
+  assert.deepEqual(gateFailures(oldBuild, 185), [], 'compatibility alone does not certify the canonical CPU path');
+  const reordered = JSON.stringify(Object.fromEntries(Object.entries(original).reverse()));
+  assert.equal((await run({ ...canonical, hash: await digest(reordered), parts: textParts(reordered) })).compatible, true, 'equivalent JSON property order is accepted');
+  const different = structuredClone(original); different.pages[0].description += ' Different cached project';
+  const drifted = JSON.stringify(different);
+  for (const value of [
+    { ...canonical, hash: await digest(drifted), parts: textParts(drifted) },
+    { ...canonical, hash: '0'.repeat(64) },
+    { ...canonical, resources: {} },
+  ]) {
+    const result = await run(value);
+    const failure = result.revisions.find(item => item.version === 185);
+    assert.equal(failure.compatible, false);
+    assert.match(failure.error, /Studions lagrade text avviker/);
+    assert.deepEqual(gateFailures(result, 185, new Map([[185, failure.error]])), [failure]);
+  }
 });

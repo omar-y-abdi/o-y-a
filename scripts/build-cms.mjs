@@ -21,6 +21,16 @@ import { SKIFT_PATH } from '../src/content/skift.mjs';
 import { verifyBundleNotices } from './third-party-notices.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
+export async function studioBuildKey(seed, directory = process.cwd()) {
+  // Fingerprint the actual dependency closure, not a manually maintained
+  // version. The temporary in-memory bundles are neither emitted nor served.
+  const representation = await build({ absWorkingDir: directory, entryPoints: ['src/cms/frame-converter.mjs', 'src/cms/project.mjs'], outdir: '.generated/studio-policy', bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
+  const { studioKey: _previousKey, ...definitions } = seed;
+  const policy = createHash('sha256').update(JSON.stringify(definitions));
+  for (const output of representation.outputFiles) policy.update(output.contents);
+  return policy.digest('hex');
+}
+
 export async function buildCms({ styles, js }) {
   await mkdir('dist/admin/assets', { recursive: true });
   await mkdir('dist/cms-public', { recursive: true });
@@ -74,10 +84,11 @@ export async function buildCms({ styles, js }) {
     return { id: `builtin-${name}`, slot, src, name, alt: alt ?? name, mime: mime ?? (src.endsWith('.gif') ? 'image/gif' : 'image/png'), bytes: bytes.length, width: dimensions?.width, height: dimensions?.height, builtin: true, ...(editableSrc ? { editableSrc, editableSvg } : {}) };
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
-  const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
+  const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, '')).sort();
   // Anchor targets of the code-owned game build, for links like /play/skift/#main.
   const skiftIds = elements(parseFragment(pages.find(page => page.path === SKIFT_PATH).html)).map(node => attribute(node, 'id')).filter(Boolean);
   const seed = frameDefinitions({ pages, blank, footerPage: pages.find(page => page.path === '/developers/'), skiftIds, runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT });
+  seed.studioKey = await studioBuildKey(seed);
   await writeFile('dist/data/runtime.json', JSON.stringify(seed.runtime));
   const legacyInitial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
   const initial = validateProject(toFrameProject(legacyInitial, seed), seed);

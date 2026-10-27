@@ -4,6 +4,7 @@ import { resourceReferences, resolveResources } from './resources.mjs';
 import { resourceSlots } from '../content/resources.mjs';
 import { composePage, frameCss } from './frame.mjs';
 import { trimLegacySaveMetadata } from './legacy-save-identity.mjs';
+import { studioStatements } from './studio-store.mjs';
 
 export async function digest(value) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
@@ -159,7 +160,7 @@ export async function publicationMedia(db, project, references = resourceReferen
   return media;
 }
 
-export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical' }) {
+export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical', studioKey }) {
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(requestId)) throw new HttpError(400, 'Sparförsöket saknar en giltig version eller identitet.');
   const serialized = JSON.stringify(project);
   if (new TextEncoder().encode(serialized).byteLength > 8 * 1024 * 1024) throw new HttpError(413, 'Projektet är för stort.');
@@ -191,6 +192,10 @@ export async function publishSite(db, { project, baseVersion, requestId, actor, 
   // Bound ordinary saves to one expired version; the paged maintenance script
   // handles a historical backlog without charging it to an owner's Save.
   statements.push(db.prepare(`DELETE FROM cms_rendered WHERE path NOT IN ('@resources','@email') AND version = (SELECT previous.version FROM cms_revisions previous JOIN cms_revisions successor ON successor.version = previous.version + 1 WHERE successor.base_version = previous.version AND successor.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now','-24 hours') AND EXISTS (SELECT 1 FROM cms_rendered WHERE version = previous.version AND path NOT IN ('@resources','@email')) ORDER BY previous.version LIMIT 1) AND version < ? AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)`).bind(baseVersion, baseVersion, requestId));
+  // API publishers provide the build identity only after server validation.
+  // Legacy/reverse and direct fixture publishers invalidate the optional copy.
+  const buildKey = project.schemaVersion === 2 ? studioKey : undefined;
+  statements.push(...studioStatements(db, { version, serialized, resources: project.resources, buildKey, hash: buildKey ? await digest(serialized) : undefined, condition: '(SELECT version FROM cms_head WHERE id=1)=? AND EXISTS(SELECT 1 FROM cms_revisions WHERE request_id=?)', values: [baseVersion, requestId] }));
   statements.push(db.prepare('UPDATE cms_head SET version = ? WHERE id = 1 AND version = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(version, baseVersion, requestId));
   // The conditional inserts and pointer change share a D1 transaction. A stale
   // request writes no rows; any SQL failure rolls back the complete publication.

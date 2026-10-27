@@ -1,0 +1,2 @@
+CREATE TABLE cms_studio_heads (version INTEGER PRIMARY KEY REFERENCES cms_revisions(version), build_key TEXT NOT NULL, project_hash TEXT NOT NULL, resources TEXT NOT NULL, text_parts INTEGER NOT NULL CHECK(text_parts > 0));
+CREATE TABLE cms_studio_text (version INTEGER NOT NULL REFERENCES cms_studio_heads(version) ON DELETE CASCADE, part INTEGER NOT NULL CHECK(part >= 0), body TEXT NOT NULL, PRIMARY KEY(version,part));

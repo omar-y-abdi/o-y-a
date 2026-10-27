@@ -9,6 +9,7 @@ import { replaceResource, resourceReferences, resourceCatalog, resolveResources 
 import { applyProjectChanges, validateProjectChanges } from './project-changes.mjs';
 import { SKIFT_PATH } from '../content/skift.mjs';
 import { handleEmailAdmin } from './email-api.mjs';
+import { readStudioHead } from './studio-store.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 const legacyDelta = changes => Object.hasOwn(changes, 'sharedContent') || changes.pages?.upsert.some(page => typeof page.html === 'string' && !page.html.trimStart().startsWith('<main'));
@@ -40,12 +41,16 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
     if (request.method === 'GET' || request.method === 'HEAD') {
       if (url.pathname === '/admin/api/state') {
-        const [state, media, builtinStates] = await Promise.all([readSite(env.CMS_DB), assetPage(env.CMS_DB, { state: 'active' }), builtinAssetStates(env.CMS_DB)]);
-        const project = state ? storedProject(state.project) : initial;
-        const selected = await assetSelection(env.CMS_DB, resourceIds(project), { fonts: true });
+        const [canonical, media, builtinStates] = await Promise.all([readStudioHead(env.CMS_DB, seed.studioKey), assetPage(env.CMS_DB, { state: 'active' }), builtinAssetStates(env.CMS_DB)]);
+        const state = canonical ?? await readSite(env.CMS_DB);
+        const project = canonical ? { resources: canonical.resources } : state ? storedProject(state.project) : initial;
+        const referenced = canonical ? canonical.mediaReferences.map(src => src.slice(7).split('.')[0]) : resourceIds(project);
+        const selected = await assetSelection(env.CMS_DB, referenced, { fonts: true });
         const assets = [...new Map([...media.items, ...selected].map(asset => [asset.id, asset])).values()];
         const builtins = mergeBuiltinAssetStates(seed.assets, builtinStates);
-        return json({ version: state?.version ?? 0, project, identity, definitions: seed.pages, frameContracts: seed.frame?.contracts ?? [], blank: seed.blank, built, assets: resourceCatalog({ ...seed, assets: builtins }, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' });
+        const envelope = { version: state?.version ?? 0, identity, definitions: seed.pages, frameContracts: seed.frame?.contracts ?? [], blank: seed.blank, built, assets: resourceCatalog({ ...seed, assets: builtins }, assets, project), mediaTotal: media.total, environment: env.CMS_STAGE === 'true' ? 'staging' : 'production' };
+        if (!canonical) return json({ ...envelope, project });
+        return new Response(`${JSON.stringify(envelope).slice(0, -1)},"project":${canonical.parts.join('')}}`, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
       }
       if (url.pathname === '/admin/api/history') {
         const cursor = Number(url.searchParams.get('before') ?? Number.MAX_SAFE_INTEGER);
@@ -91,7 +96,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const { project, references } = validateProjectWithReferences(candidate, seed, undefined, { origins: [url.origin] });
       if (await digest(JSON.stringify(project)) !== body.projectHash) throw new HttpError(409, 'Konverteraren skiljer sig från den repeterade versionen. Migreringen skrev ingenting.');
       await validateReferencedMedia(env, project, references);
-      return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash, requestFormat: 'migration-v1' }));
+      return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash, requestFormat: 'migration-v1', studioKey: seed.studioKey }));
     }
     if (url.pathname === '/admin/api/managed-svg') {
       const body = await readJson(request, 16 * 1024 * 1024);
@@ -238,7 +243,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         // After the replay check, so a replayed pendingSave keeps its payload hash.
         const { project, references } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
         await validateReferencedMedia(env, project, references);
-        return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references, requestFormat: 'delta-v1' }));
+        return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references, requestFormat: 'delta-v1', studioKey: seed.studioKey }));
       }
       const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, project: body.project }));
       const replay = await replayFullSave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, baseVersion: body.baseVersion, payloadHash, project: body.project });
@@ -247,7 +252,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const baseline = stored ? storedProject(stored.project) : initial;
       const { project, references } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project, references);
-      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1' }));
+      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1', studioKey: seed.studioKey }));
     }
     throw new HttpError(404, 'Åtgärden finns inte.');
   } catch (error) { return errorResponse(error, new URL(request.url).pathname.split('/')[3]); }
