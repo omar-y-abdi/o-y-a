@@ -11,7 +11,7 @@ npm run check:fast &&
 CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
 ```
 
-This is the normal edit-feedback loop. It builds once, lints, runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. After a build, `npm run test:slow` runs the backup drill alone with one worker; `npm test` builds through `pretest` and includes that drill.
+This is the normal edit-feedback loop. It builds the current project once, prepares the pinned historical Worker fixture on its first run, lints, and runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. After a build, `npm run test:slow` runs the backup drill alone with one worker; `npm test` builds through `pretest` and includes that drill.
 
 Full local verification uses explicit commands instead of another runner chain:
 

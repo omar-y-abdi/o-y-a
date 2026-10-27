@@ -62,13 +62,17 @@ const undoSize = page => page.evaluate(() => window.__ed.UndoManager.getStack().
 
 for (const historical of ['historical-footer', null]) test(`F2: ${historical ?? 'idless'} frame editor projection preserves IDs and shared styling across pages`, async ({ page }) => {
   const html = '<main id="main"><h1>Sidans rubrik</h1><p id="canonical-footer">Sidans egen identitet</p><p id="frame-editor-0">Egen identitet med samma prefix</p></main>';
-  const frame = { html: '<header data-cms-node="f-head">Ram</header><main></main><footer id="canonical-footer" data-cms-node="f-foot"><p>Avslutning</p></footer>', css: '#canonical-footer{color:#123456}' };
+  const frame = { html: '<header data-cms-node="f-head">Ram</header><main></main><footer id="canonical-footer" data-cms-node="f-foot"><p>Avslutning</p></footer>', css: '#canonical-footer{color:#123456;--frame-link:url(#canonical-footer);--literal:"#canonical-footer"}@media(min-width:1px){[id="canonical-footer"]{border-top:3px solid #abc}}' };
   const frameIds = { 'f-foot': ['canonical-footer', historical] };
   await openStudio(page, { html, frame, frameIds });
   const canvas = page.frameLocator('#editor iframe.gjs-frame'), footer = canvas.locator('footer');
   await expect(footer).toHaveAttribute('id', historical ?? 'frame-editor-1');
   await expect(canvas.locator('#canonical-footer')).toHaveText('Sidans egen identitet');
   await expect(footer).toHaveCSS('color', 'rgb(18, 52, 86)');
+  await expect(footer).toHaveCSS('border-top-width', '3px');
+  await expect(footer).toHaveCSS('border-top-color', 'rgb(170, 187, 204)');
+  expect(await footer.evaluate(node => getComputedStyle(node).getPropertyValue('--frame-link'))).toContain(historical ?? 'frame-editor-1');
+  expect(await footer.evaluate(node => getComputedStyle(node).getPropertyValue('--literal'))).toContain('#canonical-footer');
   expect(await page.evaluate(() => window.__studio.snapshot(true))).toMatchObject({ html, frame });
   const saved = await page.evaluate(() => {
     const footer = window.__ed.getWrapper().find('[data-cms-node="f-foot"]')[0];
@@ -84,6 +88,8 @@ for (const historical of ['historical-footer', null]) test(`F2: ${historical ?? 
   await openStudio(page, { html, frame: saved.frame, frameIds: { 'f-foot': ['canonical-footer', 'another-historical-footer'] } });
   await expect(footer).toHaveAttribute('id', 'another-historical-footer');
   await expect(footer).toHaveCSS('color', 'rgb(101, 67, 33)');
+  await expect(footer).toHaveCSS('border-top-width', '3px');
+  expect(await footer.evaluate(node => getComputedStyle(node).getPropertyValue('--frame-link'))).toContain('another-historical-footer');
   expect((await page.evaluate(() => window.__studio.snapshot(true))).frame).toEqual(saved.frame);
 });
 

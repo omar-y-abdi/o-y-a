@@ -11,7 +11,7 @@ const archive = path.join(root, `SKIFT-${version}.zip`);
 const temp = await mkdtemp(path.join(root, '.zip-smoke-'));
 const python = process.platform === 'win32' ? 'python' : 'python3';
 let server, browser, page;
-const checks = [], errors = [];
+const checks = [], errors = [], timing = { functionalClock: 'controlled requestAnimationFrame', movementMilliseconds: 500, performanceMetrics: 'Clock-controlled snapshots are not CPU or frame-rate measurements' };
 await mkdir('evidence', { recursive: true });
 try {
   const extracted = spawnSync(python, ['-c', 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])', archive, temp]);
@@ -24,30 +24,38 @@ try {
   });
   browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.clock.install();
   await page.context().tracing.start({ screenshots: true, snapshots: true, sources: true });
   page.on('pageerror', e => errors.push(String(e)));
   const responses = [];
   page.on('response', r => { if (r.status() >= 400) responses.push(`${r.status()} ${r.url()}`); });
   await page.goto(url + '?qa=1'); await page.waitForFunction(() => window.__SKIFT__);
   await page.locator('#start-button').click();
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
   const snapshot = () => page.evaluate(() => window.__SKIFT__.snapshot());
   const a = await snapshot();
   await page.keyboard.down('d');
   try {
-    // This is an input/progression check, not a hardware frame-rate benchmark.
-    // Software-rendered CI must observe the same distance, within a bounded wait.
-    await expect.poll(async () => {
-      const b = await snapshot();
-      return Math.hypot(a.player.x - b.player.x, a.player.z - b.player.z);
-    }).toBeGreaterThan(1);
+    // CI's software GPU can deliver only a few RAFs in five wall-clock seconds.
+    // Exercise real input, physics and rendering over explicit game time; the
+    // separate startup/pixel gates retain their real-time/display boundaries.
+    const began = Date.now();
+    await page.clock.runFor(timing.movementMilliseconds);
+    timing.movementWallMilliseconds = Date.now() - began;
+    const b = await snapshot();
+    timing.movement = { before: a, after: b };
+    expect(Math.hypot(a.player.x - b.player.x, a.player.z - b.player.z)).toBeGreaterThan(1);
+    expect(b.time - a.time).toBeGreaterThan(0.25);
+    expect(b.time - a.time).toBeLessThanOrEqual(0.51);
   } finally { await page.keyboard.up('d'); }
   checks.push('Unpacked build starts and movement works without node_modules in the extracted directory');
-  await page.keyboard.press('Space'); await expect.poll(async () => (await snapshot()).dashCooldown).toBeGreaterThan(0);
-  await page.keyboard.press('j'); await expect.poll(async () => (await snapshot()).pulseCooldown).toBeGreaterThan(0);
+  await page.keyboard.press('Space'); await page.clock.runFor(32); expect((await snapshot()).dashCooldown).toBeGreaterThan(0);
+  await page.keyboard.press('j'); await page.clock.runFor(32); expect((await snapshot()).pulseCooldown).toBeGreaterThan(0);
   checks.push('Dash and pulse work through real keyboard input');
-  await page.keyboard.press('Escape'); await page.waitForTimeout(100); const paused = await snapshot();
-  await page.waitForTimeout(400); assert.equal((await snapshot()).time, paused.time);
+  await page.keyboard.press('Escape'); const paused = await snapshot();
+  await page.clock.runFor(400); assert.equal((await snapshot()).time, paused.time);
   checks.push('Pause stops gameplay time in the packaged build');
+  await page.clock.resume();
   await page.setViewportSize({ width: 3840, height: 2160 }); await page.waitForTimeout(200);
   const smooth = await snapshot(); assert.equal(smooth.settings.quality, 'smooth'); assert.ok(smooth.render.width * smooth.render.height <= 5200000);
   await page.evaluate(() => { const key = 'oy-skift-v1', save = JSON.parse(localStorage.getItem(key) || '{"version":1}'); save.settings = { ...save.settings, quality: 'eco', qualityChosen: true }; localStorage.setItem(key, JSON.stringify(save)); });
@@ -57,11 +65,11 @@ try {
   assert.deepEqual(errors, []); assert.deepEqual(responses, []);
   checks.push('No JavaScript errors or failed asset requests');
   const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
-  await writeFile('evidence/released-archive.json', JSON.stringify({ outcome: 'passed', date: new Date().toISOString(), archive: path.basename(archive), sha256: digest, browser: browser.version(), checks, errors }, null, 2));
+  await writeFile('evidence/released-archive.json', JSON.stringify({ outcome: 'passed', date: new Date().toISOString(), archive: path.basename(archive), sha256: digest, browser: browser.version(), timing, checks, errors }, null, 2));
   console.log('PASS released ZIP:', digest); checks.forEach(c => console.log('PASS', c));
 } catch (error) {
   const snapshot = await page?.evaluate(() => window.__SKIFT__?.snapshot()).catch(() => null);
-  await writeFile('evidence/released-archive.json', JSON.stringify({ outcome: 'failed', error: String(error.stack ?? error), checks, errors, snapshot }, null, 2));
+  await writeFile('evidence/released-archive.json', JSON.stringify({ outcome: 'failed', error: String(error.stack ?? error), timing, checks, errors, snapshot }, null, 2));
   throw error;
 } finally {
   try {

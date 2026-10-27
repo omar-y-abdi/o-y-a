@@ -70,6 +70,8 @@ npm run test:release # Upprepa browserprovet på den senaste ZIP-filen
 
 GitHub-jobbet `skift-release` installerar paketets egen lockfil, bygger, packar, bygger om den uppackade källan utan repots beroenden och provar ZIP-filen i Chromium. Ombygget behöver internet för `npm ci`; spelstart från den färdiga ZIP-filen behöver det inte.
 
+ZIP-provets rörelse, dash, puls och paus använder riktiga tangentbordshändelser och [styrd animationstid](https://playwright.dev/docs/clock) efter verklig uppstart. Samma rörelsegräns kontrolleras tillsammans med hur mycket speltid som har gått. Det skiljer funktionstestet från CI-maskinens mjukvaru-GPU; provet mäter inte faktisk bildfrekvens eller CPU-tid. Rapporten skiljer styrd speltid från uppmätt väggtid. Klockan återupptas före befintliga storleks- och inställningskontroller.
+
 Testskripten startar en egen loopback-server på en ledig port och stänger den efteråt. `evidence/` innehåller rapporter och skärmbilder. `?qa=1` aktiverar endast läsbara diagnoser; där finns inga teleport-, odödlighets- eller vinstkommandon.
 
 Modellerna skapas från originalgeometri i `src/art.js`, inte från importerade spel. Ljuden och musiken är färdigbyggda i `public/audio/`; `npm run assets` återskapar dem med Python 3 och ffmpeg. ffmpeg behövs aldrig för normal spelstart.

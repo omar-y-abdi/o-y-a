@@ -1,4 +1,4 @@
-import { mapFrameCss } from '../frame-ids.mjs';
+import { mapFrameCss } from './frame-css.mjs';
 
 function fragment(html) {
   // Firefox serializes noscript text from a live-document template as escaped
