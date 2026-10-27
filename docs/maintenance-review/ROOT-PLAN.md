@@ -4,20 +4,20 @@
 
 The prior acceptance at a574e65 is withdrawn. PR15 is draft again. The supplied review establishes eight introduced defects F1–F8 and inherited checkpoint defect I1. Root owns F1–F4, I1, pinned-browser investigation of O1/O2, dependency assessment D1, and integration. Astra owns F5–F8 and independently challenges root changes. Both must approve the repaired candidate, with new exact-head GitHub evidence. Existing green CI is historical evidence only.
 
-Track implementation and evidence in [the response ledger](05-adversarial-response.md). Keep the frozen maps below as historical records. No local runtime is authorized; author regressions here and execute them in GitHub. Real BASE-produced migration/replay fixtures are required; HEAD-generated legacy-shaped fixtures do not prove deployment compatibility.
+Track implementation and evidence in [the response ledger](05-adversarial-response.md). Keep the frozen maps below as historical records. The initial repair rounds allowed only local lint/source checks. On 2026-10-27 the owner explicitly authorized local tests, builds and application runtime; use a separate dependency checkout and run focused suites serially. Final qualification still requires exact-head GitHub CI. Real BASE-produced migration/replay fixtures are required; HEAD-generated legacy-shaped fixtures do not prove deployment compatibility.
 
-## Contract
+## Original reconstruction contract (historical)
 
 The current task supersedes the earlier unfinished-feature queue. Review and repair every change in PR14 before returning to that queue. Preserve intended features and public/security contracts; do not accept green CI as evidence that the design, documentation, provenance or coverage is correct.
 
-Frozen source: main80630c7d280c71314702af791dbc0828d9ff8b0a; maintenance71b30dc18b073f310fed386bba7664d7afb77abf. The original maintenance branch and all original dirty worktrees remain historical evidence. Current PR14 CI is green (run40230520836), but the code has not passed this new review.
+Frozen source: main80630c7d280c71314702af791dbc0828d9ff8b0a; maintenance71b30dc18b073f310fed386bba7664d7afb77abf. The original maintenance branch and all original dirty worktrees remain historical evidence. At the start of mapping, PR14 CI was green (run40230520836), but that code had not passed this review.
 
-User requests four to six Luna Max mappers, four mapping documents, then root plus one Astra xhigh peer to repair/review each other's work. Four Luna agents are planned in two waves because the harness permits three active children. Each mapper owns one document. The root and Astra each maintain a plan, with explicit handoffs and reciprocal review. The user's instruction authorizes both of us to implement, superseding the orchestration skill's ordinary author-only delegation rule.
+User requests four to six Luna Max mappers, four mapping documents, then root plus one Astra xhigh peer to repair/review each other's work. Four Luna agents completed the mapping in two waves because the harness permits three active children. Each mapper owned one document. The root and Astra each maintain a plan, with explicit handoffs and reciprocal review. The user's instruction authorizes both of us to implement, superseding the orchestration skill's ordinary author-only delegation rule.
 
 ## Hard boundaries
 
 - gh CLI. Cloudflare Builds stay on. No merge, production data operations, secret changes or external messages.
-- No local tests, builds, servers or application execution. Root may run lint, syntax checks and required formatting. Runtime proof comes from GitHub.
+- Local tests/builds/runtime are authorized by the owner as of 2026-10-27. Use isolated fixtures and serial focused runs; protect the original dirty worktrees and shared dependencies. Earlier no-local-run statements below describe their historical rounds. Final qualification requires GitHub.
 - No suppression/skips/deletions/looser acceptance to manufacture green CI. A disproven test premise requires documented evidence and preservation of the actual contract.
 - No unrelated new features or blind import of held CPU/perf work. Performance defects in the current PR remain in scope and require independent diagnosis and necessary repairs; historical WIP is evidence, not an approved solution. Fix current PR defects, including structural work when correctness/reviewability requires it.
 - Never read or publish .env, cookies, recovery data or the private IMPROVEMENT-PLAN. Review documents must contain source evidence, not credentials or private account data.
@@ -31,7 +31,7 @@ User requests four to six Luna Max mappers, four mapping documents, then root pl
 5. Keep the four maps and both plans updated with repaired/disputed findings, coverage and exact commit/run evidence. No push of partially edited work. Root reviews Astra changes and Astra reviews root changes; meaningful changes require agreement and remote tests.
 6. Final whole-diff adversarial pass against main, documentation/link/license checks, clean-history check, all findings resolved or explicitly justified with evidence, mutual approval, latest-head CI green. Leave new PR for owner review and go idle.
 
-## Current checkpoint
+## Initial reconstruction checkpoint (historical)
 
 All four Luna Max mapping documents are complete. Root independently checked their major claims and retracted a false SKIFT-guide allegation. The Astra xhigh peer has a separate ASTRA-PLAN.md and an agreed disjoint source assignment.
 
@@ -59,7 +59,7 @@ Astra independently approved the root license/package/CI batch after verifying t
 
 The four original maps are now tracked as frozen evidence, with their 359-path ledger and pinned inventory. Both active plans live beside them; the private locations point here. Original machine-specific paths were removed. The current-command documentation check excludes these frozen reports because references to deleted scripts are evidence, not runnable instructions; relative-link checks still include them.
 
-## Current finding disposition
+## Initial mapping disposition (historical)
 
 | Finding | Disposition and implementation evidence |
 | --- | --- |
@@ -157,3 +157,19 @@ The k16 trace disproves the earlier slow-fetch hypothesis for this occurrence: b
 Run 40560885098 again passed functional-browser, Firefox, WebKit and standalone release. Verify retained the passing 749-case Node suite and 374164-byte editor total, then reported 362 public cases passed and p19 failed. Its new receipt recorded two DOM samples started but only one completed; the first returned no artwork text, the second stayed pending, and a separate no-layout DOM observation remained unavailable for 3001ms. Browser HTTP and the independent read remained responsive (200, 24309 bytes, 16ms for the independent request). The served p19 payload was ordinary text without a custom design. This excludes nested locator waiting as the sole cause; it does not establish a product or browser-engine cause.
 
 The next candidate changes one workload variable: the same 240 exports run in their own one-worker Playwright invocation, outside overlap with other public specs and their additional browser/Worker fixtures. The ordinary Chromium phase retains the complementary 123 cases, followed by the existing one-worker WebGL phase. Fresh test contexts, the 8-second readiness deadline, layout/text/PNG assertions and zero retries remain. A parsed CLI contract guard checks complementary filters, all file/project selections and distinct retained artifact directories. Root and Astra approved the source arrangement; passing it will qualify this functional matrix, not concurrent-load performance or an explanation of the prior stall. No public product CSS or runtime was changed for the stall.
+
+## Remote round at 8690ee2 and renderer diagnostics
+
+Run 40565085251 again passed functional-browser, Firefox, WebKit and standalone release. Verify passed all 750 Node cases and the unchanged 374164-byte editor transfer gate. The separated ordinary Chromium phase passed all 123 cases; the isolated export phase passed 239 of 240, with j15 failing before any export click. Its first DOM sample returned null, the next sample and the post-failure geometry-free observation remained pending until teardown. Browser card/module requests completed in approximately 6.2/2.5ms, and the independent request returned 200 in 15ms. Resource isolation therefore did not resolve the stall. The later WebGL/I1 and Chromium editor/mail gates still have no current-candidate receipt.
+
+Root, Astra and the read-only verification reviewer agree that the losing download-toast waiter cannot explain this test's startup failure: the failing page never reached that helper, and previous pages have separate closed contexts. The next diagnostic keeps a bounded Node-side ring of DOM evaluation phases and uses browser-level CDP process/transport receipts plus a post-failure, immediately resumed debugger stack. A 1MiB rolling native Chromium trace starts before navigation; failed tests retain at most4MiB within a5s collection budget, while successful tests discard it. CPU sampling finishes before the deliberate pause, and absent markers/stacks remain inconclusive. It does not retry, relax or pass a failed assertion. No product cause is yet established. Local checks remain source/syntax/lint only.
+
+## Local execution authorization
+
+The owner explicitly authorized local tests and runtime on 2026-10-27 to accelerate the unresolved stall diagnosis. Colima is stopped, but these fixtures use native Miniflare/workerd and do not require Docker. A separate detached maintenance-runtime worktree preserves maintenance-clean's existing shared node_modules link. Its own current-lock npm install reports zero advisories; Node24 and the exact pinned Chromium153.0.8010.12 are available. The initial local build passed. A serial, stop-at-first-failure export run starts from unchanged8690ee2 to establish local reproducibility before adding instrumentation. This local macOS evidence will not substitute for final Linux GitHub evidence.
+
+The unchanged8690ee2 local export baseline completed: 240/240 passed in2.8minutes using the exact pinned Chromium version on macOS. This does not reproduce or explain the Linux CI stall. Focused F6/F7 and integrated I1/F4 checks now run serially while the diagnostic candidate is prepared.
+
+Focused local F6/F7 checks passed all5 cases in21.3s. The initial I1 navigation test did not reach a checkpoint: only44 snapshots over120s and delayed key acknowledgements made the automated controller repeatedly overshoot a free-space waypoint. Root decoded the trajectory; Astra independently confirmed the inverse input mapping and absence of obstacles there. Controlled animation-time navigation is being qualified separately, with native keys and unchanged checkpoint requirements.
+
+The diagnostic helper's local lifecycle probe passed successful discard and failure capture/cleanup. It retained a complete244545-byte native JSON trace, the exact browser version and timestamped process samples; the page remained executable after disposal. Root independently approved Astra's bounded tracing/CPU ordering; Astra approved the spec integration. Missing debugger stacks remain inconclusive.

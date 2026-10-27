@@ -2,7 +2,7 @@
 
 Reviewed candidate: `a574e65a87cd9d9e382a31abec70f49ce741070b`. Baseline: `80630c7d280c71314702af791dbc0828d9ff8b0a`. The earlier acceptance is withdrawn; this ledger records repairs and new evidence, not a claim that the old candidate passed.
 
-Local boundary: source review, lint and syntax only. Runtime regressions run in GitHub. No production data access, deployment or merge. Cloudflare Builds remain enabled.
+Initial local boundary: source review, lint and syntax only. On 2026-10-27 the owner additionally authorized local tests/builds/runtime. Focused serial checks use isolated local fixtures; final runtime qualification still requires exact-head GitHub CI. No production data access, deployment or merge. Cloudflare Builds remain enabled.
 
 | ID | Origin | Owner | Repair and required evidence | Status |
 | --- | --- | --- | --- | --- |
