@@ -180,6 +180,7 @@ jobs:
           tests/test_cms_browser_helpers.spec.mjs
           tests/test_cms_asset_usage.spec.mjs
           tests/revision_browser.spec.mjs
+          tests/public-interactions.spec.mjs
           tests/cms-library.spec.mjs
           tests/managed-svg-fidelity.spec.mjs
           --project=chromium --no-deps --workers=2
