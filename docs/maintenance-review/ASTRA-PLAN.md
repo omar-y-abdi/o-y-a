@@ -1,5 +1,13 @@
 # Astra peer plan: PR14 repair and independent review
 
+## Current peer approval checkpoint
+
+The peer approves the reviewed code at `cdaa04ed8ae29f2db40073934511855cb59c3936` for PR review. The completed [GitHub run 40572273627](https://github.com/omar-y-abdi/o-y-a/actions/runs/40572273627) succeeded for all five runtime jobs: verify, functional browser, Firefox, WebKit and standalone release. The peer inspected the structured run receipt and independently checked PR15's exact head and check rollup with gh: the same five jobs and Workers Builds succeeded at that SHA. The owner-operated stored-revisions job was skipped; production history, configuration, migration rehearsal and CPU evidence remain separate owner gates. This approval is not merge or production-deployment authorization.
+
+The final diagnostic simplification is independently source-approved but still requires its own exact-head CI result. It removes all startup tracing, phase markers and pre-created CDP sessions. Only an already-failed export collects bounded browser-level observations and a fresh geometry-free CDP read, with late-session cleanup and timestamped poll receipts. Local smoke evidence covers a responsive DOM, a connection arriving after its deadline that is subsequently detached, and a busy JavaScript renderer whose CPU remains observable while its DOM read times out. No diagnostic can retry or pass the failed assertion. The peer also inspected the uninstrumented Linux comparison: 240 expected passes in 240 attempts, zero skips/unexpected/flaky results, one worker and 174.95 seconds total. Together with the native macOS baseline, this supports current uninstrumented functionality without explaining the earlier intermittent observation stalls. Those stalls are not claimed fixed.
+
+The final immutable head/run receipt belongs in PR15's body and checks, with the private handoff, after the simplified candidate completes CI. Do not create another documentation-only commit merely to replace this checkpoint's SHA after a green run. The historical sections below retain the evidence and boundaries of their respective rounds.
+
 ## Reopened review at a574e65
 
 The earlier approval is withdrawn after the adversarial review. The successful CI run at a574e65 did not cover the following real failures. Root assigned this peer F5–F8, including the server/client mail seam, its focused tests and these runbooks. Root continues F1–F4 and the remaining game/release findings. No local tests, builds, servers or application runtime are permitted; renewed acceptance requires reciprocal source review and fresh exact-head GitHub evidence.

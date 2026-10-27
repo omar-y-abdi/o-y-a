@@ -1,13 +1,12 @@
 import { test, expect } from './helpers/public-test.mjs';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { cardDiagnostics } from './helpers/card-diagnostics.mjs';
+import { captureCardFailure } from './helpers/card-diagnostics.mjs';
 
 const BANK = JSON.parse(await readFile(new URL('../public/data/cards.json', import.meta.url), 'utf8'));
 const OUTPUT = new URL('../output/card-export-playwright/', import.meta.url);
 const KEEP = new Set(['k01', 'j01', 'p01', 'r01', ...BANK.toSorted((a,b)=>b.text.length-a.text.length).slice(0,4).map(card=>card.id)]);
 const cardPolls = new WeakMap();
-const diagnostics = new WeakMap();
 
 function pngDimensions(buffer) {
   expect(buffer.subarray(0, 8)).toEqual(Buffer.from([137,80,78,71,13,10,26,10]));
@@ -18,31 +17,25 @@ function pngDimensions(buffer) {
 async function shadowState(page) {
   // expect.poll owns the readiness deadline; absence is a sample, not a second
   // auto-wait whose pending locator can outlive that deadline.
-  return page.evaluate(diagnose => {
-    const phase = name => { if (diagnose) console.debug(`card-observation:${name}`); };
-    phase('entered');
+  return page.evaluate(() => {
     const host = document.querySelector('[data-win-artwork]');
     if (host && document.querySelectorAll('[data-win-artwork]').length !== 1) throw new Error('Expected exactly one card artwork surface.');
     const root = host?.shadowRoot;
     const text = root?.querySelector('[data-card-text]');
     const content = text?.closest('.win-design');
-    phase(`dom host=${!!host} shadow=${!!root} text=${!!text} content=${!!content}`);
     if (!text || !content) return null;
-    phase('before geometry');
     const box = el => {
       const r = el.getBoundingClientRect();
       return { left:r.left, top:r.top, right:r.right, bottom:r.bottom, width:r.width, height:r.height };
     };
     const range = document.createRange(); range.selectNodeContents(text);
-    const result = {
+    return {
       text: text.textContent,
       host: box(host), textBox: box(text), contentBox: box(content),
       lineCount: range.getClientRects().length,
       overflow: content.scrollWidth > content.clientWidth + 1 || content.scrollHeight > content.clientHeight + 1 || text.scrollWidth > text.clientWidth + 1 || text.scrollHeight > text.clientHeight + 1,
     };
-    phase('completed');
-    return result;
-  }, diagnostics.has(page));
+  });
 }
 
 async function waitForCard(page, expectedText) {
@@ -156,31 +149,27 @@ test.describe('all 240 production card exports', () => {
   // Isolate the content/export matrix without changing its assertions. Completed
   // HTTP requests coexist with a stalled DOM observation; the cause is unresolved.
   test.describe.configure({ mode: 'default' });
-  test.beforeEach(async ({ page, browser }) => { diagnostics.set(page, await cardDiagnostics(page, browser)); });
-  test.afterEach(async ({ page, request }, testInfo) => {
-    const diagnostic = diagnostics.get(page);
+  test.afterEach(async ({ page, request, browser }, testInfo) => {
+    if (testInfo.status === testInfo.expectedStatus) return;
+    const dom = failureDomState(page);
+    const started = Date.now();
+    let response, evidence;
     try {
-      if (testInfo.status === testInfo.expectedStatus) return;
-      const dom = failureDomState(page);
-      const started = Date.now();
-      let response, evidence;
-      try {
-        // Independent HTTP evidence only: it cannot retry or pass the failed UI.
-        response = await request.get('/data/cards.json', { timeout: 3000, maxRetries: 0 });
-        const body = await response.text();
-        evidence = { status: response.status(), bytes: Buffer.byteLength(body), elapsedMs: Date.now() - started };
-      } catch (error) { evidence = { error: String(error), elapsedMs: Date.now() - started }; }
-      finally {
-        await response?.dispose();
-        await testInfo.attach('independent-card-bank-read.json', { body: JSON.stringify(evidence), contentType: 'application/json' });
-      }
-      await testInfo.attach('card-render-state.json', { body: JSON.stringify({ poll: cardPolls.get(page) ?? null, ...await dom }), contentType: 'application/json' });
-      if (diagnostic) {
-        const { trace, ...receipt } = await diagnostic.capture();
-        await testInfo.attach('card-browser-diagnostics.json', { body: JSON.stringify(receipt), contentType: 'application/json' });
-        if (trace) await testInfo.attach('card-native-trace.json', { body: trace, contentType: 'application/json' });
-      }
-    } finally { await diagnostic?.dispose(); }
+      // Independent HTTP evidence only: it cannot retry or pass the failed UI.
+      response = await request.get('/data/cards.json', { timeout: 3000, maxRetries: 0 });
+      const body = await response.text();
+      evidence = { status: response.status(), bytes: Buffer.byteLength(body), elapsedMs: Date.now() - started };
+    } catch (error) { evidence = { error: String(error), elapsedMs: Date.now() - started }; }
+    finally {
+      await response?.dispose();
+      await testInfo.attach('independent-card-bank-read.json', { body: JSON.stringify(evidence), contentType: 'application/json' });
+    }
+    await testInfo.attach('card-render-state.json', { body: JSON.stringify({ poll: cardPolls.get(page) ?? null, ...await dom }), contentType: 'application/json' });
+    const receipt = await captureCardFailure(page, browser, () => {
+      const poll = cardPolls.get(page);
+      return poll ? { ...poll } : null;
+    });
+    await testInfo.attach('card-browser-diagnostics.json', { body: JSON.stringify(receipt), contentType: 'application/json' });
   });
   for (const card of BANK) {
     test(`${card.id} exports valid PNG`, async ({ page }, testInfo) => {
