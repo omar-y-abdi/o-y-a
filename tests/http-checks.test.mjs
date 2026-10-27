@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
+import { parseArgs } from 'node:util';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 
 const project = JSON.parse(await readFile(new URL('./fixtures/cms-v185-project.json', import.meta.url), 'utf8'));
@@ -252,6 +253,42 @@ test('browser HTTP server accepts environment ports and rejects invalid boundari
 test('targeted WebGL has no project dependencies', async () => {
   const config = await browserConfig();
   assert.deepEqual(config.projects.find(project => project.name === 'chromium-webgl').dependencies ?? [], []);
+});
+
+test('public browser phases partition exports without dropping cases or replacing artifacts', async () => {
+  const { scripts } = JSON.parse(await readFile('package.json', 'utf8'));
+  const commands = scripts['test:public-pages'].split(' && ');
+  assert.equal(commands.length, 3);
+  const phases = commands.map(command => {
+    // This contract deliberately accepts only literal CLI arguments, including
+    // the quoted group label; no shell expansion is needed by these phases.
+    assert.doesNotMatch(command, /[\\$;|`\n]/);
+    const words = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g).map(word => word.replace(/(["'])(.*?)\1/g, '$2'));
+    assert.deepEqual(words.splice(0, 2), ['playwright', 'test']);
+    return parseArgs({ args: words, allowPositionals: true, options: {
+      project: { type: 'string' }, 'no-deps': { type: 'boolean' }, workers: { type: 'string' },
+      grep: { type: 'string' }, 'grep-invert': { type: 'string' }, output: { type: 'string' },
+    } });
+  });
+  const [ordinary, exportPhase, webgl] = phases;
+  assert.deepEqual(ordinary.positionals, ['tests/public-pages.spec.mjs', 'tests/public-review.spec.mjs', 'tests/card-export.spec.mjs', 'tests/public-startup.spec.mjs']);
+  assert.deepEqual(exportPhase.positionals, ['tests/card-export.spec.mjs']);
+  assert.deepEqual(webgl.positionals, ['tests/public-pages.spec.mjs', 'tests/skift.spec.mjs']);
+  assert.equal(ordinary.values['grep-invert'], 'all 240 production card exports');
+  assert.equal(exportPhase.values.grep, ordinary.values['grep-invert']);
+  assert.equal(ordinary.values.grep, undefined);
+  assert.equal(exportPhase.values['grep-invert'], undefined);
+  assert.equal(webgl.values.grep, undefined);
+  assert.equal(webgl.values['grep-invert'], undefined);
+  assert.deepEqual(phases.map(phase => phase.values.project), ['chromium', 'chromium', 'chromium-webgl']);
+  assert.ok(phases.every(phase => phase.values['no-deps']));
+  assert.equal(exportPhase.values.workers, '1');
+  const outputs = phases.map(phase => phase.values.output);
+  assert.equal(new Set(outputs).size, 3);
+  assert.ok(outputs.every(path => /^output\/playwright\/artifacts\/[a-z-]+$/.test(path)));
+  const config = await browserConfig();
+  assert.equal(config.projects.find(project => project.name === 'chromium-webgl').workers, 1);
+  assert.ok(config.projects.find(project => project.name === 'chromium').grepInvert.test('@webgl'));
 });
 
 test('browser failures retain traces without retries and preserve the engine selections', async () => {
