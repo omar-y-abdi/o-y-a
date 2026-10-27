@@ -6,18 +6,18 @@ Initial local boundary: source review, lint and syntax only. On 2026-10-27 the o
 
 | ID | Origin | Owner | Repair and required evidence | Status |
 | --- | --- | --- | --- | --- |
-| F1 | Introduced | Root | Locate actual parsed main slot; authenticated Save plus published DOM with placeholder-like comment | Implemented; root/Astra source review agreed; remote qualification required |
-| F2 | Introduced | Root | Preserve legacy frame anchor references through conversion, preview and unrelated Save; actual BASE validator/publisher fixture | Implemented; root/Astra source review agreed; remote qualification required |
-| F3 | Introduced | Root | Compare committed request identity before new normalization; actual BASE-produced replay and changed-body rejection | Implemented; root/Astra source review agreed; remote qualification required |
-| F4 | Introduced | Root | Reserve IDs from code-owned game main; reject start-button/modal collisions, accept unique frame ID | Implemented; root/Astra source review agreed; remote qualification required |
-| F5 | Introduced | Astra | Durable mail receipts separate from visible history, safe old frozen-request transition, pruning plus expired provider cache | Root/Astra source review agreed; GitHub proof pending |
-| F6 | Introduced | Astra | Pending removal guard and nonnegative index; overlapping real UI removals retain unrelated attachment | Root/Astra source review agreed; GitHub proof pending |
-| F7 | Introduced | Astra | Lock settings controls while saving; pending success/error browser cases | Root/Astra source review agreed; GitHub proof pending |
-| F8 | Introduced | Astra | Separate URI substitution from HTML escaping; reserved mailbox delimiters in actual rendered contact notification | Root/Astra source review agreed; GitHub proof pending |
-| I1 | Inherited | Root | Persist accepted district/upgrade transition; real keyboard completion then reload and resume | Implemented; root/Astra source review agreed; remote qualification required |
-| O1 | Inherited observation | Root | Workshop 320px overflow: establish exact pinned-browser behavior before disposition | Regression/audit gate authored; pinned GitHub evidence required |
-| O2 | Inherited observation | Root | Decorative SVG intercepting card Save at 390px: establish exact pinned-browser hit testing | Regression/audit gate authored; pinned GitHub evidence required |
-| D1 | Inherited advisories | Root | Assess build-tool exposure; compatible patched sharp/undici dependency closure, retained release/license gates | Regression/audit gate authored; pinned GitHub evidence required |
+| F1 | Introduced | Root | Locate actual parsed main slot; authenticated Save plus published DOM with placeholder-like comment | API and published-DOM regression passed at8690ee2; final CI pending |
+| F2 | Introduced | Root | Preserve legacy frame anchor references through conversion, preview and unrelated Save; actual BASE validator/publisher fixture | Actual BASE migration/API and editor compatibility passed at8690ee2; final CI pending |
+| F3 | Introduced | Root | Compare committed request identity before new normalization; actual BASE-produced replay and changed-body rejection | Actual BASE replay and changed/unprovable-body regressions passed at8690ee2; final CI pending |
+| F4 | Introduced | Root | Reserve IDs from code-owned game main; reject start-button/modal collisions, accept unique frame ID | API passed at8690ee2; local native startup/unique-ID case passed; final CI pending |
+| F5 | Introduced | Astra | Durable mail receipts separate from visible history, safe old frozen-request transition, pruning plus expired provider cache | D1 pruning/provider-expiry and cutover regressions passed at8690ee2; final CI pending |
+| F6 | Introduced | Astra | Pending removal guard and nonnegative index; overlapping real UI removals retain unrelated attachment | Three local real-UI race cases passed (200/404/503); final CI pending |
+| F7 | Introduced | Astra | Lock settings controls while saving; pending success/error browser cases | Local withheld success/error response cases passed; final CI pending |
+| F8 | Introduced | Astra | Separate URI substitution from HTML escaping; reserved mailbox delimiters in actual rendered contact notification | URI and delivered-notification regressions passed at8690ee2; final CI pending |
+| I1 | Inherited | Root | Persist accepted district/upgrade transition; real keyboard completion then reload and resume | Local transition/reload passed; old-ordering mutation fails checkpoint assertion; final CI pending |
+| O1 | Inherited observation | Root | Workshop 320px overflow: establish exact pinned-browser behavior before disposition | Not reproduced in pinned CI static/default and translated-v185 probes; final CI pending |
+| O2 | Inherited observation | Root | Decorative SVG intercepting card Save at 390px: establish exact pinned-browser hit testing | Not reproduced in pinned CI real pointer probes; final CI pending |
+| D1 | Inherited advisories | Root | Assess build-tool exposure; compatible patched sharp/undici dependency closure, retained release/license gates | Current-lock audit reports zero advisories; release gates passed; final deploy-graph gate pending |
 
 Each completed row must cite implementation, reciprocal review and exact remote evidence. Source inspection is not runtime proof. Uncertain legacy replay equivalence must remain fail-closed and preserve the draft; it must not be mislabeled as proven changed content.
 
@@ -72,3 +72,11 @@ The remaining verify failure was k16 in the 240-export group: 362 public cases p
 Run 40560885098 passed the four independent runtime jobs, while verify again stopped at one of 363 public cases. This time p19's first direct DOM sample completed and its second remained pending; a separate no-layout read also could not respond within 3001ms, despite responsive HTTP. The observation therefore extends beyond nested locator waiting. The cause remains unknown.
 
 The next candidate isolates the unchanged 240-export matrix in its own one-worker invocation, retains the complementary 123 ordinary Chromium cases and the WebGL phase, and prevents phase artifact directories from overwriting each other. A parsed configuration guard checks those selections. The same functional assertions, fresh contexts, 8-second deadline and zero retries remain. This is a controlled workload boundary, not a claimed product fix or concurrency benchmark. I1 and the final verify stages still require execution.
+
+## Local qualification after owner authorization
+
+The owner authorized local runtime on2026-10-27. An isolated current-lock checkout used Node24 and the exact pinned Chromium153.0.8010.12 on macOS. Unchanged8690ee2 passed the240-export baseline and allfive F6/F7 UI races. This does not reproduce or explain the Linux export observation stall from [run40565085251](https://github.com/omar-y-abdi/o-y-a/actions/runs/40565085251), whose750 Node cases and four independent runtime jobs passed. The diagnostic candidate9ec1fe5 adds bounded browser-process/native-trace evidence without changing product code or assertions.
+
+I1's first local driver missed waypoints while delayed native keyboard acknowledgements let the game continue moving. The corrected functional probe installs a clock before boot, freezes after real Start, applies native input between80ms animation steps, and retains the120s wall/150s test deadlines plus an explicit120s simulation bound. It selects the supported eco setting at640×480 through the real settings UI; other display/performance checks are unchanged. Final local proof passed both I1 and F4 in40.9s. I1's navigation used27.193 wall seconds and12.273 game seconds; saved and resumed district index1 retained pulse, with no page errors. Temporarily restoring the old upgrade ordering made the same probe fail specifically at the checkpoint assertion (expected1, received0); restored source then passed again.
+
+F4's initial browser test incorrectly expected the load-error element to be absent. The game deliberately pre-renders one hidden alert in games/skift/src/page.mjs. The corrected probe requires exactlyone hidden alert plus a working unique-ID publication, enabled Start and actual play mode. Root and Astra independently approved both harness corrections. Full final-head Linux qualification remains open.

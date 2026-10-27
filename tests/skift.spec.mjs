@@ -23,13 +23,21 @@ test('I1: completing a district and choosing an upgrade survives reload and Resu
   test.setTimeout(150_000);
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
-  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.setViewportSize({ width: 640, height: 480 });
+  await page.clock.install();
   await openGame(page);
   await page.locator('[data-skift-menu] [data-action="settings"]').click();
   await page.locator('[data-setting="difficulty"]').selectOption('assist');
+  await page.locator('[data-setting="quality"]').selectOption('eco');
   await page.locator('#modal .primary[data-action="close"]').click();
   await page.locator('#start-button').click();
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
+  const navigationStart = await snapshot(page), wallStart = Date.now();
+  expect(navigationStart.settings.quality).toBe('eco');
   const completed = await completeFirstDistrict(page);
+  const navigation = { wallMilliseconds: Date.now() - wallStart, gameSeconds: completed.time - navigationStart.time };
+  expect(navigation.gameSeconds).toBeGreaterThan(0);
+  expect(navigation.gameSeconds).toBeLessThanOrEqual(120);
   expect(completed.sector).toBe(0);
   await page.locator('[data-action="upgrade"][data-value="pulse"]').click();
   const advanced = await snapshot(page);
@@ -39,6 +47,7 @@ test('I1: completing a district and choosing an upgrade survives reload and Resu
   expect(saved.checkpoint.sector).toBe(1);
   expect(saved.checkpoint.upgrades).toContain('pulse');
   expect(saved.unlocked).toBeGreaterThanOrEqual(1);
+  await page.clock.resume();
   await page.reload();
   await page.waitForFunction(() => window.__SKIFT__);
   await page.locator('#start-button').click();
@@ -47,7 +56,7 @@ test('I1: completing a district and choosing an upgrade survives reload and Resu
   expect(resumed.sector).toBe(1);
   expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).checkpoint.upgrades, SAVE_KEY)).toContain('pulse');
   expect(errors).toEqual([]);
-  await testInfo.attach('checkpoint-transition', { body: JSON.stringify({ completed, advanced, saved, resumed, errors }, null, 2), contentType: 'application/json' });
+  await testInfo.attach('checkpoint-transition', { body: JSON.stringify({ completed, advanced, saved, resumed, navigation, errors }, null, 2), contentType: 'application/json' });
 });
 
 test('F4: rejected frame collisions leave the real game startable; a unique frame ID publishes', { tag: '@webgl' }, async ({ page, context }) => {
@@ -70,7 +79,8 @@ test('F4: rejected frame collisions leave the real game startable; a unique fram
     await expect(page.locator('#start-button')).toHaveCount(1);
     await expect(page.locator('#start-button')).toBeEnabled();
     await expect(page.locator('#unique-owner-frame')).toHaveCount(1);
-    await expect(page.locator('[data-skift-load-error]')).toHaveCount(0);
+    await expect(page.locator('[data-skift-load-error]')).toHaveCount(1);
+    await expect(page.locator('[data-skift-load-error]')).toBeHidden();
     await page.locator('#start-button').click();
     expect((await snapshot(page)).mode).toBe('play');
   } finally { await isolated.close(); }

@@ -1,6 +1,9 @@
 import { LEVELS, blocked } from '../../games/skift/src/levels.js';
 
 // Read-only diagnostics choose a route; all movement and combat use real keys.
+// The caller pauses an installed Playwright clock after real startup. Key
+// transitions cannot overshoot a waypoint while a slow renderer acknowledges
+// input. Each step still executes the real animation, physics and combat.
 // This deliberately does not expose or mutate the game's private state.
 function route(start, target) {
   const goal = [Math.round(target.x), Math.round(target.z)];
@@ -28,8 +31,9 @@ export async function completeFirstDistrict(page) {
   }
   let goal = '', path = [], state;
   const deadline = Date.now() + 120_000;
+  let steps = 0;
   try {
-    while (Date.now() < deadline) {
+    while (Date.now() < deadline && steps < 1500) {
       state = await page.evaluate(() => window.__SKIFT__.snapshot());
       if (state.mode === 'sector' && state.sector === 0) return state;
       if (state.mode !== 'play' || state.sector !== 0) throw new Error(`Unexpected game state: ${JSON.stringify(state)}`);
@@ -46,7 +50,8 @@ export async function completeFirstDistrict(page) {
       }
       if (state.enemies.some(enemy => !enemy.dead && Math.hypot(enemy.x - state.player.x, enemy.z - state.player.z) < 3.5) || state.bullets > 0) inputs.push('j');
       await keys(inputs);
-      await page.waitForTimeout(80);
+      await page.clock.runFor(80);
+      steps++;
     }
     throw new Error(`District did not complete through native input: ${JSON.stringify(state)}`);
   } finally { await keys([]); }
