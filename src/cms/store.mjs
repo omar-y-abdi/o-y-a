@@ -5,12 +5,9 @@ import { resourceSlots } from '../content/resources.mjs';
 import { composePage, frameCss } from './frame.mjs';
 import { trimLegacySaveMetadata } from './legacy-save-identity.mjs';
 import { studioStatements } from './studio-store.mjs';
-
-export async function digest(value) {
-  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
-  const hash = await crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-}
+import { previewFacts } from './preview-store.mjs';
+import { digest } from './digest.mjs';
+export { digest } from './digest.mjs';
 
 async function compress(text) {
   return new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
@@ -160,7 +157,7 @@ export async function publicationMedia(db, project, references = resourceReferen
   return media;
 }
 
-export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical', studioKey }) {
+export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical', studioKey, previewFrame, origin }) {
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(requestId)) throw new HttpError(400, 'Sparförsöket saknar en giltig version eller identitet.');
   const serialized = JSON.stringify(project);
   if (new TextEncoder().encode(serialized).byteLength > 8 * 1024 * 1024) throw new HttpError(413, 'Projektet är för stort.');
@@ -195,7 +192,7 @@ export async function publishSite(db, { project, baseVersion, requestId, actor, 
   // API publishers provide the build identity only after server validation.
   // Legacy/reverse and direct fixture publishers invalidate the optional copy.
   const buildKey = project.schemaVersion === 2 ? studioKey : undefined;
-  statements.push(...studioStatements(db, { version, serialized, resources: project.resources, buildKey, hash: buildKey ? await digest(serialized) : undefined, condition: '(SELECT version FROM cms_head WHERE id=1)=? AND EXISTS(SELECT 1 FROM cms_revisions WHERE request_id=?)', values: [baseVersion, requestId] }));
+  statements.push(...studioStatements(db, { version, serialized, resources: project.resources, buildKey, hash: buildKey ? await digest(serialized) : undefined, facts: buildKey && previewFrame && origin ? await previewFacts(project, previewFrame, origin) : [], condition: '(SELECT version FROM cms_head WHERE id=1)=? AND EXISTS(SELECT 1 FROM cms_revisions WHERE request_id=?)', values: [baseVersion, requestId] }));
   statements.push(db.prepare('UPDATE cms_head SET version = ? WHERE id = 1 AND version = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(version, baseVersion, requestId));
   // The conditional inserts and pointer change share a D1 transaction. A stale
   // request writes no rows; any SQL failure rolls back the complete publication.

@@ -281,8 +281,10 @@ export function splitPageCss(source, frameHtml, pageHtml, path, ownerDecisions =
   return { frame: css.generate({ ...tree, children: result.frame }), page: css.generate({ ...tree, children: result.page }) };
 }
 
-export function validateFrame(input, seed) {
+export function validateFrame(input, seed, cached) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['html', 'css'].includes(key))) fail('Sidramens format är ogiltigt.');
+  // The caller may supply only server-held, exact-build/content/origin facts.
+  if (cached && cached.html === input.html && cached.css === (input.css ?? '') && Array.isArray(cached.nodes)) return cached;
   const checked = validateHtml(input.html, seed.frame?.contracts ?? [], true);
   const tree = parseFragment(checked.html), mains = elements(tree).filter(node => node.tagName === 'main');
   if (mains.length !== 1 || mains[0].parentNode !== tree || mains[0].attrs.length || mains[0].childNodes.length) fail('Sidramen behöver exakt en tom plats för huvudinnehållet.');

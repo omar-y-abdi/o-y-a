@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { DatabaseSync } from 'node:sqlite';
 import { readFile, readdir } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
+import { dirname } from 'node:path';
 import { publicationChunks } from '../../src/cms/store.mjs';
 
 // Full Worker handlers with real SQLite transactions and observable BLOB reads.
@@ -14,6 +15,10 @@ export async function nodeWorker() {
       name: 'cpu-test-auth',
       setup(plugin) {
         plugin.onLoad({ filter: /[/\\]cms[/\\]auth\.mjs$/ }, () => ({ contents: 'export async function authenticateAdmin(request) { if (request.headers.get("CF-Access-Jwt-Assertion") !== "cpu-test") throw new Error("Missing test auth"); return { email: "owner@example.test", subject: "cpu-test" }; }', loader: 'js' }));
+        plugin.onLoad({ filter: /[/\\]cms[/\\]validation\.mjs$/ }, async ({ path }) => ({
+          contents: (await readFile(path, 'utf8')).replace(/(export function (validateHtml|validateCss)\([^)]*\) \{)/g, (all, declaration, name) => `${declaration} globalThis.cmsValidationCalls?.push(${JSON.stringify(name)});`),
+          loader: 'js', resolveDir: dirname(path),
+        }));
       },
     }] });
     workerSource = bundle.outputFiles[0].text;

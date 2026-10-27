@@ -24,7 +24,7 @@ const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 
 export async function studioBuildKey(seed, directory = process.cwd()) {
   // Fingerprint the actual dependency closure, not a manually maintained
   // version. The temporary in-memory bundles are neither emitted nor served.
-  const representation = await build({ absWorkingDir: directory, entryPoints: ['src/cms/frame-converter.mjs', 'src/cms/project.mjs'], outdir: '.generated/studio-policy', bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
+  const representation = await build({ absWorkingDir: directory, entryPoints: ['src/cms/frame-converter.mjs', 'src/cms/project.mjs', 'src/cms/preview-store.mjs'], outdir: '.generated/studio-policy', bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
   const { studioKey: _previousKey, ...definitions } = seed;
   const policy = createHash('sha256').update(JSON.stringify(definitions));
   for (const output of representation.outputFiles) policy.update(output.contents);

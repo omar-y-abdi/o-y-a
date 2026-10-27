@@ -10,6 +10,8 @@ import { applyProjectChanges, validateProjectChanges } from './project-changes.m
 import { SKIFT_PATH } from '../content/skift.mjs';
 import { handleEmailAdmin } from './email-api.mjs';
 import { readStudioHead } from './studio-store.mjs';
+import { previewBaseline } from './preview-store.mjs';
+import { previewPayload } from './preview-project.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 const legacyDelta = changes => Object.hasOwn(changes, 'sharedContent') || changes.pages?.upsert.some(page => typeof page.html === 'string' && !page.html.trimStart().startsWith('<main'));
@@ -93,10 +95,10 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       if (!stored || stored.version !== body.expectedVersion || await digest(JSON.stringify(stored.project)) !== body.expectedHash) throw new HttpError(409, 'Huvudrevisionen ändrades. Migreringen skrev ingenting.');
       if (stored.project.schemaVersion === (body.reverse ? 1 : 2)) throw new HttpError(409, 'Huvudrevisionen har redan det valda formatet.');
       const candidate = body.reverse ? toLegacyProject(stored.project, seed) : storedProject(stored.project);
-      const { project, references } = validateProjectWithReferences(candidate, seed, undefined, { origins: [url.origin] });
+      const { project, references, frame } = validateProjectWithReferences(candidate, seed, undefined, { origins: [url.origin] });
       if (await digest(JSON.stringify(project)) !== body.projectHash) throw new HttpError(409, 'Konverteraren skiljer sig från den repeterade versionen. Migreringen skrev ingenting.');
       await validateReferencedMedia(env, project, references);
-      return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash, requestFormat: 'migration-v1', studioKey: seed.studioKey }));
+      return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash, requestFormat: 'migration-v1', studioKey: seed.studioKey, previewFrame: frame, origin: url.origin }));
     }
     if (url.pathname === '/admin/api/managed-svg') {
       const body = await readJson(request, 16 * 1024 * 1024);
@@ -190,21 +192,32 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     }
     if (url.pathname === '/admin/api/validate' || url.pathname === '/admin/api/preview') {
       const body = await readJson(request, 8 * 1024 * 1024);
-      const stored = await readSite(env.CMS_DB);
-      const baseline = stored ? storedProject(stored.project) : initial;
-      const project = validateProject(fromClient(body.project), seed, baseline, { origins: [url.origin] });
-      await validateReferencedMedia(env, project);
+      const isPreview = url.pathname.endsWith('/preview');
+      let input = body?.project, target;
+      if (isPreview) {
+        const pageTarget = typeof body?.pageId === 'string', cardTarget = typeof body?.cardId === 'string';
+        if (pageTarget === cardTarget) throw new HttpError(422, 'Välj en sida eller en vinst för förhandsvisningen.');
+        try {
+          const payload = previewPayload(input, cardTarget ? 'win' : 'page', cardTarget ? body.cardId : body.pageId);
+          input = payload.project;
+          target = cardTarget ? { cardId: body.cardId } : { pageId: body.pageId };
+        } catch (error) { throw new HttpError(422, error.message); }
+      }
+      input = fromClient(input);
+      const baseline = isPreview ? await previewBaseline(env.CMS_DB, input, seed, url.origin) : await publishedBaseline();
+      const { project, references } = validateProjectWithReferences(input, seed, baseline, { origins: [url.origin], preview: target });
+      await validateReferencedMedia(env, project, references);
       if (body.resources !== undefined) await validatePackageResources(env.CMS_DB, body.resources);
-      await publicationMedia(env.CMS_DB, project);
-      if (url.pathname.endsWith('/validate')) { publicationChunks(project, await resolveResources(env.CMS_DB, project)); return json({ project }); }
+      await publicationMedia(env.CMS_DB, project, references);
+      if (!isPreview) { publicationChunks(project, await resolveResources(env.CMS_DB, project), references); return json({ project }); }
       if (body.cardId) {
         const card = project.cards.find(item => item.id === body.cardId);
         if (!card) throw new HttpError(404, 'Vinsten finns inte i utkastet.');
-        return json({ html: renderWinPreview(card, project, built) });
+        return json({ html: renderWinPreview(card, project, built, references) });
       }
       const page = project.pages.find(item => item.id === body.pageId);
       if (!page) throw new HttpError(404, 'Sidan finns inte i utkastet.');
-      return json({ html: renderPage(page, built, { preview: true, project, resources: await resolveResources(env.CMS_DB, project), resourceOrigin: url.origin }) });
+      return json({ html: renderPage(page, built, { preview: true, project, resources: await resolveResources(env.CMS_DB, project), resourceOrigin: url.origin, references }) });
     }
     if (url.pathname === '/admin/api/save') {
       const body = await readJson(request, 8 * 1024 * 1024);
@@ -241,18 +254,18 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
         try { candidate = applyProjectChanges(deltaBase(stored.project, baseline, changes, seed), changes); }
         catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
         // After the replay check, so a replayed pendingSave keeps its payload hash.
-        const { project, references } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
+        const { project, references, frame } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
         await validateReferencedMedia(env, project, references);
-        return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references, requestFormat: 'delta-v1', studioKey: seed.studioKey }));
+        return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references, requestFormat: 'delta-v1', studioKey: seed.studioKey, previewFrame: frame, origin: url.origin }));
       }
       const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, project: body.project }));
       const replay = await replayFullSave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, baseVersion: body.baseVersion, payloadHash, project: body.project });
       if (replay) return json(replay);
       const stored = await readSite(env.CMS_DB);
       const baseline = stored ? storedProject(stored.project) : initial;
-      const { project, references } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
+      const { project, references, frame } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project, references);
-      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1', studioKey: seed.studioKey }));
+      return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1', studioKey: seed.studioKey, previewFrame: frame, origin: url.origin }));
     }
     throw new HttpError(404, 'Åtgärden finns inte.');
   } catch (error) { return errorResponse(error, new URL(request.url).pathname.split('/')[3]); }

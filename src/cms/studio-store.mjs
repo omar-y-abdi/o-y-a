@@ -43,11 +43,11 @@ export async function readStudioVersion(db, version) {
   } catch (error) { if (missingSchema(error)) return null; throw error; }
 }
 
-function textBatches(parts) {
+export function studioBatches(rows) {
   const batches = [];
   let entries = [], bytes = 2;
-  for (const [part, body] of parts.entries()) {
-    const entry = JSON.stringify({ part, body }), size = new TextEncoder().encode(entry).byteLength + 1;
+  for (const row of rows) {
+    const entry = JSON.stringify(row), size = new TextEncoder().encode(entry).byteLength + 1;
     if (bytes + size > 1000000) { batches.push('[' + entries.join(',') + ']'); entries = []; bytes = 2; }
     entries.push(entry); bytes += size;
   }
@@ -55,11 +55,12 @@ function textBatches(parts) {
   return batches;
 }
 
-export function studioStatements(db, { version, serialized, resources, buildKey, hash, condition, values }) {
+export function studioStatements(db, { version, serialized, resources, buildKey, hash, facts = [], condition, values }) {
   const statements = [db.prepare(`DELETE FROM cms_studio_heads WHERE ${condition}`).bind(...values)];
   if (!buildKey) return statements;
   const parts = textParts(serialized);
   statements.push(db.prepare(`INSERT INTO cms_studio_heads(version,build_key,project_hash,resources,text_parts) SELECT ?,?,?,?,? WHERE ${condition}`).bind(version, buildKey, hash, JSON.stringify(resources), parts.length, ...values));
-  for (const batch of textBatches(parts)) statements.push(db.prepare(`INSERT INTO cms_studio_text(version,part,body) SELECT ?,json_extract(value,'$.part'),json_extract(value,'$.body') FROM json_each(?) WHERE ${condition}`).bind(version, batch, ...values));
+  for (const batch of studioBatches(parts.map((body, part) => ({ part, body })))) statements.push(db.prepare(`INSERT INTO cms_studio_text(version,part,body) SELECT ?,json_extract(value,'$.part'),json_extract(value,'$.body') FROM json_each(?) WHERE ${condition}`).bind(version, batch, ...values));
+  for (const batch of studioBatches(facts)) statements.push(db.prepare(`INSERT INTO cms_preview_facts(version,target,content_hash,origin,facts) SELECT ?,json_extract(value,'$.target'),json_extract(value,'$.hash'),json_extract(value,'$.origin'),json_extract(value,'$.facts') FROM json_each(?) WHERE ${condition}`).bind(version, batch, ...values));
   return statements;
 }
