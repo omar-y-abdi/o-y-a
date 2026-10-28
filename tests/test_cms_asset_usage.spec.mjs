@@ -14,7 +14,7 @@ test.beforeAll(async ({ playwright }) => {
 test.afterAll(async () => { try { await api?.dispose(); } finally { await runtime?.close(); } });
 
 test('test_delayed_usage_refresh_preserves_metadata_draft', async ({ browser, page }, testInfo) => {
-  await libraryPage(page, runtime, bundle, '<div id="special-stage"></div><div id="custom-inspector"></div>');
+  await libraryPage(page, bundle, '<div id="special-stage"></div><div id="custom-inspector"></div>');
   const asset = { id: 'asset-one', name: 'original.png', mime: 'image/png', src: '/image.png', alt: 'original alt', state: 'active' };
   await page.evaluate(asset => window.libraryFixture.assetDetail(asset), asset);
   await page.locator('#asset-name').fill('draft name.png');
