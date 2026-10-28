@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { transitionAsset } from '../src/cms/assets.mjs';
+import { transitionAsset } from '../src/cms/asset-lifecycle.mjs';
 import { publishSite } from '../src/cms/store.mjs';
 import { initial } from '../.generated/cms-seed.mjs';
 

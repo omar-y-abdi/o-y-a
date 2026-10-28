@@ -60,14 +60,18 @@ Incoming JSON and public-media bodies have route-specific limits enforced while 
 | --- | --- |
 | `save`, `validate`, `preview` | 8 MiB |
 | `recover`, `managed-svg`, `asset-metadata`, `asset-lifecycle`, `replace-resource` | 16 MiB |
-| `migrate-frame` | 4 KiB |
+| `migrate-frame`, `cpu-migration` | 4 KiB |
 | `asset-usage`, `mail/cancel`, `mail/attachment-remove` | 1 KiB |
 | `contact` settings | 8 KiB |
 | `mail/test`, `mail/send` | 1 MiB |
 | `upload` public media | 10 MiB |
 | `mail/attachment` private attachment | 30 MiB declared upload limit; returned R2 size must match |
 
-The JSON reader's default is 4 MiB; the registered routes above provide their own limits. The public contact endpoint accepts at most 16 KiB and the analytics event endpoint at most 256 bytes. Authoritative limits live in `src/cms/api.mjs`, `src/cms/email-api.mjs`, `src/cms/http.mjs`, `src/server/contact.mjs` and `src/worker.mjs`.
+The JSON reader's default is 4 MiB; the registered routes above provide their own limits. The public contact endpoint accepts at most 16 KiB and the analytics event endpoint at most 256 bytes. Authoritative limits live in `src/cms/admin-site.mjs`, `src/cms/admin-media.mjs`, `src/cms/email-api.mjs`, `src/cms/http.mjs`, `src/server/contact.mjs` and `src/worker.mjs`.
+
+`api.mjs` authenticates admin requests and owns generic route dispatch, storage availability, the shared write-policy call and final error mapping. Site and media handlers parse their own bounded bodies. The mail adapter uses the same write policy once after selecting a known write route, retaining contact-settings reads without D1, mail-specific unknown-route precedence and uncertain-delivery errors. Public media serving keeps its separate unpublished-file Access check in `media-files.mjs`; private signed attachments remain in the mail subsystem.
+
+Media responsibilities are divided by ownership: `assets.mjs` holds inventory and metadata projections, `media-files.mjs` admits and serves stored files, `asset-lifecycle.mjs` guards usage and recoverable deletion, and `managed-svg.mjs` owns staged source/derivative operations. Uploaded files, built-in resources and private attachments retain their distinct authoritative storage and lifecycle rules.
 
 Private mail attachments use a separate `mail-private/` prefix and HMAC-authorized `/mail-file/{id}/{expiry}?token=…` downloads. Their bearer token is kept out of the URL path, and Wrangler query redaction covers Worker logs and traces. A release must verify that effective platform setting; it does not erase previously stored URLs. `CONTACT_HASH_SECRET` also encrypts saved contact settings and signs public contact idempotency/rate keys. Changing it requires the controlled transition in [CONTACT-SETUP.md](CONTACT-SETUP.md), including outstanding attachment sends and saved-settings recovery.
 

@@ -17,7 +17,7 @@ import { projectChanges, validateProjectChanges, applyProjectChanges } from '../
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { uploadAsset } from '../src/cms/assets.mjs';
+import { uploadAsset } from '../src/cms/media-files.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 
 // A1b manipulation suite. Every case runs on the three server paths that take
