@@ -7,6 +7,7 @@ import { trimLegacySaveMetadata } from './legacy-save-identity.mjs';
 import { studioStatements } from './studio-store.mjs';
 import { previewFacts } from './preview-store.mjs';
 import { digest } from './digest.mjs';
+import { storedProjectView } from './stored-view.mjs';
 export { digest } from './digest.mjs';
 
 async function compress(text) {
@@ -24,7 +25,7 @@ export async function readSite(db, version, { raw = false } = {}) {
   if (!row) return null;
   const project = JSON.parse(await decompress(row.project));
   // Migration CAS hashes the exact stored project; normal reads discard unused editor JSON.
-  if (!raw) for (const page of project.pages) page.project = null;
+  if (!raw) storedProjectView(project);
   return { version: row.version, requestId: row.request_id, createdAt: row.created_at, project };
 }
 

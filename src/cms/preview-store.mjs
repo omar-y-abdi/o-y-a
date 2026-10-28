@@ -1,10 +1,10 @@
 import { digest } from './digest.mjs';
 
-const frameHash = (project, origin) => digest(JSON.stringify([project.schemaVersion, origin, project.frame.html, project.frame.css ?? '']));
-const pageHash = (project, page, frame, origin) => digest(JSON.stringify([project.schemaVersion, origin, frame, page.id, page.sourceId, page.html, page.css ?? '', page.frameKeys ?? null, page.frameIds ?? null]));
+export const frameHash = (project, origin) => digest(JSON.stringify([project.schemaVersion, origin, project.frame.html, project.frame.css ?? '']));
+export const pageHash = (project, page, frame, origin) => digest(JSON.stringify([project.schemaVersion, origin, frame, page.id, page.sourceId, page.html, page.css ?? '', page.frameKeys ?? null, page.frameIds ?? null]));
 
-// Only the central publication transaction writes these proofs. They contain
-// immutable structural/resource facts, never mutable media readiness.
+// Validated publication and sealed D1-owner migration transactions write these
+// proofs. They contain immutable facts, never mutable media readiness.
 export async function previewFacts(project, frame, origin) {
   const hash = await frameHash(project, origin);
   const rows = [{ target: '@frame', hash, origin, facts: JSON.stringify({ nodes: frame.nodes.map(({ tagName, namespaceURI, attrs }) => ({ tagName, namespaceURI, attrs })), resourceReferences: frame.resourceReferences, resourceOrigin: frame.resourceOrigin }) }];

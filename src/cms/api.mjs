@@ -12,6 +12,7 @@ import { handleEmailAdmin } from './email-api.mjs';
 import { readStudioHead } from './studio-store.mjs';
 import { previewBaseline } from './preview-store.mjs';
 import { previewPayload } from './preview-project.mjs';
+import { applyCpuMigration, cpuMigrationStatus } from './cpu-migration.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 const legacyDelta = changes => Object.hasOwn(changes, 'sharedContent') || changes.pages?.upsert.some(page => typeof page.html === 'string' && !page.html.trimStart().startsWith('<main'));
@@ -42,6 +43,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     if (url.pathname === '/admin/api/contact' || url.pathname.startsWith('/admin/api/mail/')) return await handleEmailAdmin(request, env, { identity, url, head: publishedBaseline });
     if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
     if (request.method === 'GET' || request.method === 'HEAD') {
+      if (url.pathname === '/admin/api/cpu-migration') return json(await cpuMigrationStatus(env.CMS_DB, { buildKey: seed.studioKey, origin: url.origin, actor: identity.email, operationId: url.searchParams.get('operationId') ?? undefined }));
       if (url.pathname === '/admin/api/state') {
         const [canonical, media, builtinStates] = await Promise.all([readStudioHead(env.CMS_DB, seed.studioKey), assetPage(env.CMS_DB, { state: 'active' }), builtinAssetStates(env.CMS_DB)]);
         const state = canonical ?? await readSite(env.CMS_DB);
@@ -85,6 +87,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       return json(await uploadAsset(env, { id: request.headers.get('X-CMS-Upload-Id') ?? '', name, alt, bytes: await readBytes(request, MAX_ASSET_BYTES) }), 201);
     }
     requireWriteRequest(request);
+    if (url.pathname === '/admin/api/cpu-migration') return json(await applyCpuMigration(env.CMS_DB, await readJson(request, 4096), { buildKey: seed.studioKey, origin: url.origin, actor: identity.email }));
     if (url.pathname === '/admin/api/migrate-frame') {
       const body = await readJson(request, 4096);
       if (!body || Object.keys(body).some(key => !['expectedVersion', 'expectedHash', 'projectHash', 'reverse', 'requestId'].includes(key)) || !Number.isSafeInteger(body.expectedVersion) || body.expectedVersion < 1 || typeof body.reverse !== 'boolean' || !/^[0-9a-f]{64}$/.test(body.expectedHash) || !/^[0-9a-f]{64}$/.test(body.projectHash) || !/^[0-9a-f-]{36}$/.test(body.requestId)) throw new HttpError(422, 'Migreringen saknar en giltig version, kontrollsumma eller identitet.');

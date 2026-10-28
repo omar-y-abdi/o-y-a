@@ -26,5 +26,10 @@ test('studio representation identity is repeatable and follows validation semant
     assert.ok(source.includes('if (!TAGS.has(tag))'));
     await writeFile(file, source.replace('if (!TAGS.has(tag))', "if (tag === 'div' || !TAGS.has(tag))"));
     assert.notEqual(await studioBuildKey(seed, directory), first, 'actual validation behavior changes the key without a manual policy bump');
+    await writeFile(file, source);
+    const viewFile = join(directory, 'src/cms/stored-view.mjs'), view = await readFile(viewFile, 'utf8');
+    assert.ok(view.includes('page.project = null'));
+    await writeFile(viewFile, view.replace('page.project = null', 'page.project = undefined'));
+    assert.notEqual(await studioBuildKey(seed, directory), first, 'ordinary stored-view projection participates in canonical identity');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

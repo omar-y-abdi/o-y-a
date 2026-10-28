@@ -1,14 +1,14 @@
 import { validateProject } from './project.mjs';
 import { digest, publicationChunks, publicationMedia, readHistory, readSite } from './store.mjs';
-import { resolvedResources } from './resources.mjs';
+import { resolvedResources, validateResources } from './resources.mjs';
 import { normalizeStoredProject, chooseFrame } from './frame-converter.mjs';
 import { readStudioVersion } from './studio-store.mjs';
 import { isDeepStrictEqual } from 'node:util';
 
-function* restorable(project) {
+export function* restorableProjects(project) {
   const conflict = project.frameConflicts?.[0];
   if (!conflict) { yield project; return; }
-  for (const option of conflict.options) yield* restorable(chooseFrame(project, option.value, conflict.key));
+  for (const option of conflict.options) yield* restorableProjects(chooseFrame(project, option.value, conflict.key));
 }
 
 // No cache and no writes: a release must accept every retained restorable
@@ -19,11 +19,11 @@ export async function checkCompatibility(db, { seed, initial }) {
     try {
       const converted = normalizeStoredProject(structuredClone(project), seed, initial);
       const canonical = await readStudioVersion(db, version);
-      if (canonical && (await digest(canonical.parts.join('')) !== canonical.hash || !isDeepStrictEqual(canonical.resources, converted.resources) || !isDeepStrictEqual(JSON.parse(canonical.parts.join('')), JSON.parse(JSON.stringify(converted))))) {
+      if (canonical && (await digest(canonical.parts.join('')) !== canonical.hash || !isDeepStrictEqual(canonical.resources, validateResources(converted.resources)) || !isDeepStrictEqual(JSON.parse(canonical.parts.join('')), JSON.parse(JSON.stringify(converted))))) {
         results.push({ version, compatible: false, error: 'Studions lagrade text avviker från revisionens aktuella representation. Repetera CPU-migreringen med det föreslagna bygget innan driftsättning.' });
         return;
       }
-      for (const candidate of restorable(converted)) {
+      for (const candidate of restorableProjects(converted)) {
         const normalized = validateProject(candidate, seed);
         publicationChunks(normalized, resolvedResources(normalized, await publicationMedia(db, normalized)));
       }
