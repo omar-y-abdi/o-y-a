@@ -14,7 +14,7 @@
     "lint": "node scripts/lint.mjs",
     "pretest": "npm run build",
     "test": "node scripts/run-node-tests.mjs fast && npm run test:slow",
-    "test:cms": "playwright test tests/cms-modules.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=1 --output=output/playwright/artifacts/cms-modules && node scripts/test-cms-parallel.mjs",
+    "test:cms": "playwright test tests/cms-modules.spec.mjs tests/managed-svg-fidelity.spec.mjs tests/test_cms_browser_helpers.spec.mjs tests/test_cms_asset_usage.spec.mjs --project=chromium --no-deps --workers=1 --output=output/playwright/artifacts/cms-modules && node scripts/test-cms-parallel.mjs",
     "test:public-pages": "playwright test tests/public-pages.spec.mjs tests/public-review.spec.mjs tests/card-export.spec.mjs tests/public-startup.spec.mjs --project=chromium --no-deps --grep-invert='all 240 production card exports' --output=output/playwright/artifacts/public && playwright test tests/card-export.spec.mjs --project=chromium --no-deps --grep='all 240 production card exports' --workers=1 --output=output/playwright/artifacts/card-exports && playwright test tests/public-pages.spec.mjs tests/skift.spec.mjs --project=chromium-webgl --no-deps --output=output/playwright/artifacts/webgl",
     "test:skift": "playwright test tests/skift.spec.mjs --project=chromium-webgl --no-deps",
     "check": "npm run lint && npm test",

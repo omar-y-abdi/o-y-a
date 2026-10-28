@@ -11,8 +11,7 @@ await writeFile(state, JSON.stringify({ cookies: [{ name: 'CF_Authorization', va
 try {
   const files = process.argv.slice(2);
   const suites = files.length ? files : ['tests/cms-browser.py', 'tests/cms-interactions.py', 'tests/cms-review-browser.py', 'tests/cms-review-final-browser.py'];
-  const helpers = process.env.CMS_SKIP_HELPERS === '1' ? [] : ['tests/test_cms_browser_helpers.py'];
-  for (const file of [...helpers, ...suites.filter(file => file !== 'tests/test_cms_browser_helpers.py')]) {
+  for (const file of suites) {
     const child = spawn(python, [file], { stdio: 'inherit', env: { ...process.env, BASE_URL: runtime.url, CMS_STORAGE_STATE: state } });
     const stop = signal => child.kill(signal);
     const interrupt = () => stop('SIGINT'), terminate = () => stop('SIGTERM');
