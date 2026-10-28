@@ -34,6 +34,19 @@ export async function readStudioHead(db, buildKey) {
   } catch (error) { if (missingSchema(error)) return null; throw error; }
 }
 
+// Mail needs only published slot mappings. Check the same copy's completeness
+// without transferring/parsing its page text or structural proof inventory.
+export async function readStudioResources(db, buildKey) {
+  if (!buildKey) return null;
+  try {
+    const row = await db.prepare('SELECT s.version,s.resources,s.text_parts,(SELECT count(*) FROM cms_studio_text WHERE version=s.version) AS parts,(SELECT min(part) FROM cms_studio_text WHERE version=s.version) AS first_part,(SELECT max(part) FROM cms_studio_text WHERE version=s.version) AS last_part,EXISTS(SELECT 1 FROM cms_revision_resource_indexed WHERE version=s.version) AS indexed FROM cms_studio_heads s JOIN cms_head h ON h.version=s.version WHERE h.id=1 AND s.build_key=?').bind(buildKey).first();
+    if (!row) return null;
+    if (row.parts !== row.text_parts || row.first_part !== 0 || row.last_part !== row.text_parts - 1) throw new Error('CMS_STUDIO_TEXT_INCOMPLETE');
+    if (!row.indexed) throw new Error('CMS_STUDIO_RESOURCE_INDEX_MISSING');
+    return { version: row.version, resources: JSON.parse(row.resources) };
+  } catch (error) { if (missingSchema(error)) return null; throw error; }
+}
+
 // Release/backup verification explicitly inspects a pinned representation even
 // if it belongs to an earlier build. Never use this as a serving shortcut.
 export async function readStudioVersion(db, version) {

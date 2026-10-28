@@ -13,6 +13,7 @@ import { readStudioHead } from './studio-store.mjs';
 import { previewBaseline } from './preview-store.mjs';
 import { previewPayload } from './preview-project.mjs';
 import { applyCpuMigration, cpuMigrationStatus } from './cpu-migration.mjs';
+import { readCurrentProject, readCurrentResources } from './current-project.mjs';
 
 const resourceIds = project => [...resourceReferences(project).keys()].filter(src => src.startsWith('/media/')).map(src => src.slice(7).split('.')[0]);
 const legacyDelta = changes => Object.hasOwn(changes, 'sharedContent') || changes.pages?.upsert.some(page => typeof page.html === 'string' && !page.html.trimStart().startsWith('<main'));
@@ -31,16 +32,16 @@ export { normalizeClientProject } from './frame-converter.mjs';
 export async function handleAdmin(request, env, { seed, initial, built }) {
   const storedProject = project => normalizeStoredProject(project, seed, initial);
   const fromClient = project => normalizeClientProject(project, seed);
-  // A16: the published head is the cache for pages a request leaves unchanged.
-  const publishedBaseline = async () => {
-    const stored = await readSite(env.CMS_DB);
-    return stored ? storedProject(stored.project) : initial;
-  };
+  // One request-local snapshot; no process cache can outlive a Save or media
+  // change. Internal proof facts never become the delta's project payload.
+  let current;
+  const published = () => current ??= readCurrentProject(env.CMS_DB, seed, initial, new URL(request.url).origin);
+  const publishedBaseline = async () => (await published()).baseline;
   try {
     const identity = await authenticateAdmin(request, env);
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/admin/api/')) return env.ASSETS.fetch(request);
-    if (url.pathname === '/admin/api/contact' || url.pathname.startsWith('/admin/api/mail/')) return await handleEmailAdmin(request, env, { identity, url, head: publishedBaseline });
+    if (url.pathname === '/admin/api/contact' || url.pathname.startsWith('/admin/api/mail/')) return await handleEmailAdmin(request, env, { identity, url, head: () => readCurrentResources(env.CMS_DB, seed, initial) });
     if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
     if (request.method === 'GET' || request.method === 'HEAD') {
       if (url.pathname === '/admin/api/cpu-migration') return json(await cpuMigrationStatus(env.CMS_DB, { buildKey: seed.studioKey, origin: url.origin, actor: identity.email, operationId: url.searchParams.get('operationId') ?? undefined }));
@@ -181,13 +182,14 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
           let changes;
           try { changes = validateProjectChanges(pending.changes); }
           catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
-          const saved = await readSite(env.CMS_DB, pending.baseVersion);
+          const head = legacyDelta(changes) ? null : await published();
+          const saved = head?.version === pending.baseVersion ? head : await readSite(env.CMS_DB, pending.baseVersion);
           if (!saved) throw new HttpError(422, 'Reservutkastets ursprungsversion saknas.');
           const base = storedProject(saved.project);
           let candidate;
           try { candidate = applyProjectChanges(deltaBase(saved.project, base, changes, seed), changes); }
           catch { throw new HttpError(422, 'Reservutkastets sparförsök är ogiltigt.'); }
-          pendingProject = validateProject(fromClient(candidate), seed, base, { origins: [url.origin], publication: false });
+          pendingProject = validateProject(fromClient(candidate), seed, saved.baseline ?? base, { origins: [url.origin], publication: false });
           pendingSave = pending;
         }
       }
@@ -246,15 +248,16 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
           if (racedReplay) return json(racedReplay);
           throw new HttpError(409, 'Webbplatsen ändrades i en annan flik. Ditt utkast finns kvar; jämför innan du sparar igen.');
         }
-        const stored = await readSite(env.CMS_DB);
+        const stored = legacyDelta(changes) ? await readSite(env.CMS_DB) : await published();
         if ((stored?.version ?? 0) !== body.baseVersion) {
           const racedReplay = await replaySave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, payloadHash });
           if (racedReplay) return json(racedReplay);
           throw new HttpError(409, 'Webbplatsen ändrades i en annan flik. Ditt utkast finns kvar; jämför innan du sparar igen.');
         }
-        const baseline = stored ? storedProject(stored.project) : initial;
+        const base = stored ? storedProject(stored.project) : initial;
+        const baseline = stored?.baseline ?? base;
         let candidate;
-        try { candidate = applyProjectChanges(deltaBase(stored.project, baseline, changes, seed), changes); }
+        try { candidate = applyProjectChanges(deltaBase(stored.project, base, changes, seed), changes); }
         catch { throw new HttpError(422, 'Sparförändringarna passar inte den aktuella versionen.'); }
         // After the replay check, so a replayed pendingSave keeps its payload hash.
         const { project, references, frame } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
@@ -264,8 +267,7 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
       const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, project: body.project }));
       const replay = await replayFullSave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, baseVersion: body.baseVersion, payloadHash, project: body.project });
       if (replay) return json(replay);
-      const stored = await readSite(env.CMS_DB);
-      const baseline = stored ? storedProject(stored.project) : initial;
+      const baseline = await publishedBaseline();
       const { project, references, frame } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
       await validateReferencedMedia(env, project, references);
       return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1', studioKey: seed.studioKey, previewFrame: frame, origin: url.origin }));

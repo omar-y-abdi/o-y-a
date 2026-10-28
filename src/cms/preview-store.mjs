@@ -32,3 +32,26 @@ export async function previewBaseline(db, project, seed, origin) {
     ...(found.has('@frame') ? { validatedFrame: { ...frame, ...found.get('@frame') } } : {}),
   };
 }
+
+// The canonical body and its immutable proof rows can be read across a Save.
+// Pin this query to the body version, never whichever head is current later.
+// A disappeared proof set safely leaves the original baseline for validation.
+export async function currentBaseline(db, project, version, seed, origin) {
+  let rows;
+  try {
+    rows = await db.prepare('SELECT f.target,f.content_hash,f.facts FROM cms_studio_heads s JOIN cms_preview_facts f ON f.version=s.version WHERE s.version=? AND s.build_key=? AND f.origin=?').bind(version, seed.studioKey, origin).all();
+  } catch (error) {
+    if (/no such table: (?:main\.)?cms_preview_facts\b/i.test(String(error?.message ?? error))) return project;
+    throw error;
+  }
+  if (!rows.results.length) return project;
+  const found = new Map(rows.results.map(row => [row.target, row]));
+  const frameKey = await frameHash(project, origin);
+  const frameRow = found.get('@frame');
+  const pages = await Promise.all(project.pages.map(async page => {
+    const row = found.get(`page/${page.id}`);
+    if (!row) return page;
+    return row.content_hash === await pageHash(project, page, frameKey, origin) ? { ...page, facts: JSON.parse(row.facts) } : page;
+  }));
+  return { ...project, pages, ...(frameRow?.content_hash === frameKey ? { validatedFrame: { ...project.frame, ...JSON.parse(frameRow.facts) } } : {}) };
+}

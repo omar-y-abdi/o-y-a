@@ -16,7 +16,7 @@ export async function nodeWorker() {
       setup(plugin) {
         plugin.onLoad({ filter: /[/\\]cms[/\\]auth\.mjs$/ }, () => ({ contents: 'export async function authenticateAdmin(request) { if (request.headers.get("CF-Access-Jwt-Assertion") !== "cpu-test") throw new Error("Missing test auth"); return { email: "owner@example.test", subject: "cpu-test" }; }', loader: 'js' }));
         plugin.onLoad({ filter: /[/\\]cms[/\\]validation\.mjs$/ }, async ({ path }) => ({
-          contents: (await readFile(path, 'utf8')).replace(/(export function (validateHtml|validateCss)\([^)]*\) \{)/g, (all, declaration, name) => `${declaration} globalThis.cmsValidationCalls?.push(${JSON.stringify(name)});`),
+          contents: (await readFile(path, 'utf8')).replace(/(export function (validateHtml|validateCss)\([^)]*\) \{)/g, (all, declaration, name) => `${declaration} globalThis.cmsValidationCalls?.push(${JSON.stringify(name)}); globalThis.cmsValidationDetails?.push({ name:${JSON.stringify(name)}, context:arguments[1] ?? ${name === 'validateCss' ? "'stylesheet'" : 'null'}, source:${name === 'validateCss' ? 'arguments[0]' : 'undefined'} });`),
           loader: 'js', resolveDir: dirname(path),
         }));
       },
