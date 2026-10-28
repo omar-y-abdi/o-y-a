@@ -21,10 +21,11 @@ Pause studio writes. Retain the matching Worker version, a private D1 backup, R2
 The CLI reads through the configured D1 binding and validates the proposed publication against copied media metadata. A forward rehearsal on an already prepared local copy uses:
 
 ```sh
-node scripts/cms-migrate-frame.mjs --dry-run --local --persist-to="$FRAME_COPY_DIR" > "$FRAME_FORWARD_RECEIPT"
+node scripts/cms-migrate-frame.mjs --dry-run --local --persist-to="$FRAME_COPY_DIR" \
+  --origin="$FRAME_COPY_ORIGIN" > "$FRAME_FORWARD_RECEIPT"
 ```
 
-Review the JSON receipt: `expectedVersion`, `expectedHash`, `projectHash`, `requestId`, direction and byte counts. These hashes cover the exact stored source and the validated converted project. Set `FRAME_VERSION`, `FRAME_HASH` and `FRAME_REQUEST_ID` from that reviewed receipt. The copy's frame-capable Worker must use the same copied storage; pass its explicit origin on apply:
+Review the JSON receipt: `origin`, `expectedVersion`, `expectedHash`, `projectHash`, `requestId`, direction and byte counts. These hashes cover the exact stored source and the validated converted project, including origin-bound resource facts. Set `FRAME_VERSION`, `FRAME_HASH` and `FRAME_REQUEST_ID` from that reviewed receipt. The copy's frame-capable Worker must use the same copied storage and explicit origin for both dry-run and apply:
 
 ```sh
 node scripts/cms-migrate-frame.mjs --apply --local --persist-to="$FRAME_COPY_DIR" \
@@ -68,6 +69,7 @@ const origin = new URL(process.env.FRAME_ORIGIN);
 const local = origin.protocol === 'http:' && origin.hostname === '127.0.0.1' && origin.port !== '';
 if (origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash
   || origin.origin !== 'https://omaryusuf.se' && !local) throw new Error('Review the exact migration origin.');
+if (receipt.origin !== origin.origin) throw new Error('The receipt belongs to another migration origin.');
 if (!process.env.CMS_MIGRATION_COOKIE) throw new Error('Owner cookie missing.');
 const { expectedVersion, expectedHash, projectHash, reverse, requestId } = receipt;
 const response = await fetch(new URL('/admin/api/migrate-frame', origin), {
@@ -94,6 +96,6 @@ node scripts/cms-migrate-frame.mjs --apply --reverse --origin=https://omaryusuf.
   --request-id="$FRAME_REQUEST_ID"
 ```
 
-For copy rehearsal add `--local --persist-to="$FRAME_COPY_DIR"` to both commands and use `--origin="$FRAME_COPY_ORIGIN"` on apply. Verify the new head is schema 1 and rehearse the intended older Worker against that head before rolling back code. Do not deploy the schema-1-only Worker first: it cannot perform the reverse conversion. The reverse appends a revision; it does not rewrite or delete the retained schema-2 history. An older Worker's History/Restore and full retained-revision compatibility may therefore remain unsupported. Retain frame-capable recovery tooling and do not claim an older Worker can restore those revisions.
+For copy rehearsal add `--local --persist-to="$FRAME_COPY_DIR" --origin="$FRAME_COPY_ORIGIN"` to both commands. Verify the new head is schema 1 and rehearse the intended older Worker against that head before rolling back code. Do not deploy the schema-1-only Worker first: it cannot perform the reverse conversion. The reverse appends a revision; it does not rewrite or delete the retained schema-2 history. An older Worker's History/Restore and full retained-revision compatibility may therefore remain unsupported. Retain frame-capable recovery tooling and do not claim an older Worker can restore those revisions.
 
 D1 Time Travel is a separate whole-database recovery option, not a frame-only undo. Returning to a bookmark can discard later unrelated CMS/media/mail metadata, does not roll back R2 objects or Worker code, and requires deliberate reconciliation with the matching deployment and object inventory. Confirm the available bookmark and recovery procedure before using it. Never prune schema-2 history or R2 objects merely to make an old-code compatibility gate pass.

@@ -1,5 +1,15 @@
 # Remaining maintenance work: root plan
 
+## Resumed by the owner, 2026-10-28
+
+The owner explicitly resumed the entire queue after the usage reset, then requested Colima startup. Root and the same Astra peer are active again. The pause below is historical. PR16 and PR17 remain open and unmerged; remote heads and main still match the recorded checkpoint.
+
+PR17's exact-head run `40600825039` passed functional-browser, Firefox, WebKit, SKIFT release and Cloudflare Builds. `verify` failed three of 797 tests: two frame-migration hash mismatches, plus the new reference-equivalence fixture's missing mail-image alt text. Root reproduced the same three failures locally before editing. Adding explicit alt text to the fixture retained the validator and all resource-equivalence assertions; its nine-test scope suite now passes. The frame-migration CLI/helper's origin context is under repair by Astra; the project-hash guard must remain authoritative. Root is completing the previously interrupted preview/recovery browser selection while the peer edits only migration tooling and its tests.
+
+The origin correction now uses the same explicitly validated origin for local rehearsal and apply; production retains its default origin. A wrong-origin plan still fails with 409 and creates no revision. Root reviewed that source and ran migration, preview, responsive conversion, initial-frame and documentation checks: **32 passed**, zero skipped/failed, in 22.738 seconds (`/tmp/o-y-a-pr17-resume-fixed.log`). The unfinished preview/recovery browser selection also passed **nine** cases without skips/retries in 44.332 seconds (`/tmp/o-y-a-pr17-resume-browser.json`). These new results supersede the corresponding unrun pause notes; the existing-head CPU migration is still pending.
+
+QA worktree is now synchronized to `c36974f`. Twenty-two production mutations were executed against both the original Python module suite and its replacement, covering twenty-four named cases. Each failed at its intended assertion; the twenty-fifth case already executes four clipping negative controls. All mutated product bytes were restored. Exact test/source/mutant receipts are retained under ignored `maintenance-wip-qa/output/parity/module-mutations/`; they do not prove cross-engine parity, whose restored-code runs are in progress. Colima and Docker are running; existing containers are preserved.
+
 ## Paused at the owner's request, 2026-10-28
 
 The owner has approximately 5% of the weekly allowance left and requested a WIP PR, updated continuation documents and idle. Stop after pushing this checkpoint. Do not continue implementation, start more agents, merge, deploy, or run production migrations while paused. When the owner resumes, continue the **entire original WIP queue**, with root and the same Astra peer (`/root/astra_cleanup_peer`), not only mail setup or PR15 repairs.

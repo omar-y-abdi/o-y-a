@@ -224,7 +224,7 @@ test('per-owner reference summaries equal the complete resource walk for legacy,
     source.email = structuredClone(DEFAULT_EMAIL);
     for (const template of Object.values(source.email.templates)) {
       const picture = template.blocks.find(block => block.type === 'image');
-      if (picture) picture.src = other;
+      if (picture) { picture.src = other; picture.alt = 'Referensbild'; }
     }
     const checked = validateProjectWithReferences(source, seed, undefined, { origins: [origin] });
     const ordered = references => [...references].sort(([left], [right]) => left.localeCompare(right));
