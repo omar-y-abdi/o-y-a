@@ -57,7 +57,7 @@ pip install -r requirements-test.txt
 python -m playwright install chromium
 npx playwright install chromium firefox webkit
 npm run check:fast &&
-CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
+npx playwright test tests/cms-modules.spec.mjs --project=chromium --no-deps --workers=1 --grep @modules-smoke
 ```
 
 Den lokala standardloopen bygger, lintar, kör parallella `node:test`-tester och kritiska GrapesJS-smokes. Följande är en bred lokal kontrollkedja. Den fullständiga PR-matrisen, inklusive funktionella browserportar och fristående SKIFT-release, definieras i [CI-workflowen](.github/workflows/ci.yml) och [QA-guiden](docs/QA.md). Kör tunga tester i GitHub när lokal belastning ska undvikas:
@@ -67,9 +67,9 @@ npm run quality &&
 npm run test:cms &&
 node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
-npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps &&
-npx playwright test --project=firefox --no-deps &&
-npx playwright test --project=webkit --no-deps &&
+npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps --output=output/playwright/artifacts/editor &&
+npx playwright test --project=firefox --no-deps --output=output/playwright/artifacts/firefox &&
+npx playwright test --project=webkit --no-deps --output=output/playwright/artifacts/webkit &&
 npx wrangler deploy --dry-run --outdir artifacts/worker-build
 ```
 

@@ -28,7 +28,7 @@ For a quicker focused rerun:
 
 ```sh
 npm run check
-node scripts/test-cms-modules-parallel.mjs
+npx playwright test tests/cms-modules.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=1
 node scripts/test-cms.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
 ```
 
@@ -40,7 +40,7 @@ Node tests exercise actual local workerd/D1/R2 and offline image decoding. The m
 
 The navigational suites cover same-profile draft isolation, incomplete recovery, expired sessions, 413/network retry behavior, metadata CAS, clone references, global resource slots, active input/reload/publication, rich-text reload, preview script readiness, two genuinely different WOFF2 files, historical font restoration, rotated-card preview/export and IndexedDB write failure with usable export.
 
-Evidence is written beneath `output/logs/`, `output/visual/review/`, `output/visual/review-final/`, `output/cms-modules/`, `output/card-export/` and `artifacts/`. CI retains these. Do not treat a missing browser executable, blocked navigation or a failed setup as a passed test. Full browser acceptance must pass on your machine or GitHub before merge.
+Evidence is written beneath `output/logs/`, `output/visual/review/`, `output/visual/review-final/`, `output/playwright/artifacts/` and `artifacts/`. CI retains these. Do not treat a missing browser executable, blocked navigation or a failed setup as a passed test. Full browser acceptance must pass on your machine or GitHub before merge.
 
 ## Three manual checks after the automated suites
 

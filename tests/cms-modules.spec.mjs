@@ -2,13 +2,16 @@ import { expect } from '@playwright/test';
 import { test, SHELL, openModulePage, editor, nextFrames, attachPng } from './helpers/modules-runtime.mjs';
 import { CardFailure, assertLayout, waitForRenderedCard, sampleCards } from './helpers/modules-card-export.mjs';
 
-// Python names and assertions are retained for the orchestrator's parity run.
+// Qualified against the original Python cases, pinned engines and mutations.
 // The isolated DOM adapter needs injection; footer-cms-browser.spec.mjs uses
 // the unmodified studio and CSP for navigation/save/preview coverage.
 test.use({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'no-preference', bypassCSP: true });
+// Preserve the rich-text case's independence from other module scenarios.
+// Other spec files may still run concurrently in the compatibility job.
+test.describe.configure({ mode: 'default' });
 test.setTimeout(120_000);
 
-test('R14-active-typing-newlines-composition-flush', async ({ page, modules }) => {
+test('R14-active-typing-newlines-composition-flush', { tag: '@modules-smoke' }, async ({ page, modules }) => {
   await openModulePage(page, modules);
   const frame = await editor(page, modules.page), heading = frame.locator('h1').first();
   await heading.dispatchEvent('dblclick');
@@ -35,7 +38,7 @@ test('R14-active-typing-newlines-composition-flush', async ({ page, modules }) =
   expect(await page.evaluate(() => snapshots.at(-1).html.includes('!'))).toBe(true);
 });
 
-test('R23-live-text-active-inactive-serialization-stable', async ({ page, modules }) => {
+test('R23-live-text-active-inactive-serialization-stable', { tag: '@modules-smoke' }, async ({ page, modules }) => {
   await openModulePage(page, modules);
   const value = await page.evaluate(() => {
     const model = {};
@@ -84,7 +87,7 @@ test('R18-canonical-content-reloads-without-divergent-editor-data', async ({ pag
   }
 });
 
-test('R20-preserve-rich-structure-and-simple-newlines', { tag: '@modules-serial' }, async ({ page, modules }) => {
+test('R20-preserve-rich-structure-and-simple-newlines', async ({ page, modules }) => {
   await openModulePage(page, modules);
   const frame = await editor(page, { ...modules.page, html: '<main><h1>Hello <span id="accent-word" class="accent">world</span>.</h1><p>Simple<br>line</p></main>', css: '.accent{color:rgb(201,32,17)}', project: null });
   await page.evaluate(() => { window.accentModel = handle.editor.getWrapper().find('#accent-word')[0]; accentModel.addStyle({ 'font-size': '31px' }); });
@@ -200,7 +203,7 @@ test('merge-wrapper-style-isolation', async ({ page, modules }) => {
   expect(value.height).toBeLessThan(250); expect(value.outer).toBe('1'); expect(value.inner).toBe('1'); expect(value.design).toBe('0.5');
 });
 
-test('R12-clone-anchor-aria-svg-and-style', async ({ page, modules }) => {
+test('R12-clone-anchor-aria-svg-and-style', { tag: '@modules-smoke' }, async ({ page, modules }) => {
   await openModulePage(page, modules);
   await editor(page, { ...modules.page, html: '<main id="main"><section id="original"><h2 id="target">Label</h2><p aria-labelledby="target">Copy</p><a href="#target">Jump</a><svg><defs><linearGradient id="paint"><stop offset="0" stop-color="red"></stop></linearGradient></defs><rect width="10" height="10" fill="url(#paint)"></rect></svg></section></main>', css: '#target{color:rgb(201,32,17)}', project: null });
   const result = await page.evaluate(() => {
@@ -221,7 +224,7 @@ test('R12-clone-anchor-aria-svg-and-style', async ({ page, modules }) => {
   expect(result.cloneSelector).toBe(true); expect(result.quotedOnly).toBe(false);
 });
 
-test('cms-duplicate-inline-section-preserves-style', async ({ page, modules }) => {
+test('cms-duplicate-inline-section-preserves-style', { tag: '@modules-smoke' }, async ({ page, modules }) => {
   await openModulePage(page, modules);
   const frame = await editor(page, { ...modules.page, html: '<main><section id="copy-section" aria-labelledby="copy-target" style="padding:19px;color:rgb(201,32,17)"><h2 id="copy-target">Local clone target</h2><a href="#copy-target">Local clone link</a><svg viewBox="0 0 10 10"><defs><clipPath id="copy-clip"><circle cx="5" cy="5" r="5"></circle></clipPath></defs><rect width="10" height="10" clip-path="url(#copy-clip)"></rect></svg></section></main>', css: '', project: null });
   await page.evaluate(() => { const ed = handle.editor; ed.select(ed.getWrapper().find('#copy-target')[0]); handle.setStyleMode('normal'); });
@@ -329,7 +332,7 @@ test('merge-export-inherited-theme-and-current-width', async ({ page, modules })
   expect(value.pixel, 'Export lost inherited design variables').toEqual([255, 0, 0, 255]);
 });
 
-test('cms-usability-resize-nudge-and-style-mode', async ({ page, modules }) => {
+test('cms-usability-resize-nudge-and-style-mode', { tag: '@modules-smoke' }, async ({ page, modules }) => {
   await openModulePage(page, modules);
   await editor(page, { ...modules.page, html: '<main><section id="parent"><p id="text">Resize me</p><a id="link" href="/kontakt/" aria-label="Kontakt">Link</a><img id="image" src="/social/omar-yusuf.png" alt="Portrait"><button id="functional" data-print>Print</button><svg id="vector" viewBox="0 0 100 100"><g id="group"><path id="shape" d="M0 0L10 10"></path></g></svg></section></main>', css: '#text{transform:rotate(4deg) scale(.9)}', project: null });
   const result = await page.evaluate(async () => {
@@ -394,7 +397,7 @@ test('cms-page-metadata-maxlength-and-input', async ({ page, modules }) => {
   expect(result.limits).toEqual({ name: 80, title: 160, description: 320 }); expect(result.calls).toEqual([['title', 'Ny titel']]);
 });
 
-test('cms-usability-view-state-and-mobile-center', async ({ page, modules }) => {
+test('cms-usability-view-state-and-mobile-center', { tag: '@modules-smoke' }, async ({ page, modules }) => {
   await openModulePage(page, modules, SHELL.replace('<aside id="side">', '<aside class="right-panel" id="side" style="height:180px;overflow:auto">'));
   await editor(page, { ...modules.page, html: '<main><div style="height:1000px"><h1 data-cms-node="stable-heading">Heading</h1></div></main>', project: null });
   const result = await page.evaluate(async () => {
@@ -460,7 +463,7 @@ test('cms-locked-preview-mobile-center', async ({ page, modules }) => {
   expect(result.midpointDelta).toBeLessThanOrEqual(1); expect(Math.abs(result.frameWidth - 390)).toBeLessThanOrEqual(1);
 });
 
-test('cms-managed-svg-uses-shared-editor', async ({ page, modules }) => {
+test('cms-managed-svg-uses-shared-editor', { tag: '@modules-smoke' }, async ({ page, modules }) => {
   await openModulePage(page, modules);
   const data = { ...modules.page, html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g id="face"><circle id="cheek" cx="50" cy="50" r="40" fill="#ffda44" stroke="#252a24" stroke-width="2"></circle></g></svg>', css: '', project: null };
   const frame = await editor(page, data); await expect(frame.locator('#cheek')).toHaveCount(1);

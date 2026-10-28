@@ -8,10 +8,10 @@ Install dependencies and browsers as described in the README, then:
 
 ```sh
 npm run check:fast &&
-CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
+npx playwright test tests/cms-modules.spec.mjs --project=chromium --no-deps --workers=1 --grep @modules-smoke
 ```
 
-This is the normal edit-feedback loop. It builds the current project once, prepares the pinned historical Worker fixture on its first run, lints, and runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile in isolated Chromium processes. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. After a build, `npm run test:slow` runs the backup drill alone with one worker; `npm test` builds through `pretest` and includes that drill.
+This is the normal edit-feedback loop. It builds the current project once, prepares the pinned historical Worker fixture on its first run, lints, and runs the parallel ESM/Worker suite except the real two-runtime D1/R2 backup drill, then runs a focused GrapesJS smoke profile with fresh page contexts in one Chromium worker. It deliberately excludes the backup drill, exhaustive card exports, cross-browser compatibility and Wrangler dry-run. After a build, `npm run test:slow` runs the backup drill alone with one worker; `npm test` builds through `pretest` and includes that drill.
 
 Full local verification uses explicit commands instead of another runner chain:
 
@@ -20,15 +20,15 @@ npm run quality &&
 npm run test:cms &&
 node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
-npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps &&
-npx playwright test tests/cms-frame-public.spec.mjs tests/cms-browser.spec.mjs tests/cms-interactions.spec.mjs tests/cms-review-browser.spec.mjs tests/cms-review-final-browser.spec.mjs tests/cms-modules.spec.mjs tests/footer-cms-browser.spec.mjs tests/test_cms_browser_helpers.spec.mjs tests/test_cms_asset_usage.spec.mjs tests/revision_browser.spec.mjs tests/cms-library.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=2 &&
+npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps --output=output/playwright/artifacts/editor &&
+npx playwright test tests/cms-frame-public.spec.mjs tests/cms-browser.spec.mjs tests/cms-interactions.spec.mjs tests/cms-review-browser.spec.mjs tests/cms-review-final-browser.spec.mjs tests/cms-modules.spec.mjs tests/footer-cms-browser.spec.mjs tests/test_cms_browser_helpers.spec.mjs tests/test_cms_asset_usage.spec.mjs tests/revision_browser.spec.mjs tests/cms-library.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=2 --output=output/playwright/artifacts/functional &&
 node --test --test-concurrency=1 games/skift/tests/*.test.mjs &&
-npx playwright test --project=firefox --no-deps &&
-npx playwright test --project=webkit --no-deps &&
+npx playwright test --project=firefox --no-deps --output=output/playwright/artifacts/firefox &&
+npx playwright test --project=webkit --no-deps --output=output/playwright/artifacts/webkit &&
 npx wrangler deploy --dry-run --outdir artifacts/worker-build
 ```
 
-`quality` builds, lints and runs all Node tests, including `tests/http-checks.test.mjs` against the real Worker. Its browser runner owns ephemeral public and analytics-enabled workerd fixtures with local D1/R2, publishes the stored v185 fixture, runs the public Playwright gate, then the remaining Python interaction, privacy and revision checks in order. Both Workers use port 0 and close in `finally`; the shell starts no background servers and probes no ports. The following commands run the CMS browser suites, footer regression and targeted compatibility, then finish with a Wrangler dry-run. CI also runs the editor and mail specs in Chromium, and the existing Firefox/WebKit project selections (editor, mail, public startup). Activate `.test-venv` first for the Python command in the quality shell script. Node browser runners honor `PYTHON`, then `.test-venv/bin/python`, then `python3`; lookup errors other than a missing venv stop the runner.
+`quality` builds, lints and runs all Node tests, including `tests/http-checks.test.mjs` against the real Worker. Its browser runner owns ephemeral public and analytics-enabled workerd fixtures with local D1/R2, publishes the stored v185 fixture, runs the public Playwright gate, then the remaining Python interaction, privacy and revision checks in order. Both Workers use port 0 and close in `finally`; the shell starts no background servers and probes no ports. The following commands run the CMS browser suites, footer regression and targeted compatibility, then finish with a Wrangler dry-run. CI also runs the editor and mail specs in Chromium, and the existing Firefox/WebKit project selections (editor, mail, public startup, CMS modules and managed SVG fidelity). Activate `.test-venv` first for the Python command in the quality shell script. Node browser runners honor `PYTHON`, then `.test-venv/bin/python`, then `python3`; lookup errors other than a missing venv stop the runner.
 
 `npm run test:public-pages` runs three separate invocations: ordinary Chromium excluding the exhaustive export group; the same 240 exports alone with one worker; then the independent `chromium-webgl` project with one worker and `--no-deps`. The complementary export-group filters retain all other Chromium cases, including translated workshop controls. `npm run test:skift` runs only the game spec in the WebGL project. The public page matrix includes every page in v185 plus the code-owned SKIFT page, with the existing responsive and no-JavaScript checks. The former `browser.py --section pages` checks were already duplicated there; only that Python section was removed.
 
@@ -36,7 +36,7 @@ Each invocation uses its own subdirectory under `output/playwright/artifacts/`, 
 
 Public page and card-export specs create a published v185 Worker per Playwright worker and use its `runtime.url`. To use Playwright's managed `webServer` instead, set `PLAYWRIGHT_PORT` to an available port; it launches `scripts/cms-dev.mjs --public-tests` with the same v185 publication and production assets settings. `BASE_URL` selects an already managed local fixture. Specs with their own `cmsRuntime()` keep using port 0. The normal `npm run dev` and `npm run preview` commands publish the build's initial project instead; all storage stays local and ephemeral. `SKIP_CHECK=1 npm run quality` skips the build/lint/general Node gate but still runs the migrated HTTP suite before the browser checks.
 
-`test:cms` prepares the real editor/public module fixtures once, runs their cases in isolated parallel browser processes, then runs the authenticated CMS navigation suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself needs a separately authorized production check.
+`test:cms` prepares the real editor/public module fixtures once, runs their cases with fresh page contexts in one Chromium worker, then runs the authenticated CMS navigation suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself needs a separately authorized production check.
 
 Additional public regressions after a build:
 
@@ -57,12 +57,13 @@ Browser checks navigate over real HTTP and load built modules. Contact cases int
 
 Setup, the engine matrix and verification limits are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). After a build, run `node scripts/test-cms-compat.mjs` for targeted Firefox/WebKit acceptance.
 
+The former Python module and managed-SVG suites are retired after assertion review, paired execution in Chromium/Firefox/WebKit and targeted mutation checks. Their Playwright replacements retain all 25 module cases and the separate SVG comparison; the seven-case `@modules-smoke` selection matches the old smoke profile. Module cases run serially within their file. Other compatibility specs can still run concurrently, which remains subject to the normal CI gate. Module PNGs and metrics use Playwright attachments; the explicit compatibility runner gives each engine separate artifacts and JSON results. The CI module report is retained separately from later editor results. Other Python suites remain until their own qualification.
+
 Focused commands after a build remain available directly:
 
 ```sh
 node scripts/run-node-tests.mjs watch
-node scripts/test-cms-modules-parallel.mjs
-node scripts/test-cms-modules.mjs
+npx playwright test tests/cms-modules.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=1
 node scripts/test-cms-parallel.mjs
 ```
 
@@ -79,7 +80,6 @@ The following entry points do not run the site build themselves. Run `npm run bu
 | `npm run preview`, `node scripts/cms-dev.mjs` | Built assets and the Worker's generated CMS seed. |
 | `npm run test:slow`, `npm run test:cms`, direct `node --test tests/*.test.mjs`, `scripts/run-node-tests.mjs` modes | Node suites read built pages/assets or import the generated seed directly or through `tests/helpers/cms-runtime.mjs` and `tests/helpers/pre-agent-footer.mjs`. |
 | `scripts/test-cms.mjs`, `test-cms-parallel.mjs`, `test-footer-cms.mjs`, `test-cms-compat.mjs` | Local Worker assets and generated seed; Python/browser setup from the README. |
-| `scripts/prepare-cms-modules.mjs`, `test-cms-modules.mjs`, `test-cms-modules-parallel.mjs` | Generated seed and asset URLs; fixture preparation is not a site build. |
 | Direct Playwright specs and `scripts/run-quality-browser.mjs` | Worker specs use built assets/seed and own port-0 fixtures by default. Setting `PLAYWRIGHT_PORT` enables Playwright's managed `webServer`; that configuration starts the built preview but does not build it. The quality runner owns its public/analytics fixtures. |
 | `tests/render_support.py` consumers: `tests/browser.py --render-only`, `tests/contrast.py`, `tests/machine_depth.py` | Built HTML, CSS and modules. HTTP modes of `tests/browser.py` and `tests/revision_browser.py` instead need preview servers started after the build. The former Python HTTP suite was replaced by `tests/http-checks.test.mjs`. |
 | `node scripts/test-cms.mjs scripts/capture-cms.py` | Built local Worker and generated seed; the wrapper supplies the local identity. |

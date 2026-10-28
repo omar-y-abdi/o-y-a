@@ -44,10 +44,12 @@ jobs:
         run: node scripts/third-party-notices.mjs artifacts/worker-build/bundle-meta.json
       - name: Real Worker CMS browser verification
         run: npm run test:cms
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: output/playwright/cms-modules.json
       - name: Legacy footer CMS edit and reload regression
         run: node scripts/test-footer-cms.mjs
       - name: Editor resize, paste, SVG and mail regressions
-        run: npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps
+        run: npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps --output=output/playwright/artifacts/editor
       - name: Retain browser evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -63,12 +65,10 @@ jobs:
             output/logs/cms-review*.log
             output/visual/review/**/*.png
             output/visual/review-final/**/*.png
-            output/cms-modules/results.json
-            output/cms-modules/*.png
             output/revision/browser/revision-browser.json
             output/logs/footer-*.log
             output/visual/footer/**/*.png
-            output/playwright/artifacts/**
+            output/playwright/**
           retention-days: 14
 
   skift-release:
@@ -133,7 +133,6 @@ jobs:
         # without changing deadlines; this experiment does not establish an app cause.
         env:
           PLAYWRIGHT_WORKERS: ${{ matrix.browser == 'webkit' && '1' || '4' }}
-      - run: node scripts/test-cms-modules-parallel.mjs
       - run: node scripts/test-cms-parallel.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
       - run: node scripts/test-footer-cms.mjs
       - name: Retain compatibility evidence
@@ -145,11 +144,9 @@ jobs:
             output/logs/cms-review*.log
             output/visual/review/**/*.png
             output/visual/review-final/**/*.png
-            output/cms-modules/results.json
-            output/cms-modules/*.png
             output/logs/footer-*.log
             output/visual/footer/**/*.png
-            output/playwright/artifacts/**
+            output/playwright/**
           retention-days: 14
 
   functional-browser:

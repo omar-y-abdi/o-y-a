@@ -32,6 +32,21 @@ test('QA documents the startup spec without claiming it selects engines itself',
   assert.doesNotMatch(qa, /That file selects Chromium, Firefox and WebKit within its suites/);
 });
 
+test('retired Python module gates retain both browser specs in every engine', async () => {
+  const config = (await import('../playwright.config.mjs')).default;
+  for (const engine of ['firefox', 'webkit']) {
+    const project = config.projects.find(item => item.name === engine);
+    for (const spec of ['cms-modules.spec.mjs', 'managed-svg-fidelity.spec.mjs']) assert.ok(project.testMatch.includes(spec), `${engine} must retain ${spec}`);
+  }
+  const [workflow, packageSource, compatibility] = await Promise.all([source('.github/workflows/ci.yml'), source('package.json'), source('scripts/test-cms-compat.mjs')]);
+  const { scripts } = JSON.parse(packageSource);
+  for (const spec of ['cms-modules.spec.mjs', 'managed-svg-fidelity.spec.mjs']) {
+    assert.ok(scripts['test:cms'].includes(spec), `The Chromium CMS command must retain ${spec}`);
+    assert.ok(compatibility.includes(spec), `The explicit compatibility command must retain ${spec}`);
+  }
+  assert.doesNotMatch(workflow + packageSource + compatibility, /(?:test|prepare)-cms-modules(?:-parallel)?\.mjs|managed-svg-fidelity\.py/);
+});
+
 test('CI and QA do not promise the removed card-export report', async () => {
   const [workflow, qa] = await Promise.all([source('.github/workflows/ci.yml'), source('docs/QA.md')]);
   assert.doesNotMatch(workflow, /output\/card-export\/card-export-report\.json/);
