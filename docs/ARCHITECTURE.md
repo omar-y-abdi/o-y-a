@@ -133,13 +133,13 @@ Spelet har egen `package.json`, `index.html`, källa i `src/`, tester i `tests/`
 ### Spara (`/admin/api/save`)
 
 1. Begäran har antingen `changes` (delta) eller `project` (hela projektet) samt `baseVersion` och `requestId`. `requestId` gör Save idempotent: `replaySave` och `replayFullSave` returnerar den tidigare revisionen, och samma identitet med annat innehåll ger 409.
-2. Delta: `validateProjectChanges` kontrollerar formen. Ändringar i SKIFT-sidan avvisas. `baseVersion` måste vara den aktuella versionen, annars 409. Nuvarande projekt läses med `readCurrentProject` och ändringarna tillämpas med `applyProjectChanges`.
+2. Delta: `validateProjectChanges` kontrollerar formen. Ändringar i SKIFT-sidan avvisas. `baseVersion` måste vara den aktuella versionen, annars 409. Nuvarande projekt läses med `readCurrentProject`, eller med `readSite` för en äldre delta (`sharedContent` eller sid-HTML som inte börjar med `<main`), och ändringarna tillämpas med `applyProjectChanges`.
 3. Hela projektet: `fromClient` normaliserar det och `publishedBaseline` ger basen.
 4. `validateProjectWithReferences` i `project.mjs` kör projektreglerna, och `validateReferencedMedia` kontrollerar mediafilerna.
 5. `publishSite` i `store.mjs` komprimerar hela projektet (högst 1,5 MB efter gzip). I en `db.batch` skriver den revisionen, resursindexet, raderna i `cms_rendered`, mediets publiceringstid, studiokopian och valideringsbevisen, tar bort raderna för högst en utgången version och uppdaterar huvudpekaren. Villkoren i varje SQL-sats gör att en inaktuell skrivning inte lämnar delvisa rader.
 6. Efter batchen läses den committade raden. Om den inte finns eller har annan identitet blir svaret 409.
 
-En delta-Save renderar bara de sidor och kort som ändringen berör. `reusableRows` jämför projektet med huvudversionen, och oförändrade rader i `cms_rendered` kopieras från den i samma batch. Det kräver att sidramen, typsnitten, resurserna, renderingskoden och UTC-året är oförändrade och att huvudversionen har en studiokopia för aktuell build. Annars renderas alla rader. Det gäller också en Save med hela projektet och ramflytten (`/admin/api/migrate-frame`). Raden `@frame` och dataraderna renderas alltid. Revisionen, komprimeringen och studiokopians digest omfattar hela projektet. Ett projekt som inte ryms i D1:s gränser avvisas med 413 före skrivning.
+En delta-Save renderar bara de sidor och kort som ändringen berör. `reusableRows` jämför projektet med huvudversionen, och oförändrade rader i `cms_rendered` kopieras från den i samma batch. Det kräver att sidramen, typsnitten, resurserna, renderingskoden och UTC-året är oförändrade. Annars renderas alla rader. Det gäller också en Save med hela projektet och ramflytten (`/admin/api/migrate-frame`). Raden `@frame` och dataraderna renderas alltid. Revisionen, komprimeringen och studiokopians digest omfattar hela projektet. Ett projekt som inte ryms i D1:s gränser avvisas med 413 före skrivning.
 
 ### Återställning (`/admin/api/recover`)
 
