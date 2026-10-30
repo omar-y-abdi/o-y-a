@@ -104,6 +104,8 @@ function assertLayout(state) {
   expect(state.lineCount).toBeGreaterThan(0);
 }
 
+// Full trace stalled this file about once per 350 exports; snapshots:false once in 2,934. It reduces the stall, not removes it. Root cause unproven.
+test.use({ trace: { mode: 'retain-on-failure', snapshots: false } });
 test.beforeAll(async () => { await mkdir(OUTPUT, { recursive: true }); });
 
 for (const width of [320, 390, 768, 1024, 1440]) {
