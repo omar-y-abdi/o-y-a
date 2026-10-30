@@ -3,6 +3,7 @@ import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { CMSBrowserQA, DESKTOP, PNG, assertClean, confirmYes, frame, openAssets, openPage, original, save, saveAssetMetadata, seedRuntime, upload, waitCanvas } from './helpers/cms-browser-qa.mjs';
 
 let runtime, baseline, api;
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.describe.configure({ mode: 'default', timeout: 180_000 });
 test.beforeAll(async ({ playwright }) => {
   runtime = await cmsRuntime({ port: 0 });

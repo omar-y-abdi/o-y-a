@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { api, state, publish, seedReview, admin as openAdmin, ready as waitCanvas, frame, save, backupSettled, restorePrompt as restoreDraft, revertIfDirty, openAssets, uploadFile, records, confirmYes, shot, downloadBytes } from './helpers/review-browser.mjs';
+import { api, state, publish, seedReview, admin as openAdmin, anonymousPage, ready as waitCanvas, frame, save, backupSettled, restorePrompt as restoreDraft, revertIfDirty, openAssets, uploadFile, records, confirmYes, shot, downloadBytes } from './helpers/review-browser.mjs';
 
 let runtime;
 test.describe.configure({ mode: 'default', timeout: 120_000 });
-test.use({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce', acceptDownloads: true, storageState: { cookies: [], origins: [] } });
+test.use({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce', acceptDownloads: true, storageState: { cookies: [], origins: [] }, actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.beforeAll(async () => { runtime = await cmsRuntime({ port: 0 }); });
 test.afterAll(async () => { await runtime?.close(); });
 test.beforeEach(async ({ context }) => { await seedReview(context, runtime); });
@@ -123,6 +124,7 @@ test('definitive-rejection-and-unknown-replay', async ({ context }, info) => {
 
 test('rapid-inline-save-diagnostic', async ({ context, browserName }, info) => {
   const page = await admin(context, runtime), requests = [];
+  const original = (await state(context, runtime)).project.pages.find(page => page.id === 'home');
   await page.route('**/admin/api/save', route => { requests.push(route.request().postDataJSON()); return route.continue(); });
   await frame(page).locator('#hero-title').dblclick();
   const editable = frame(page).locator('[contenteditable=true]').first();
@@ -144,6 +146,13 @@ test('rapid-inline-save-diagnostic', async ({ context, browserName }, info) => {
   const current = currentState.project.pages.find(item => item.id === 'home') ?? {}, backup = row?.project?.pages?.find(item => item.id === 'home');
   const fields = ['title', 'description', 'html', 'css'];
   console.log('RAPID_SAVE_DIAGNOSTIC ' + JSON.stringify({ browser: browserName, status: result.status(), requestCount: requests.length, requestBytes: Buffer.byteLength(JSON.stringify(payload)), submittedPageFields: Object.keys(submitted).sort(), serverVersion: currentState.version, serverDiffFromSubmitted: fields.filter(key => submitted[key] !== current[key]), backupDiffFromSubmitted: backup ? fields.filter(key => submitted[key] !== backup[key]) : null, saveStatus: await page.locator('#save-status').innerText(), backupStatus: await page.locator('#backup-status').innerText() }));
+  if (result.status() !== 200) {
+    const fallbacks = page => {
+      const matches = (page?.html ?? '').match(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi) ?? [];
+      return { count: matches.length, nodes: matches.slice(0, 2).map(source => ({ bytes: Buffer.byteLength(source), sha256: createHash('sha256').update(source).digest('hex'), source: source.slice(0, 512) })) };
+    };
+    console.log('RAPID_SAVE_FALLBACK_DIAGNOSTIC ' + JSON.stringify({ browser: browserName, original: fallbacks(original), submitted: fallbacks(submitted), server: fallbacks(current), backup: fallbacks(backup) }));
+  }
   expect(requests, 'Expected one successful immediate Save request.').toHaveLength(1);
   expect(result.status(), 'Expected one successful immediate Save request.').toBe(200);
   expect(backup ? fields.filter(key => backup[key] !== submitted[key]) : [], 'A canvas/editor flush changed the draft after Save despite no further user input.').toEqual([]);
@@ -196,7 +205,7 @@ test('clone-anchor-aria-svg-style-delete-original', async ({ context, browser },
   expect(compactCss).toContain('color:rgb(201,32,17)');
   expect(compactCss).not.toContain('color:black');
   expect(compactCss).not.toContain('border:0solidblack');
-  const publicPage = await browser.newPage();
+  const publicPage = await anonymousPage(browser);
   try {
     const pending = publicPage.waitForResponse(response => response.url().includes('/cms-public/v') && response.url().endsWith('/review-clone.css'));
     await publicPage.goto(runtime.url + '/review-clone/', { waitUntil: 'load' });

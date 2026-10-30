@@ -47,6 +47,8 @@ async function screenshot(page, info, name, fullPage = true) {
   await page.screenshot({ path: info.outputPath(name + '.png'), fullPage, animations: 'disabled' });
 }
 
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
+
 test('Machine: all flavors, distinct receipts, close and focus restore', async ({ visit }, info) => {
   const session = await visit('/verkstad/', mobile), { page } = session, messages = [];
   await expect(page.locator('[data-print]')).toBeEnabled();

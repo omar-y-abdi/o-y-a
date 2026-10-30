@@ -9,6 +9,7 @@ let runtime, baseline, api;
 // Match the original Python scenario's timestamp-shaped authored labels.
 const RUN_ID = new Date().toISOString().slice(0, 19).replaceAll('-', '').replaceAll(':', '').replace('T', '-');
 const entries = routes.filter(route => route.path !== SKIFT_PATH).map(route => ({ id: route.template, name: route.name }));
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.describe.configure({ mode: 'default', timeout: 180_000 });
 test.beforeAll(async ({ playwright }) => {
   runtime = await cmsRuntime({ port: 0 });
