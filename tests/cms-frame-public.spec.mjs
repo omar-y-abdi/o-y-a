@@ -63,11 +63,13 @@ test('F2: real studio Save preserves legacy bookmarks and new shared styles reac
         const item = stored.project.pages.find(candidate => candidate.id === id);
         const expected = footerId(original.pages.find(candidate => candidate.id === id).html);
         await page.goto(runtime.url + item.path);
+        await expect(page.locator('[data-cms-node]')).toHaveCount(0);
         expect(await page.locator('footer').getAttribute('id')).toBe(expected);
         await expect(page.locator('footer')).toHaveCSS('color', 'rgb(18, 52, 86)');
         const preview = await post('preview', { project: stored.project, pageId: id });
         expect(preview.status, await preview.clone().text()).toBe(200);
         await previewPage.setContent((await preview.json()).html);
+        expect(await previewPage.locator('[data-cms-node]').count()).toBeGreaterThan(0);
         expect(await previewPage.locator('footer').getAttribute('id')).toBe(expected);
         await expect(previewPage.locator('footer')).toHaveCSS('color', 'rgb(18, 52, 86)');
       }
@@ -325,6 +327,57 @@ test('Q9: local text measurement restores transitioned transforms without starti
   expect(await state()).toEqual(before);
 });
 
+function publicIdentity(body) {
+  function visit(node, inMain = false) {
+    inMain ||= node.tagName === 'MAIN';
+    if (node.nodeType === Node.TEXT_NODE) return inMain || node.textContent.trim() ? node.textContent : null;
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const attrs = [...node.attributes].filter(attr => !['data-cms-node', 'data-cms-version'].includes(attr.name) && (inMain || attr.name !== 'id' || ['top', 'mobile-menu', 'privacy-title'].includes(attr.value))).map(attr => [attr.name, attr.name === 'class' ? attr.value.trim().replace(/\s+/g, ' ') : attr.value]).sort(([a], [b]) => a.localeCompare(b));
+    // With scripting enabled NOSCRIPT contains raw HTML text. DOMParser's
+    // detached document disables scripting: compare the real fallback nodes
+    // with the same attribute policy, without rewriting ordinary text.
+    const children = node.tagName === 'NOSCRIPT'
+      ? new DOMParser().parseFromString('<!doctype html><body>' + node.innerHTML, 'text/html').body.childNodes
+      : node.childNodes;
+    return { tag: node.tagName, attrs, children: [...children].map(child => visit(child, inMain)).filter(child => child !== null) };
+  }
+  return visit(body);
+}
+
+test('C4: public identity compares noscript fallback content and attributes while ignoring only editor keys', async ({ browser }) => {
+  const html = keyed => `<main id="main"><noscript><a${keyed ? ' data-cms-node="legacy-key"' : ''} href="/kontakt/" data-privacy-open>Skriv till oss</a><p>&lt;b data-cms-node="fallback-literal"&gt;</p></noscript><p>data-cms-node="ordinary-literal"</p></main>`;
+  const identities = [];
+  for (const javascript of [true, false]) {
+    const context = await browser.newContext({ javaScriptEnabled: javascript });
+    try {
+      const page = await context.newPage();
+      const identity = () => page.locator('body').evaluate(publicIdentity);
+      await page.setContent(html(true));
+      expect(await page.locator('noscript').evaluate(node => node.firstChild.nodeName)).toBe(javascript ? '#text' : 'A');
+      const original = await page.locator('body').innerHTML(), expected = await identity();
+      expect(await page.locator('body').innerHTML()).toBe(original);
+      expect(expected.children[0].children[0].children).toEqual([
+        { tag: 'A', attrs: [['data-privacy-open', ''], ['href', '/kontakt/']], children: ['Skriv till oss'] },
+        { tag: 'P', attrs: [], children: ['<b data-cms-node="fallback-literal">'] },
+      ]);
+      await page.setContent(html(false));
+      expect(await identity()).toEqual(expected);
+      identities.push(expected);
+      for (const [before, after] of [
+        ['Skriv till oss', 'Ändrad reservtext'],
+        ['href="/kontakt/"', 'href="/om/"'],
+        [' data-privacy-open', ''],
+        ['fallback-literal', 'changed-fallback-literal'],
+        ['ordinary-literal', 'changed-ordinary-literal'],
+      ]) {
+        await page.setContent(html(false).replace(before, after));
+        expect(await identity(), `${before} remains part of public identity, js=${javascript}`).not.toEqual(expected);
+      }
+    } finally { await context.close(); }
+  }
+  expect(identities[0]).toEqual(identities[1]);
+});
+
 function compareCapture(actual, expected, label, failures) {
   if (!actual || !expected) { failures.push(`${label}: capture missing`); return false; }
   const identity = isDeepStrictEqual(actual.identity, expected.identity);
@@ -374,16 +427,7 @@ async function capture(browser, runtime, pages, version, javascript, width, test
         // Native screenshot waits for fonts, including with scripting disabled.
         // The two independent baseline captures below are the stability check.
         const screenshot = await page.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout: 5_000, path: pngPath });
-        const identity = await page.locator('body').evaluate(body => {
-          function visit(node, inMain = false) {
-            inMain ||= node.tagName === 'MAIN';
-            if (node.nodeType === Node.TEXT_NODE) return inMain || node.textContent.trim() ? node.textContent : null;
-            if (node.nodeType !== Node.ELEMENT_NODE) return null;
-            const attrs = [...node.attributes].filter(attr => !['data-cms-node', 'data-cms-version'].includes(attr.name) && (inMain || attr.name !== 'id' || ['top', 'mobile-menu', 'privacy-title'].includes(attr.value))).map(attr => [attr.name, attr.name === 'class' ? attr.value.trim().replace(/\s+/g, ' ') : attr.value]).sort(([a], [b]) => a.localeCompare(b));
-            return { tag: node.tagName, attrs, children: [...node.childNodes].map(child => visit(child, inMain)).filter(child => child !== null) };
-          }
-          return visit(body);
-        });
+        const identity = await page.locator('body').evaluate(publicIdentity);
         const rendering = await page.locator('body').evaluate(body => {
           const properties = ['display', 'position', 'color', 'background-color', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'transform', 'filter', 'opacity'];
           return { fonts: document.fonts.status, images: [...document.images].map(image => ({ src: image.currentSrc, complete: image.complete, width: image.naturalWidth, height: image.naturalHeight })), nodes: [body, ...body.querySelectorAll('.site-header,.brand,.primary-nav,.header-actions,.mobile-menu,main,h1,.site-footer,.footer-back,[data-motion-toggle],[data-menu-toggle],[data-print],[data-memory-grid],[data-contact-form],[data-privacy-status]')].map(node => {

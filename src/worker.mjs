@@ -3,6 +3,7 @@ import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
 import { CSP, SKIFT_CSP } from './csp.mjs';
 import { seed, initial, built } from '../.generated/cms-seed.mjs';
+import { publicBuilt } from '../.generated/cms-public.mjs';
 import { handleAdmin } from './cms/api.mjs';
 import { assetResponse } from './cms/media-files.mjs';
 import { serveMailFile } from './cms/email-api.mjs';
@@ -117,7 +118,7 @@ export default {
     else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
-      try { response = await publicContent(request,env,built,seed) ?? await env.ASSETS.fetch(request); }
+      try { response = await publicContent(request,env,publicBuilt,seed) ?? await env.ASSETS.fetch(request); }
       catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
     }
     if (url.pathname === '/404.html' && response.status === 200) {

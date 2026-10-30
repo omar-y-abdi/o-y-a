@@ -50,7 +50,7 @@ test('B8: all fifteen v185 public identities retain main and frame semantics exc
   }
 });
 
-test('B8: every existing v185 key, including noscript descendants, survives publication and rollback', async t => {
+test('B8/C4: v185 keys survive editor composition and rollback, while publication omits them', async t => {
   const before = legacyProject(structuredClone(v185), seed.legacy);
   const after = validateProject(conversion.toFrameProject(v185, seed), seed);
   const rows = publicationChunks(after).flat();
@@ -61,7 +61,8 @@ test('B8: every existing v185 key, including noscript descendants, survives publ
     await t.test(page.path, () => {
       const next = after.pages.find(item => item.id === page.id);
       assert.deepEqual(nodeKeys(next.html), nodeKeys(frame.splitPage(page.html).page), `${page.path}: main`);
-      assert.deepEqual(nodeKeys(rows.find(row => row.path === page.path).html), nodeKeys(page.html), `${page.path}: publication`);
+      assert.deepEqual(nodeKeys(frame.composePage(after.frame, next)), nodeKeys(page.html), `${page.path}: editor composition`);
+      assert.deepEqual(nodeKeys(rows.find(row => row.path === page.path).html), nodeKeys(page.html).map(([tag]) => [tag, null]), `${page.path}: publication omits only editor keys`);
       assert.deepEqual(nodeKeys(reverse.pages.find(item => item.id === page.id).html), nodeKeys(page.html), `${page.path}: rollback`);
       assert.deepEqual(nodeKeys(frame.composePage(again.frame, again.pages.find(item => item.id === page.id))), nodeKeys(page.html), `${page.path}: second migration`);
     });
@@ -366,7 +367,8 @@ test('B8: frame Save is 200, recovery retains it and stale concurrent Save is 40
       assert.equal(response.status, 200);
       const html = await response.text();
       assert.match(html, /En gemensam rad\./);
-      assert.ok(html.includes(`<p data-cms-node="${key}">Ny ramnod</p>`), `${path}: added frame key survives Save and publication`);
+      assert.ok(html.includes('<p>Ny ramnod</p>'), `${path}: added frame content survives publication`);
+      assert.ok(!html.includes(`data-cms-node="${key}"`), `${path}: editor identity stays out of public markup`);
     }
     const head = await (await request('state')).json();
     assert.deepEqual(head.project.frame, changed.frame);

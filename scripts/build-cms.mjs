@@ -19,6 +19,7 @@ import { parseFragment } from 'parse5';
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { SKIFT_PATH } from '../src/content/skift.mjs';
 import { verifyBundleNotices } from './third-party-notices.mjs';
+import { stripNodeKeys } from '../src/cms/public-html.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
 export async function studioBuildKey(seed, directory = process.cwd()) {
@@ -97,6 +98,11 @@ export async function buildCms({ styles, js }) {
   const legacyInitial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
   const initial = validateProject(toFrameProject(legacyInitial, seed), seed);
   await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const legacyInitial = ${JSON.stringify(legacyInitial)};\nexport const legacySeed = seed.legacy;\nexport const built = ${JSON.stringify(built)};\n`);
+  // Public game markup follows this build, while the editor seed/initial and
+  // state descriptor keep their original identities and private contracts.
+  const { id, path, name, title, description, template, bodyClass, noindex, html } = seed.skiftPage;
+  const publicBuilt = { styles, main: built.main, skiftPage: { id, path, name, title, description, template, bodyClass, noindex: Boolean(noindex), html: stripNodeKeys(html) } };
+  await writeFile('.generated/cms-public.mjs', `export const publicBuilt = ${JSON.stringify(publicBuilt)};\n`);
   await writeFile('dist/admin/index.html', adminPage({ css, vendorCss, js: built.studio }));
   await writeFile('dist/login/index.html', loginPage(loginCss));
   return built;

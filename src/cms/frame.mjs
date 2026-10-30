@@ -149,7 +149,7 @@ function prepareScope(html, contracts, frame) {
     if (/^(?:k|skift-nav)/.test(original)) map[original] = attr.value;
   });
   // Main keeps its full-template identities and exact trusted fallbacks. Frame
-  // signatures count only frame nodes; publication restores each page's keys.
+  // signatures count only frame nodes; editor composition restores page keys.
   const scoped = contracts.filter(contract => names.has(contract.key)).map(contract => ({ ...contract, key: names.get(contract.key), parent: names.get(contract.parent) ?? null, ...(contract.spanKey ? { spanKey: names.get(contract.spanKey) } : {}), ...(frame && contract.fallback ? { fallback: serializeOuter(nodes.find(node => attribute(node, 'data-cms-node') === names.get(contract.key))) } : {}) }));
   return { html: serialize(tree), map, contracts: scoped };
 }
