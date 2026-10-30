@@ -299,6 +299,7 @@ test('browser failures retain traces without retries and preserve the engine sel
     'cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs',
     'cms-modules.spec.mjs', 'managed-svg-fidelity.spec.mjs',
     'test_cms_browser_helpers.spec.mjs', 'test_cms_asset_usage.spec.mjs',
+    'cms-review-browser.spec.mjs', 'cms-review-final-browser.spec.mjs', 'footer-cms-browser.spec.mjs',
   ];
   for (const name of ['firefox', 'webkit']) assert.deepEqual(config.projects.find(project => project.name === name).testMatch, editorSuites);
 });

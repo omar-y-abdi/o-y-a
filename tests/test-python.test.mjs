@@ -39,9 +39,8 @@ test('test Python selection honors overrides, finds the venv, falls back only wh
   } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
-test('quality shell uses the shared Python finder for every Python invocation', async () => {
+test('quality shell invokes no Python: no interpreter, no finder and no .py file', async () => {
   const quality = await readFile(new URL('../scripts/quality.sh', import.meta.url), 'utf8');
-  assert.match(quality, /python=\$\(node --input-type=module -e 'import \{ testPython \} from "\.\/scripts\/test-python\.mjs"; console\.log\(await testPython\(\)\);'\)/);
-  assert.doesNotMatch(quality, /^python\s/m);
-  assert.equal((quality.match(/^"\$python" /gm) ?? []).length, 1, 'the revision-scroll unit check is the only Python step left');
+  assert.match(quality, /^node scripts\/run-quality-browser\.mjs$/m);
+  assert.doesNotMatch(quality, /python|\.py\b/i, 'normal verification runs Node and Playwright only');
 });
