@@ -23,7 +23,8 @@ function deltaBase(stored, normalized, changes, seed) {
 }
 
 async function state(request, env, context) {
-  const { seed, initial, built, identity, storedProject, resourceIds } = context;
+  const { built, identity, resourceIds } = context;
+  const { seed, initial, storedProject } = await context.studio();
   const [canonical, media, builtinStates] = await Promise.all([readStudioHead(env.CMS_DB, seed.studioKey), assetPage(env.CMS_DB, { state: 'active' }), builtinAssetStates(env.CMS_DB)]);
   const state = canonical ?? await readSite(env.CMS_DB);
   const project = canonical ? { resources: canonical.resources } : state ? storedProject(state.project) : initial;
@@ -44,25 +45,26 @@ async function history(request, env, context) {
 }
 
 async function revision(request, env, context) {
-  const { initial, storedProject, params } = context;
-  if (params.version === '0') return json({ version: 0, createdAt: null, project: initial });
+  const { params } = context;
+  if (params.version === '0') return json({ version: 0, createdAt: null, project: (await context.studio()).initial });
   const state = await readSite(env.CMS_DB, Number(params.version));
   if (!state) throw new HttpError(404, 'Versionen finns inte.');
+  const { storedProject } = await context.studio();
   return json({ ...state, project: storedProject(state.project) });
 }
 
 async function migrationStatus(request, env, context) {
-  const { seed, identity, url } = context;
-  return json(await cpuMigrationStatus(env.CMS_DB, { buildKey: seed.studioKey, origin: url.origin, actor: identity.email, operationId: url.searchParams.get('operationId') ?? undefined }));
+  const { studioKey, identity, url } = context;
+  return json(await cpuMigrationStatus(env.CMS_DB, { buildKey: studioKey, origin: url.origin, actor: identity.email, operationId: url.searchParams.get('operationId') ?? undefined }));
 }
 
 async function migrateCpu(request, env, context) {
-  const { seed, identity, url } = context;
-  return json(await applyCpuMigration(env.CMS_DB, await readJson(request, 4096), { buildKey: seed.studioKey, origin: url.origin, actor: identity.email }));
+  const { studioKey, identity, url } = context;
+  return json(await applyCpuMigration(env.CMS_DB, await readJson(request, 4096), { buildKey: studioKey, origin: url.origin, actor: identity.email }));
 }
 
 async function migrateFrame(request, env, context) {
-  const { seed, identity, url, storedProject } = context;
+  const { identity, url } = context;
   const body = await readJson(request, 4096);
   if (!body || Object.keys(body).some(key => !['expectedVersion', 'expectedHash', 'projectHash', 'reverse', 'requestId'].includes(key)) || !Number.isSafeInteger(body.expectedVersion) || body.expectedVersion < 1 || typeof body.reverse !== 'boolean' || !/^[0-9a-f]{64}$/.test(body.expectedHash) || !/^[0-9a-f]{64}$/.test(body.projectHash) || !/^[0-9a-f-]{36}$/.test(body.requestId)) throw new HttpError(422, 'Migreringen saknar en giltig version, kontrollsumma eller identitet.');
   const payloadHash = await digest(JSON.stringify({ expectedVersion: body.expectedVersion, expectedHash: body.expectedHash, projectHash: body.projectHash, reverse: body.reverse }));
@@ -71,6 +73,7 @@ async function migrateFrame(request, env, context) {
   const stored = await readSite(env.CMS_DB, undefined, { raw: true });
   if (!stored || stored.version !== body.expectedVersion || await digest(JSON.stringify(stored.project)) !== body.expectedHash) throw new HttpError(409, 'Huvudrevisionen ändrades. Migreringen skrev ingenting.');
   if (stored.project.schemaVersion === (body.reverse ? 1 : 2)) throw new HttpError(409, 'Huvudrevisionen har redan det valda formatet.');
+  const { seed, storedProject } = await context.studio();
   const candidate = body.reverse ? toLegacyProject(stored.project, seed) : storedProject(stored.project);
   const { project, references, frame } = validateProjectWithReferences(candidate, seed, undefined, { origins: [url.origin] });
   if (await digest(JSON.stringify(project)) !== body.projectHash) throw new HttpError(409, 'Konverteraren skiljer sig från den repeterade versionen. Migreringen skrev ingenting.');
@@ -79,8 +82,9 @@ async function migrateFrame(request, env, context) {
 }
 
 async function recover(request, env, context) {
-  const { seed, url, storedProject, fromClient, published, publishedBaseline } = context;
+  const { url, published, publishedBaseline } = context;
   const body = await readJson(request, 16 * 1024 * 1024);
+  const { seed, storedProject, fromClient } = await context.studio();
   const baseline = await publishedBaseline();
   const project = validateProject(fromClient(body.project), seed, baseline, { origins: [url.origin], publication: false });
   const warnings = [];
@@ -120,7 +124,7 @@ async function recover(request, env, context) {
 }
 
 async function validate(request, env, context) {
-  const { seed, built, url, fromClient, publishedBaseline } = context;
+  const { built, url, publishedBaseline } = context;
   const body = await readJson(request, 8 * 1024 * 1024);
   const isPreview = url.pathname.endsWith('/preview');
   let input = body?.project, target;
@@ -133,6 +137,7 @@ async function validate(request, env, context) {
       target = cardTarget ? { cardId: body.cardId } : { pageId: body.pageId };
     } catch (error) { throw new HttpError(422, error.message); }
   }
+  const { seed, fromClient } = await context.studio();
   input = fromClient(input);
   const baseline = isPreview ? await previewBaseline(env.CMS_DB, input, seed, url.origin) : await publishedBaseline();
   const { project, references } = validateProjectWithReferences(input, seed, baseline, { origins: [url.origin], preview: target });
@@ -151,7 +156,7 @@ async function validate(request, env, context) {
 }
 
 async function save(request, env, context) {
-  const { seed, initial, identity, url, storedProject, fromClient, published, publishedBaseline } = context;
+  const { identity, url, published, publishedBaseline } = context;
   const body = await readJson(request, 8 * 1024 * 1024);
   const hasProject = Object.hasOwn(body ?? {}, 'project'), hasChanges = Object.hasOwn(body ?? {}, 'changes');
   const allowed = new Set(['baseVersion', 'requestId', hasChanges ? 'changes' : 'project']);
@@ -181,6 +186,7 @@ async function save(request, env, context) {
       if (racedReplay) return json(racedReplay);
       throw new HttpError(409, 'Webbplatsen ändrades i en annan flik. Ditt utkast finns kvar; jämför innan du sparar igen.');
     }
+    const { seed, initial, storedProject, fromClient } = await context.studio();
     const base = stored ? storedProject(stored.project) : initial;
     const baseline = stored?.baseline ?? base;
     let candidate;
@@ -194,6 +200,7 @@ async function save(request, env, context) {
   const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, project: body.project }));
   const replay = await replayFullSave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, baseVersion: body.baseVersion, payloadHash, project: body.project });
   if (replay) return json(replay);
+  const { seed, fromClient } = await context.studio();
   const baseline = await publishedBaseline();
   const { project, references, frame } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
   await validateReferencedMedia(env, project, references);

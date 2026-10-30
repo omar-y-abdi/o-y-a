@@ -4,6 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { dirname } from 'node:path';
 import { publicationChunks } from '../../src/cms/store.mjs';
+import { seedAsset } from '../../.generated/cms-build.mjs';
 
 // Full Worker handlers with real SQLite transactions and observable BLOB reads.
 // Only Access verification/external bindings are replaced. Signed-Access and
@@ -14,7 +15,7 @@ export async function nodeWorker() {
     const bundle = await build({ entryPoints: ['src/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', plugins: [{
       name: 'cpu-test-auth',
       setup(plugin) {
-        plugin.onLoad({ filter: /[/\\]cms[/\\]auth\.mjs$/ }, () => ({ contents: 'export async function authenticateAdmin(request) { if (request.headers.get("CF-Access-Jwt-Assertion") !== "cpu-test") throw new Error("Missing test auth"); return { email: "owner@example.test", subject: "cpu-test" }; }', loader: 'js' }));
+        plugin.onLoad({ filter: /[/\\]cms[/\\]auth\.mjs$/ }, () => ({ contents: 'export async function authenticateAdmin(request) { globalThis.cmsAuthCalls?.push(request.url); if (request.headers.get("CF-Access-Jwt-Assertion") !== "cpu-test") throw new Error("Missing test auth"); return { email: "owner@example.test", subject: "cpu-test" }; }', loader: 'js' }));
         plugin.onLoad({ filter: /[/\\]cms[/\\]validation\.mjs$/ }, async ({ path }) => ({
           contents: (await readFile(path, 'utf8')).replace(/(export function (validateHtml|validateCss)\([^)]*\) \{)/g, (all, declaration, name) => `${declaration} globalThis.cmsValidationCalls?.push(${JSON.stringify(name)}); globalThis.cmsValidationDetails?.push({ name:${JSON.stringify(name)}, context:arguments[1] ?? ${name === 'validateCss' ? "'stylesheet'" : 'null'}, source:${name === 'validateCss' ? 'arguments[0]' : 'undefined'} });`),
           loader: 'js', resolveDir: dirname(path),
@@ -63,7 +64,7 @@ export async function nodeCms(project, worker, version = 185, { migrationLimit =
     sqlite.prepare('UPDATE cms_head SET version=?').run(version);
     for (const item of publicationChunks(project).flat()) sqlite.prepare('INSERT INTO cms_rendered(version,path,html,css,meta) VALUES(?,?,?,?,?)').run(version, item.path, item.html, item.css, JSON.stringify(item.meta));
   }
-  const env = { CMS_DB: db, ASSETS: { fetch: async () => new Response('static fixture') } };
+  const env = { CMS_DB: db, ASSETS: { fetch: async request => new Response(new URL(request.url).pathname === seedAsset.path ? await readFile('dist' + seedAsset.path) : 'static fixture') } };
   const request = (path, data) => new Request('https://omaryusuf.se' + path, {
     method: data === undefined ? 'GET' : 'POST',
     headers: { 'CF-Access-Jwt-Assertion': 'cpu-test', Origin: 'https://omaryusuf.se', 'X-CMS-Request': '1', 'Content-Type': 'application/json' },

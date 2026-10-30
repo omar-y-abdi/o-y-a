@@ -89,7 +89,10 @@ export async function buildCms({ styles, js }) {
     return { id: `builtin-${name}`, slot, src, name, alt: alt ?? name, mime: mime ?? (src.endsWith('.gif') ? 'image/gif' : 'image/png'), bytes: bytes.length, width: dimensions?.width, height: dimensions?.height, builtin: true, ...(editableSrc ? { editableSrc, editableSvg } : {}) };
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
-  const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, '')).sort();
+  // A fresh build writes these after the inventory. Repeating this builder
+  // must not feed its late outputs back into the established policy identity.
+  const lateOutputs = new Set(['/admin/index.html', '/login/index.html', '/data/runtime.json']);
+  const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, '')).filter(path => !lateOutputs.has(path) && !/^\/admin\/seed\.[0-9a-f]{64}\.json$/.test(path)).sort();
   // Anchor targets of the code-owned game build, for links like /play/skift/#main.
   const skiftIds = elements(parseFragment(pages.find(page => page.path === SKIFT_PATH).html)).map(node => attribute(node, 'id')).filter(Boolean);
   const seed = frameDefinitions({ pages, blank, footerPage: pages.find(page => page.path === '/developers/'), skiftIds, runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT });
@@ -98,6 +101,13 @@ export async function buildCms({ styles, js }) {
   const legacyInitial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
   const initial = validateProject(toFrameProject(legacyInitial, seed), seed);
   await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const legacyInitial = ${JSON.stringify(legacyInitial)};\nexport const legacySeed = seed.legacy;\nexport const built = ${JSON.stringify(built)};\n`);
+  // Definitions are a protected immutable build input, not a Worker literal.
+  // Keep this file out of staticPaths to avoid hashing its own path into seed.
+  const definitions = JSON.stringify({ seed, initial });
+  const sha256 = createHash('sha256').update(definitions).digest('hex');
+  const seedAsset = { path: `/admin/seed.${sha256}.json`, sha256, bytes: Buffer.byteLength(definitions), studioKey: seed.studioKey };
+  await writeFile('dist' + seedAsset.path, definitions);
+  await writeFile('.generated/cms-build.mjs', `export const built = ${JSON.stringify(built)};\nexport const seedAsset = ${JSON.stringify(seedAsset)};\n`);
   // Public game markup follows this build, while the editor seed/initial and
   // state descriptor keep their original identities and private contracts.
   const { id, path, name, title, description, template, bodyClass, noindex, html } = seed.skiftPage;

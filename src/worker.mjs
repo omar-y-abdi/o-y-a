@@ -2,8 +2,9 @@ import { handleContact, contactConfig } from './server/contact.mjs';
 import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
 import { CSP, SKIFT_CSP } from './csp.mjs';
-import { seed, initial, built } from '../.generated/cms-seed.mjs';
+import { built, seedAsset } from '../.generated/cms-build.mjs';
 import { publicBuilt } from '../.generated/cms-public.mjs';
+import { loadAdminSeed } from './cms/admin-seed.mjs';
 import { handleAdmin } from './cms/api.mjs';
 import { assetResponse } from './cms/media-files.mjs';
 import { serveMailFile } from './cms/email-api.mjs';
@@ -95,7 +96,7 @@ export default {
     }
     let response;
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
-      response = await handleAdmin(request,env,{seed,initial,built});
+      response = await handleAdmin(request,env,{built,studioKey:seedAsset.studioKey,loadSeed:() => loadAdminSeed(env)});
       const secured = secure(response,url.protocol === 'https:',ADMIN_CSP);
       secured.headers.set('Cache-Control', response.status === 200 && ['GET','HEAD'].includes(request.method) && ADMIN_ASSETS.has(url.pathname) ? 'private, max-age=31536000, immutable' : 'no-store');
       secured.headers.set('X-Robots-Tag','noindex, nofollow');
@@ -118,7 +119,7 @@ export default {
     else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
-      try { response = await publicContent(request,env,publicBuilt,seed) ?? await env.ASSETS.fetch(request); }
+      try { response = await publicContent(request,env,publicBuilt,async () => (await loadAdminSeed(env)).seed) ?? await env.ASSETS.fetch(request); }
       catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
     }
     if (url.pathname === '/404.html' && response.status === 200) {

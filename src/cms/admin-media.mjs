@@ -14,7 +14,8 @@ async function assets(request, env, context) {
 }
 
 async function managedSource(request, env, context) {
-  const { seed, url } = context;
+  const { url } = context;
+  const { seed } = await context.studio();
   const builtin = seed.assets.find(asset => asset.id === url.searchParams.get('id'));
   return json(await managedSvgSource(env, builtin ? { ...builtin, builtin: true } : null));
 }
@@ -27,8 +28,9 @@ async function upload(request, env) {
 }
 
 async function managedSvg(request, env, context) {
-  const { seed, url, fromClient, publishedBaseline, resourceIds } = context;
+  const { url, publishedBaseline, resourceIds } = context;
   const body = await readJson(request, 16 * 1024 * 1024);
+  const { seed, fromClient } = await context.studio();
   const source = seed.assets.find(asset => asset.id === body.id);
   const builtin = source ? { ...source, builtin: true } : null;
   if (body.action === 'validate') return json(validateManagedSvg(builtin, body.svg));
@@ -53,16 +55,17 @@ async function managedSvg(request, env, context) {
 }
 
 async function usage(request, env, context) {
-  const { seed } = context;
   const body = await readJson(request, 1024);
   if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.id !== 'string' || Object.keys(body).some(key => key !== 'id')) throw new HttpError(422, 'Välj en resurs för historikkontrollen.');
+  const { seed } = await context.studio();
   const builtin = seed.assets.find(asset => asset.id === body.id);
   return json(await assetUsage(env, builtin ? { ...builtin, builtin: true } : { id: body.id }));
 }
 
 async function change(request, env, context) {
-  const { seed, url, fromClient, publishedBaseline } = context;
+  const { url, publishedBaseline } = context;
   const body = await readJson(request, 16 * 1024 * 1024);
+  const { seed, fromClient } = await context.studio();
   const builtin = seed.assets.find(asset => asset.id === body.id);
   if (url.pathname === '/admin/api/asset-metadata') {
     const { id, ...patch } = body;
@@ -74,8 +77,9 @@ async function change(request, env, context) {
 }
 
 async function replace(request, env, context) {
-  const { seed, url, fromClient, publishedBaseline, resourceIds } = context;
+  const { url, publishedBaseline, resourceIds } = context;
   const body = await readJson(request, 16 * 1024 * 1024);
+  const { seed, fromClient } = await context.studio();
   const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
   const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
   const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };

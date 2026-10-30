@@ -28,7 +28,7 @@ export function renderPage(page, built, { version, preview, project, runtimeJson
   return result.replace('</head>', () => `${styles}${fixture}</head>`);
 }
 
-export async function publicContent(request, env, built, seed = {}) {
+export async function publicContent(request, env, built, loadSeed = () => ({})) {
   if (!env.CMS_DB) return null;
   const url = new URL(request.url);
   if (url.pathname === '/login' || url.pathname.startsWith('/login/')) return null;
@@ -88,7 +88,7 @@ export async function publicContent(request, env, built, seed = {}) {
   // Read-time migrations must not take a published page offline. Serve the
   // stored page and report; Save and validation keep failing loudly.
   if (page.frameVersion !== 2) {
-    const legacy = legacySeed(seed);
+    const legacy = legacySeed(await loadSeed());
     const definition = legacy.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? legacy.blank;
     try { normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, legacy.footerPage)), definition); }
     catch (error) { reportFailure(error, 'public'); }

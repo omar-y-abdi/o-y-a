@@ -20,8 +20,9 @@ export async function readCurrentProject(db, seed, initial, origin) {
   return { version: canonical.version, project, baseline: await currentBaseline(db, project, canonical.version, seed, origin) };
 }
 
-export async function readCurrentResources(db, seed, initial) {
-  const canonical = await readStudioResources(db, seed.studioKey);
+export async function readCurrentResources(db, buildKey, definitions) {
+  const canonical = await readStudioResources(db, buildKey);
   if (canonical) return { resources: canonical.resources };
+  const { seed, initial } = await definitions();
   return (await ordinaryCurrent(db, seed, initial)).project;
 }
