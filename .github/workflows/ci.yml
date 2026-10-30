@@ -61,7 +61,6 @@ jobs:
             output/logs/cms-browser.log
             output/visual/cms/*.png
             output/visual/studio/*.png
-            output/logs/cms-interactions.log
             output/logs/cms-review*.log
             output/visual/review/**/*.png
             output/visual/review-final/**/*.png

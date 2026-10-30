@@ -45,8 +45,8 @@ test('retired Python gates preserve their qualified engine registrations', async
     assert.ok(compatibility.includes(spec), `The explicit compatibility command must retain ${spec}`);
   }
   const remainingRunners = await Promise.all(['scripts/test-cms.mjs', 'scripts/test-cms-parallel.mjs'].map(source));
-  assert.ok(scripts['test:cms'].includes('tests/cms-browser.spec.mjs'), 'The qualified main CMS scenarios must remain in the Chromium CMS command');
-  assert.doesNotMatch(remainingRunners.join(''), /'tests\/cms-browser\.py'/, 'The qualified standalone Python gate must not run twice');
+  for (const spec of ['cms-browser.spec.mjs', 'cms-interactions.spec.mjs']) assert.ok(scripts['test:cms'].includes(`tests/${spec}`), `The qualified ${spec} scenarios must remain in the Chromium CMS command`);
+  assert.doesNotMatch(remainingRunners.join(''), /'tests\/cms-(?:browser|interactions)\.py'/, 'The qualified standalone Python gates must not run twice');
   assert.doesNotMatch(remainingRunners.join(''), /test_cms_(?:browser_helpers|asset_usage)\.py|CMS_SKIP_HELPERS/);
   assert.doesNotMatch(workflow + packageSource + compatibility, /(?:test|prepare)-cms-modules(?:-parallel)?\.mjs|managed-svg-fidelity\.py/);
 });
