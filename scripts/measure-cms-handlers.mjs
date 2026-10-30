@@ -7,12 +7,15 @@ import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { cpuMigrationStatus, applyCpuMigration } from '../src/cms/cpu-migration.mjs';
 import { prepareCpuArtifact, readCpuSource, stageCpuArtifact } from './cms-cpu-artifact.mjs';
-import { normalizeStoredProject } from '../src/cms/frame-converter.mjs';
+import { normalizeClientProject, normalizeStoredProject } from '../src/cms/frame-converter.mjs';
 import { storedProjectView } from '../src/cms/stored-view.mjs';
 import { previewPayload } from '../src/cms/preview-project.mjs';
-import { projectChanges } from '../src/cms/project-changes.mjs';
-import { studioBuildKey } from './build-cms.mjs';
-import { publishSite, digest } from '../src/cms/store.mjs';
+import { applyProjectChanges, projectChanges } from '../src/cms/project-changes.mjs';
+import { validateProjectWithReferences } from '../src/cms/project.mjs';
+import { readCurrentProject } from '../src/cms/current-project.mjs';
+import { resolveResources } from '../src/cms/resources.mjs';
+import { studioBuildKey, renderBuildKey } from './build-cms.mjs';
+import { publishSite, digest, renderProof, reusableRows } from '../src/cms/store.mjs';
 
 const { values } = parseArgs({ options: {
   cold: { type: 'string', default: '20' }, warm: { type: 'string', default: '50' }, warmup: { type: 'string', default: '3' }, output: { type: 'string', default: 'output/cpu/handlers.json' },
@@ -32,7 +35,9 @@ const workloads = {
   'preview-one-card': () => ({ path: '/admin/api/preview', tables: canonical, body: () => previewPayload(project, 'win', project.cards[0].id) }),
   'first-full-save': () => ({ path: '/admin/api/save', tables: canonical, body: () => ({ project: draft, baseVersion: 185, requestId: crypto.randomUUID() }) }),
   'first-delta-save': () => ({ path: '/admin/api/save', tables: canonical, body: () => ({ changes, baseVersion: 185, requestId: crypto.randomUUID() }) }),
+  'next-delta-save': () => ({ path: '/admin/api/save', tables: nextBase, body: () => ({ changes: nextChanges, baseVersion: 186, requestId: crypto.randomUUID() }), saveVersion: 187 }),
   'validate-current': () => ({ path: '/admin/api/validate', tables: canonical, body: () => ({ project: draft }) }),
+  'next-validate': () => ({ path: '/admin/api/validate', tables: nextBase, body: () => ({ project: nextDraft }) }),
   'recover-current': () => ({ path: '/admin/api/recover', tables: canonical, body: () => ({ project: draft }) }),
   'recover-current-pending': () => ({ path: '/admin/api/recover', tables: canonical, body: () => ({ project: draft, baseVersion: 185, pendingSave: { changes, baseVersion: 185, requestId: crypto.randomUUID() } }) }),
   'replay-full': () => ({ path: '/admin/api/save', tables: replay, body: () => fullAttempt, seedless: true, replayed: true }),
@@ -79,6 +84,7 @@ function restore(runtime, tables) {
 
 const { nodeWorker, nodeCms } = await import('../tests/helpers/cms-node.mjs');
 const { initial, seed } = await import('../.generated/cms-seed.mjs');
+const { renderKey } = await import('../.generated/cms-build.mjs');
 if (await studioBuildKey(seed) !== seed.studioKey) throw new Error('Build identity is stale; build the exact measured checkout first.');
 const seedPath = '/admin/seed.' + hash(JSON.stringify({ seed, initial })) + '.json';
 const fixtureBytes = await readFile('tests/fixtures/cms-v185-project.json'), raw = JSON.parse(fixtureBytes);
@@ -93,7 +99,7 @@ const deltaAttempt = { changes, baseVersion: 185, requestId: '00000000-0000-4000
 // Compile/seed/derive artifacts outside every sample. The fixture auth module
 // is deliberately identified below; these numbers cannot certify edge CPU.
 const preparedWorker = await nodeWorker(), prototype = await nodeCms(raw, preparedWorker);
-let ordinary, canonical, empty, publicCanonical, replay;
+let ordinary, canonical, empty, publicCanonical, replay, nextBase, nextDraft, nextChanges;
 try {
   ordinary = snapshot(prototype);
   if (JSON.parse(prototype.sqlite.prepare("SELECT meta FROM cms_rendered WHERE version=185 AND path='/'").get().meta).frameVersion === 2) throw new Error('Legacy public fixture unexpectedly has canonical rendered rows');
@@ -109,6 +115,25 @@ try {
     await publishSite(prototype.db, { project, baseVersion: 185, requestId: crypto.randomUUID(), actor: identity.actor, studioKey: seed.studioKey, origin: identity.origin });
     if (JSON.parse(prototype.sqlite.prepare("SELECT meta FROM cms_rendered WHERE version=186 AND path='/'").get().meta).frameVersion !== 2) throw new Error('Canonical public fixture did not produce canonical rendered rows');
     publicCanonical = snapshot(prototype);
+  }
+  if (values.workload?.startsWith('next-')) {
+    // The measured request starts from a head published as the Save handler publishes it.
+    if (!renderKey || renderKey !== await renderBuildKey()) throw new Error('Render identity is stale; build the exact measured checkout first.');
+    const { project: validBase, references: baseReferences, frame } = validateProjectWithReferences(structuredClone(project), seed, undefined, { origins: [identity.origin] });
+    await publishSite(prototype.db, { project: validBase, references: baseReferences, baseVersion: 185, requestId: crypto.randomUUID(), actor: identity.actor, studioKey: seed.studioKey, renderKey, previewFrame: frame, origin: identity.origin });
+    if (JSON.parse(prototype.sqlite.prepare("SELECT meta FROM cms_rendered WHERE version=186 AND path='@manifest'").get().meta).renderKey === undefined) throw new Error('Next fixture was not published with the render proof');
+    nextBase = snapshot(prototype);
+    nextDraft = structuredClone(validBase);
+    const editedAbout = nextDraft.pages.find(page => page.path === '/om/');
+    editedAbout.html = editedAbout.html.replace('</main>', '<p>CPU measurement edit.</p></main>');
+    nextChanges = projectChanges(validBase, nextDraft);
+    // Derive the reuse exactly as the handler does, from the body it will receive.
+    const stored = await readCurrentProject(prototype.db, seed, initial, identity.origin);
+    const input = values.workload === 'next-validate' ? nextDraft : applyProjectChanges(stored.project, nextChanges);
+    const { project: candidate, references } = validateProjectWithReferences(normalizeClientProject(input, seed), seed, stored.baseline, { origins: [identity.origin] });
+    const reused = await reusableRows(prototype.db, candidate, stored, await resolveResources(prototype.db, candidate), references, renderProof(renderKey));
+    const reusedPages = [...(reused?.paths ?? [])].filter(path => path.startsWith('/'));
+    if (reusedPages.length !== validBase.pages.length - 1 || reusedPages.includes('/om/')) throw new Error('Next fixture does not reuse the unchanged pages');
   }
   if (values.workload === 'state-first') {
     const first = await nodeCms(null, preparedWorker);
@@ -187,7 +212,7 @@ async function sample(runtime, worker, workload, warm = false) {
     const result = workload.response === 'public' ? null : JSON.parse(Buffer.from(bytes).toString('utf8'));
     if (workload.response === 'public' && JSON.stringify(publicIdentity(response, bytes)) !== JSON.stringify(publicReference.responses[workload.name])) throw new Error('Public status/headers/body differ from the independently recorded baseline');
     if (workload.path.endsWith('/state') && (result.version !== (workload.expectedVersion ?? 185) || JSON.stringify(result.project) !== JSON.stringify(workload.expectedProject ?? project))) throw new Error('State identity changed');
-    if (workload.path.endsWith('/save') && result.version !== 186) throw new Error('Save did not return the intended version');
+    if (workload.path.endsWith('/save') && result.version !== (workload.saveVersion ?? 186)) throw new Error('Save did not return the intended version');
     if (workload.replayed && (result.replayed !== true || result.requestId !== body.requestId || runtime.sqlite.prepare('SELECT version FROM cms_head WHERE id=1').get().version !== 187 || runtime.sqlite.prepare('SELECT count(*) AS count FROM cms_revisions').get().count !== 3)) throw new Error('Confirmed replay changed identity, the later head or revision count');
     if (workload.seedless && seedReads !== 0) throw new Error('Seedless canonical-public/replay path fetched definitions');
     if (warm && seedReads !== 0) throw new Error('A warm handler unexpectedly fetched definitions');

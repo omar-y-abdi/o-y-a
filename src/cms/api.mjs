@@ -15,7 +15,7 @@ const resourceIds = project => [...resourceReferences(project).keys()].filter(sr
 // positional keys go through the frozen e5592bc map. Stored data uses rekeyHtml.
 export { normalizeClientProject } from './frame-converter.mjs';
 
-export async function handleAdmin(request, env, { built, studioKey, loadSeed }) {
+export async function handleAdmin(request, env, { built, studioKey, renderKey, loadSeed }) {
   let definitions;
   const studio = () => definitions ??= loadSeed().then(({ seed, initial }) => ({
     seed, initial,
@@ -35,7 +35,7 @@ export async function handleAdmin(request, env, { built, studioKey, loadSeed }) 
     // reads without D1 and unknown-route refusal before write guards.
     if (url.pathname === '/admin/api/contact' || url.pathname.startsWith('/admin/api/mail/')) return await handleEmailAdmin(request, env, { identity, url, head: () => readCurrentResources(env.CMS_DB, studioKey, studio) });
     if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
-    const context = { studio, studioKey, built, identity, url, published, publishedBaseline, resourceIds };
+    const context = { studio, studioKey, renderKey, built, identity, url, published, publishedBaseline, resourceIds };
     if (request.method === 'GET' || request.method === 'HEAD') {
       const handler = reads.get(url.pathname);
       if (handler) return await handler(request, env, context);
