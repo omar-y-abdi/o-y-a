@@ -52,6 +52,10 @@ Treat every saved project, HTML fragment, CSS rule, path and upload as untrusted
 
 A save includes its base revision and a unique request ID. D1 commits a new immutable revision and advances the pointer atomically; stale writes return a conflict. Retrying a request must not create duplicate revisions. Historical restore never deletes the intervening history. Public caches key immutable resources by revision or content hash; stale mutable pointers must not hide a confirmed save.
 
+## Scoped publication
+
+A delta Save and Validate render only the pages and cards a change touches. `reusableRows` (`src/cms/store.mjs`) compares the project with the head, and Save copies unchanged `cms_rendered` rows from the head in the same batch. Validate writes nothing and uses the same decision for its size check. Copying requires that the frame, fonts, resources, render code and UTC year are all unchanged. Otherwise every row is rendered. The same applies when the head has no studio copy for the current build, to a Save that sends the whole project, and to the frame migration. The `@frame` row and the data rows are always rendered. The first Save after new render code or a new studio build key renders everything. Studio still loads the whole site at start. The revision blob and its compression, and the studio copy's digest, remain whole-project.
+
 ## Observable acceptance
 
 - An authorized release check verifies that the authenticated owner can edit, save, reload and see the same values on the public site. Unauthenticated, expired, malformed and wrong-owner requests cannot read private content or mutate state.
