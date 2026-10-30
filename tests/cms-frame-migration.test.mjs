@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { seed, legacyInitial } from '../.generated/cms-seed.mjs';
 import { frameMigration } from '../scripts/cms-migrate-frame.mjs';
 import { pruneRendered } from '../scripts/cms-prune-rendered.mjs';
@@ -11,6 +12,7 @@ test('B8: head migration and reverse are guarded by source version and hash', as
   const project = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
   const snapshot = { version: 185, project };
   const intent = frameMigration(snapshot, seed);
+  assert.deepEqual(frameMigration(snapshot, seed, { origin: 'https://omaryusuf.se' }), intent);
   assert.equal(intent.expectedVersion, 185);
   assert.match(intent.expectedHash, /^[a-f0-9]{64}$/);
   assert.equal(intent.project.schemaVersion, 2);
@@ -23,6 +25,20 @@ test('B8: head migration and reverse are guarded by source version and hash', as
   assert.throws(() => frameMigration({ version: 186, project: intent.project }, seed), /redan/);
 });
 
+test('B8: local dry-run validates its explicit origin before accessing storage', () => {
+  for (const [args, message] of [
+    [['--local'], /--local kräver kopians uttryckliga --origin även vid --dry-run/],
+    [['--local', '--origin=http://127.0.0.1:1234/wrong/'], /origin behöver matcha/],
+    [['--origin=https://omaryusuf.se:444'], /origin behöver matcha/],
+  ]) {
+    const result = spawnSync(process.execPath, ['scripts/cms-migrate-frame.mjs', '--dry-run', ...args], { encoding: 'utf8', timeout: 10000 });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, message);
+    assert.equal(result.stdout, '');
+  }
+});
+
 test('B8: migration endpoint publishes one transaction, rejects stale hashes, replays and reverses for code rollback', async () => {
   const runtime = await cmsRuntime();
   try {
@@ -31,7 +47,15 @@ test('B8: migration endpoint publishes one transaction, rejects stale hashes, re
     const cookie = `CF_Authorization=${await runtime.token()}`;
     const post = body => runtime.mf.dispatchFetch(runtime.url + '/admin/api/migrate-frame', { method: 'POST', headers: { Cookie: cookie, Origin: runtime.url, 'Content-Type': 'application/json', 'X-CMS-Request': '1' }, body: JSON.stringify(body) });
     const envelope = (intent, requestId = crypto.randomUUID()) => { const { project: _project, ...body } = intent; return { ...body, requestId }; };
-    const intent = frameMigration(await readSite(runtime.db), seed);
+    const source = await readSite(runtime.db);
+    const intent = frameMigration(source, seed, { origin: runtime.url });
+    const otherOrigin = frameMigration(source, seed, { origin: 'https://omaryusuf.se' });
+    assert.equal(intent.expectedHash, otherOrigin.expectedHash, 'Origin does not change the source identity');
+    assert.notEqual(intent.projectHash, otherOrigin.projectHash, 'Validated resource facts bind the target origin');
+    const mismatched = await post(envelope(otherOrigin));
+    assert.equal(mismatched.status, 409);
+    assert.match((await mismatched.json()).error, /Konverteraren skiljer sig/);
+    assert.equal((await runtime.db.prepare('SELECT count(*) AS total FROM cms_revisions').first()).total, 1, 'Wrong-origin planning cannot publish');
     const bad = await post({ ...envelope(intent), expectedHash: '0'.repeat(64) });
     assert.equal(bad.status, 409);
     assert.equal((await readSite(runtime.db)).version, 1);
@@ -52,7 +76,7 @@ test('B8: migration endpoint publishes one transaction, rejects stale hashes, re
     const migrated = await readSite(runtime.db);
     assert.equal(migrated.project.schemaVersion, 2);
     assert.ok(migrated.project.pages.every(page => !page.html.includes('<footer')));
-    const reverse = frameMigration(migrated, seed, { reverse: true });
+    const reverse = frameMigration(migrated, seed, { reverse: true, origin: runtime.url });
     const rolledBack = await post(envelope(reverse));
     assert.equal(rolledBack.status, 200, await rolledBack.clone().text());
     const restored = await readSite(runtime.db);
@@ -93,7 +117,7 @@ test('B8/A17/C1: pruning rendered history preserves raw migration CAS and revers
     await save(legacy, 0);
     await save(legacy, 1);
     const source = await readSite(runtime.db, undefined, { raw: true });
-    const intent = frameMigration(source, seed);
+    const intent = frameMigration(source, seed, { origin: runtime.url });
     assert.equal((await readSite(runtime.db)).project.pages[0].project, null, 'Ordinary reads discard unused editor metadata');
     const now = Date.now() + 26 * 3600000;
     const prune = () => pruneRendered(sql => runtime.db.prepare(sql).all(), { apply: true, now: () => now, log() {} });
@@ -115,7 +139,7 @@ test('B8/A17/C1: pruning rendered history preserves raw migration CAS and revers
     await prune();
     assert.equal(await count(3), 0, 'Even the historical @frame row may expire');
     assert.ok(await count(4) > 0);
-    const reverse = frameMigration(await readSite(runtime.db, undefined, { raw: true }), seed, { reverse: true });
+    const reverse = frameMigration(await readSite(runtime.db, undefined, { raw: true }), seed, { reverse: true, origin: runtime.url });
     const rollback = await migrate(reverse);
     assert.equal(rollback.status, 200, await rollback.clone().text());
     const restored = await readSite(runtime.db);

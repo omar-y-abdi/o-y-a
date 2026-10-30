@@ -23,7 +23,7 @@ export const d1 = database => ({
 });
 
 // Pure core: rows in, verdict out. revisions: [{ version, project: gzip bytes }].
-export async function releaseVerdict({ revisions, media }, { seed, initial }) {
+export async function releaseVerdict({ revisions, media, studio = [] }, { seed, initial }) {
   const database = new DatabaseSync(':memory:', { enableForeignKeyConstraints: false });
   try {
     for (const file of (await readdir('migrations')).filter(name => name.endsWith('.sql')).sort()) database.exec(await readFile(`migrations/${file}`, 'utf8'));
@@ -31,6 +31,10 @@ export async function releaseVerdict({ revisions, media }, { seed, initial }) {
     const insert = (table, row) => database.prepare(`INSERT INTO ${table}(${Object.keys(row).map(key => `"${key.replaceAll('"', '""')}"`)}) VALUES (${Object.keys(row).map(() => '?')})`).run(...Object.values(row));
     for (const { version, project } of revisions) insert('cms_revisions', { version, request_id: `release-${version}`, base_version: version - 1, actor: '', created_at: '', payload_hash: '', project, manifest: '[]', summary: '' });
     for (const row of media) insert('cms_media', row);
+    for (const { version, buildKey, hash, resources, parts } of studio) {
+      insert('cms_studio_heads', { version, build_key: buildKey, project_hash: hash, resources: JSON.stringify(resources), text_parts: parts.length });
+      for (const [part, body] of parts.entries()) insert('cms_studio_text', { version, part, body });
+    }
     database.exec('PRAGMA query_only = ON');
     return await checkCompatibility(d1(database), { seed, initial });
   } finally { database.close(); }
@@ -63,6 +67,21 @@ export function pullRevision(version, options) {
   return { version, project };
 }
 
+export function pullStudio(version, options) {
+  version = integer(version);
+  if (!select("SELECT name FROM sqlite_schema WHERE type='table' AND name='cms_studio_heads'", options).length) return [];
+  const [head] = select(`SELECT build_key,project_hash,resources,text_parts FROM cms_studio_heads WHERE version=${version}`, options);
+  if (!head) return [];
+  if (!Number.isSafeInteger(head.text_parts) || head.text_parts < 1 || head.text_parts > 257) throw new Error('invalid studio text part count');
+  const parts = [];
+  for (let part = 0; part < head.text_parts; part++) {
+    const [row] = select(`SELECT body FROM cms_studio_text WHERE version=${version} AND part=${part}`, options);
+    if (typeof row?.body !== 'string') throw new Error(`studio text part ${part} missing`);
+    parts.push(row.body);
+  }
+  return [{ version, buildKey: head.build_key, hash: head.project_hash, resources: JSON.parse(head.resources), parts }];
+}
+
 async function main() {
   const all = process.argv.includes('--all');
   const versionsAllowed = new Set((process.argv.find(arg => arg.startsWith('--allow='))?.slice(8).split(',').filter(Boolean) ?? []).flatMap(range => {
@@ -73,17 +92,18 @@ async function main() {
   const expected = errorsFile ? JSON.parse(await readFile(errorsFile, 'utf8')) : {};
   const allow = new Map([...versionsAllowed].map(version => [version, expected[version]]));
   if ([...allow.values()].some(value => typeof value !== 'string' || !value)) throw new Error('Every --allow version needs its recorded exact error in --allow-errors=path.json.');
-  let head, revisions, media;
+  let head, revisions, media, studio;
   try {
     head = integer(select('SELECT version FROM cms_head WHERE id = 1')[0]?.version);
     const versions = all ? select('SELECT version FROM cms_revisions ORDER BY version').map(row => integer(row.version)) : head ? [head] : [];
     revisions = versions.map(version => pullRevision(version));
     media = select('SELECT * FROM cms_media');
+    studio = head ? pullStudio(head) : [];
   } catch (error) { throw new Error(`D1 unreadable (${error.message})`); }
   const { seed, initial } = await import('../.generated/cms-seed.mjs');
-  const result = await releaseVerdict({ revisions, media }, { seed, initial });
+  const result = await releaseVerdict({ revisions, media, studio }, { seed, initial });
   const failures = gateFailures(result, head, allow);
-  console.log(JSON.stringify({ head, checked: result.revisions.length, failures, allowed: result.revisions.filter(item => !item.compatible && !failures.includes(item)) }, null, 2));
+  console.log(JSON.stringify({ head, checked: result.revisions.length, failures, allowed: result.revisions.filter(item => !item.compatible && !failures.includes(item)), studioRefreshRequired: result.studioRefreshRequired }, null, 2));
   if (failures.length) process.exitCode = 1;
 }
 

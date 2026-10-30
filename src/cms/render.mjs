@@ -13,17 +13,17 @@ import { reportFailure } from './diagnostics.mjs';
 export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const safeStyle = css => css.replaceAll('<', '\\3c ');
 
-export function renderWinPreview(card, project, built) {
-  return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
+export function renderWinPreview(card, project, built, references) {
+  return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project, references))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
 }
 
-export function renderPage(page, built, { version, preview, project, runtimeJson = page.runtimeJson, resources = page.resources, resourceOrigin } = {}) {
+export function renderPage(page, built, { version, preview, project, runtimeJson = page.runtimeJson, resources = page.resources, resourceOrigin, references } = {}) {
   let base = layout(page, '', { css: built.styles[page.template] ?? built.styles.home, main: built.main, resources, resourceOrigin });
   if (preview) base = base.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
   const html = composePage(project?.frame, page).replace(/<footer\b[^>]*class="[^"]*\bsite-footer\b[^"]*"[^>]*>[\s\S]*?<\/footer>/g, footer => footer.replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + new Date().getUTCFullYear() + after));
   let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${html}</body>`);
-  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + frameCss(project.frame, page) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
+  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project, references) + frameCss(project.frame, page) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
   const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : runtimeJson === undefined ? '' : `<script type="application/json" id="cms-runtime">${runtimeJson.replaceAll('<', '\\u003c')}</script>`;
   return result.replace('</head>', () => `${styles}${fixture}</head>`);
 }

@@ -171,6 +171,7 @@ jobs:
           npx playwright test
           tests/cms-frame-public.spec.mjs
           tests/cms-frame-recovery.spec.mjs
+          tests/cms-preview.spec.mjs
           tests/cms-browser.spec.mjs
           tests/cms-interactions.spec.mjs
           tests/cms-review-browser.spec.mjs

@@ -4,12 +4,11 @@ import { resourceReferences, resolveResources } from './resources.mjs';
 import { resourceSlots } from '../content/resources.mjs';
 import { composePage, frameCss } from './frame.mjs';
 import { trimLegacySaveMetadata } from './legacy-save-identity.mjs';
-
-export async function digest(value) {
-  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
-  const hash = await crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-}
+import { studioStatements } from './studio-store.mjs';
+import { previewFacts } from './preview-store.mjs';
+import { digest } from './digest.mjs';
+import { storedProjectView } from './stored-view.mjs';
+export { digest } from './digest.mjs';
 
 async function compress(text) {
   return new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
@@ -26,7 +25,7 @@ export async function readSite(db, version, { raw = false } = {}) {
   if (!row) return null;
   const project = JSON.parse(await decompress(row.project));
   // Migration CAS hashes the exact stored project; normal reads discard unused editor JSON.
-  if (!raw) for (const page of project.pages) page.project = null;
+  if (!raw) storedProjectView(project);
   return { version: row.version, requestId: row.request_id, createdAt: row.created_at, project };
 }
 
@@ -159,7 +158,7 @@ export async function publicationMedia(db, project, references = resourceReferen
   return media;
 }
 
-export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical' }) {
+export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical', studioKey, previewFrame, origin }) {
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(requestId)) throw new HttpError(400, 'Sparförsöket saknar en giltig version eller identitet.');
   const serialized = JSON.stringify(project);
   if (new TextEncoder().encode(serialized).byteLength > 8 * 1024 * 1024) throw new HttpError(413, 'Projektet är för stort.');
@@ -191,6 +190,10 @@ export async function publishSite(db, { project, baseVersion, requestId, actor, 
   // Bound ordinary saves to one expired version; the paged maintenance script
   // handles a historical backlog without charging it to an owner's Save.
   statements.push(db.prepare(`DELETE FROM cms_rendered WHERE path NOT IN ('@resources','@email') AND version = (SELECT previous.version FROM cms_revisions previous JOIN cms_revisions successor ON successor.version = previous.version + 1 WHERE successor.base_version = previous.version AND successor.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now','-24 hours') AND EXISTS (SELECT 1 FROM cms_rendered WHERE version = previous.version AND path NOT IN ('@resources','@email')) ORDER BY previous.version LIMIT 1) AND version < ? AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)`).bind(baseVersion, baseVersion, requestId));
+  // API publishers provide the build identity only after server validation.
+  // Legacy/reverse and direct fixture publishers invalidate the optional copy.
+  const buildKey = project.schemaVersion === 2 ? studioKey : undefined;
+  statements.push(...studioStatements(db, { version, serialized, resources: project.resources, buildKey, hash: buildKey ? await digest(serialized) : undefined, facts: buildKey && previewFrame && origin ? await previewFacts(project, previewFrame, origin) : [], condition: '(SELECT version FROM cms_head WHERE id=1)=? AND EXISTS(SELECT 1 FROM cms_revisions WHERE request_id=?)', values: [baseVersion, requestId] }));
   statements.push(db.prepare('UPDATE cms_head SET version = ? WHERE id = 1 AND version = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(version, baseVersion, requestId));
   // The conditional inserts and pointer change share a D1 transaction. A stale
   // request writes no rows; any SQL failure rolls back the complete publication.
