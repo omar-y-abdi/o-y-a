@@ -1,7 +1,7 @@
 import { HttpError, json, readJson } from './http.mjs';
 import { validateProject, validateProjectWithReferences } from './project.mjs';
 import { toLegacyProject } from './frame-converter.mjs';
-import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave, replayFullSave } from './store.mjs';
+import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, renderProof, reusableRows, replaySave, replayFullSave } from './store.mjs';
 import { renderPage, renderWinPreview } from './render.mjs';
 import { resolveResources, resourceCatalog } from './resources.mjs';
 import { applyProjectChanges, validateProjectChanges } from './project-changes.mjs';
@@ -78,7 +78,7 @@ async function migrateFrame(request, env, context) {
   const { project, references, frame } = validateProjectWithReferences(candidate, seed, undefined, { origins: [url.origin] });
   if (await digest(JSON.stringify(project)) !== body.projectHash) throw new HttpError(409, 'Konverteraren skiljer sig från den repeterade versionen. Migreringen skrev ingenting.');
   await validateReferencedMedia(env, project, references);
-  return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash, requestFormat: 'migration-v1', studioKey: seed.studioKey, previewFrame: frame, origin: url.origin }));
+  return json(await publishSite(env.CMS_DB, { project, references, baseVersion: stored.version, requestId: body.requestId, actor: identity.email, payloadHash, requestFormat: 'migration-v1', studioKey: seed.studioKey, renderKey: context.renderKey, previewFrame: frame, origin: url.origin }));
 }
 
 async function recover(request, env, context) {
@@ -124,7 +124,7 @@ async function recover(request, env, context) {
 }
 
 async function validate(request, env, context) {
-  const { built, url, publishedBaseline } = context;
+  const { built, url, published, publishedBaseline } = context;
   const body = await readJson(request, 8 * 1024 * 1024);
   const isPreview = url.pathname.endsWith('/preview');
   let input = body?.project, target;
@@ -144,7 +144,12 @@ async function validate(request, env, context) {
   await validateReferencedMedia(env, project, references);
   if (body.resources !== undefined) await validatePackageResources(env.CMS_DB, body.resources);
   await publicationMedia(env.CMS_DB, project, references);
-  if (!isPreview) { publicationChunks(project, await resolveResources(env.CMS_DB, project), references); return json({ project }); }
+  if (!isPreview) {
+    const resources = await resolveResources(env.CMS_DB, project), stored = await published();
+    const reused = await reusableRows(env.CMS_DB, project, stored, resources, references, renderProof(context.renderKey));
+    publicationChunks(project, resources, references, { reused });
+    return json({ project });
+  }
   if (body.cardId) {
     const card = project.cards.find(item => item.id === body.cardId);
     if (!card) throw new HttpError(404, 'Vinsten finns inte i utkastet.');
@@ -195,7 +200,7 @@ async function save(request, env, context) {
     // After the replay check, so a replayed pendingSave keeps its payload hash.
     const { project, references, frame } = validateProjectWithReferences(fromClient(candidate), seed, baseline, { origins: [url.origin] });
     await validateReferencedMedia(env, project, references);
-    return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references, requestFormat: 'delta-v1', studioKey: seed.studioKey, previewFrame: frame, origin: url.origin }));
+    return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, payloadHash, references, requestFormat: 'delta-v1', studioKey: seed.studioKey, renderKey: context.renderKey, reuseFrom: stored, previewFrame: frame, origin: url.origin }));
   }
   const payloadHash = await digest(JSON.stringify({ baseVersion: body.baseVersion, project: body.project }));
   const replay = await replayFullSave(env.CMS_DB, { requestId: body.requestId, actor: identity.email, baseVersion: body.baseVersion, payloadHash, project: body.project });
@@ -204,7 +209,7 @@ async function save(request, env, context) {
   const baseline = await publishedBaseline();
   const { project, references, frame } = validateProjectWithReferences(fromClient(body.project), seed, baseline, { origins: [url.origin] });
   await validateReferencedMedia(env, project, references);
-  return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1', studioKey: seed.studioKey, previewFrame: frame, origin: url.origin }));
+  return json(await publishSite(env.CMS_DB, { project, baseVersion: body.baseVersion, requestId: body.requestId, actor: identity.email, references, payloadHash, requestFormat: 'full-v1', studioKey: seed.studioKey, renderKey: context.renderKey, previewFrame: frame, origin: url.origin }));
 }
 
 export const siteReads = new Map([
