@@ -52,11 +52,9 @@ Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [
 
 ## Verifiering
 
+Normal verifiering kräver Node.js 24, `npm ci` och Playwright-browsers. Python behövs inte för den. Se avsnittet om manuella Python-verktyg nedan.
+
 ```sh
-python3 -m venv .test-venv
-. .test-venv/bin/activate
-pip install -r requirements-test.txt
-python -m playwright install chromium
 npx playwright install chromium firefox webkit
 npm run check:fast &&
 npx playwright test tests/cms-modules.spec.mjs --project=chromium --no-deps --workers=1 --grep @modules-smoke
@@ -67,7 +65,6 @@ Den lokala standardloopen bygger, lintar, kör parallella `node:test`-tester och
 ```sh
 npm run quality &&
 npm run test:cms &&
-node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
 npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps --output=output/playwright/artifacts/editor &&
 npx playwright test --project=firefox --no-deps --output=output/playwright/artifacts/firefox &&
@@ -77,9 +74,22 @@ npx wrangler deploy --dry-run --outdir artifacts/worker-build
 
 Riktade publika kontroller efter bygge: `node --test tests/http-checks.test.mjs`, `npm run test:public-pages` och `npm run test:skift`. Specs använder egna Worker-fixturer på port 0. `PLAYWRIGHT_PORT=8791 npm run test:public-pages` låter Playwright starta en lokal Worker via `webServer` på angiven port. Firefox och WebKit: `npx playwright test --project=firefox --no-deps`, sedan samma kommando med `--project=webkit`.
 
-Det lägger till publik HTTP/browser-E2E, hela matrisen med 240 kortexporter i en worker, autentiserad CMS-browser-E2E, sidfotsregressionen, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser, riktade kommandon och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
+Det lägger till publik HTTP/browser-E2E, hela matrisen med 240 kortexporter i en worker, autentiserad CMS-browser-E2E, sidfotsregressionen, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `npx playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser, riktade kommandon och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
 
 `npm test` bygger först via `pretest`. `npm run check` lintar och anropar sedan `npm test`, så bygget körs en gång. `check:fast` har kvar sitt eget bygge. Direkta testkommandon, `test:slow`, `test:cms` och manuella verktyg bygger inte automatiskt: kör `npm run build` först enligt [QA-guiden](docs/QA.md#build-prerequisites).
+
+### Python för manuella verktyg
+
+Python används bara av de manuella verktygen `scripts/capture-cms.py`, `scripts/artwork.py`, `scripts/mail-art.py` och `tests/machine_depth.py`. Hjälparna `tests/cms-browser.py`, `tests/render_support.py` och `tests/contrast.py` används av dem. Installera dem i en egen miljö:
+
+```sh
+python3 -m venv .test-venv
+. .test-venv/bin/activate
+pip install -r requirements-test.txt
+python -m playwright install chromium
+```
+
+Det fristående paketet `games/skift` använder systemets `python3` för sin lokala server, ljudskript och release. Det ingår inte i kommandona ovan. Detaljer finns i [QA-guiden](docs/QA.md#python-and-manual-tools).
 
 ## Miljöer och kontakt
 

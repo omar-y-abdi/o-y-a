@@ -2,7 +2,7 @@ import { test as base, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { publicRuntime } from './helpers/cms-runtime.mjs';
 
-// HTTP-mode parity for browser.py: actual Worker, browser cookies and CSP.
+// Interaction and privacy checks over HTTP: actual Worker, browser cookies and CSP.
 // Fresh contexts preserve independent consent/motion state for every visit.
 const test = base.extend({
   origins: [async ({}, use) => {

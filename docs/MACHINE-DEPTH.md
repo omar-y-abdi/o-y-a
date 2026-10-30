@@ -8,7 +8,7 @@ Höljet har fått en synlig sidovägg, ventilationsspår, en skarv och gummiföt
 
 Produktionsändringarna finns i `src/styles/toys.css` och `src/templates/components.mjs`. Malländringen består av tre dekorativa, `aria-hidden`-markerade element. Befintlig JavaScript-kod, skämt, ögonföljning, kvitto, utskriftsanimation och övriga sidor är oförändrade.
 
-`tests/machine_depth.py` är det manuella maskintestet. `tests/assets.test.mjs` ger startsidan och verkstadssidan en CSS-budget på 17 000 byte efter gzip för materiallagren. Gränsen på 14 000 byte gäller alla andra sidor.
+`tests/machine_depth.py` är det manuella maskintestet. `tests/assets.test.mjs` ger startsidan och verkstadssidan en CSS-budget på 18 400 byte efter gzip för materiallagren. Gränsen på 14 000 byte gäller alla andra sidor.
 
 ## Kör lokalt
 
@@ -24,8 +24,7 @@ npm run dev
 
 ```sh
 npm run check &&
-python tests/machine_depth.py &&
-python tests/browser.py --render-only
+python tests/machine_depth.py
 ```
 
 Aktivera Python-miljön och installera Chromium enligt [QA-guiden](QA.md). Vid en separat körning av Python-kommandona måste `npm run build` köras först.

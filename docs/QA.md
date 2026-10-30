@@ -18,25 +18,24 @@ Full local verification uses explicit commands instead of another runner chain:
 ```sh
 npm run quality &&
 npm run test:cms &&
-node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
 npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps --output=output/playwright/artifacts/editor &&
-npx playwright test tests/cms-frame-public.spec.mjs tests/cms-browser.spec.mjs tests/cms-interactions.spec.mjs tests/cms-review-browser.spec.mjs tests/cms-review-final-browser.spec.mjs tests/cms-modules.spec.mjs tests/footer-cms-browser.spec.mjs tests/test_cms_browser_helpers.spec.mjs tests/test_cms_asset_usage.spec.mjs tests/revision_browser.spec.mjs tests/cms-library.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=2 --output=output/playwright/artifacts/functional &&
+npx playwright test tests/cms-frame-public.spec.mjs tests/cms-frame-recovery.spec.mjs tests/cms-preview.spec.mjs tests/cms-browser.spec.mjs tests/cms-interactions.spec.mjs tests/cms-review-browser.spec.mjs tests/cms-review-final-browser.spec.mjs tests/cms-modules.spec.mjs tests/footer-cms-browser.spec.mjs tests/test_cms_browser_helpers.spec.mjs tests/test_cms_asset_usage.spec.mjs tests/cms-library.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=2 --output=output/playwright/artifacts/functional &&
 node --test --test-concurrency=1 games/skift/tests/*.test.mjs &&
 npx playwright test --project=firefox --no-deps --output=output/playwright/artifacts/firefox &&
 npx playwright test --project=webkit --no-deps --output=output/playwright/artifacts/webkit &&
 npx wrangler deploy --dry-run --outdir artifacts/worker-build
 ```
 
-`quality` builds, lints and runs all Node tests, including `tests/http-checks.test.mjs` against the real Worker. Its browser runner owns ephemeral public and analytics-enabled workerd fixtures with local D1/R2, publishes the stored v185 fixture, runs the public Playwright gate, then the remaining Python interaction, privacy and revision checks in order. Both Workers use port 0 and close in `finally`; the shell starts no background servers and probes no ports. The following commands run the CMS browser suites, footer regression and targeted compatibility, then finish with a Wrangler dry-run. CI also runs the editor and mail specs in Chromium, and the existing Firefox/WebKit project selections (editor, mail, public startup, CMS modules, managed SVG fidelity, browser helpers and asset usage). Activate `.test-venv` first for the Python command in the quality shell script. Node browser runners honor `PYTHON`, then `.test-venv/bin/python`, then `python3`; lookup errors other than a missing venv stop the runner.
+`quality` builds, lints and runs all Node tests, including `tests/http-checks.test.mjs` against the real Worker. Its browser runner, `scripts/run-quality-browser.mjs`, owns one ephemeral public workerd fixture with local D1/R2 and the stored v185 publication, and runs the public Playwright gate against it. It then runs the public interaction spec (`tests/public-interactions.spec.mjs`, including the privacy dialog checks) and the revision spec (`tests/revision_browser.spec.mjs`). Those two specs start their own Workers, and the interaction spec includes an analytics-enabled one. All these Workers use port 0, and the runner closes its own in `finally`. The shell starts no background servers and probes no ports. The following commands run the CMS browser suites, footer regression and targeted compatibility, then finish with a Wrangler dry-run. CI also runs the editor and mail specs in Chromium, and the existing Firefox/WebKit project selections (editor, mail, public startup, CMS modules, managed SVG fidelity, browser helpers, asset usage, review and footer).
 
-`npm run test:public-pages` runs three separate invocations: ordinary Chromium excluding the exhaustive export group; the same 240 exports alone with one worker; then the independent `chromium-webgl` project with one worker and `--no-deps`. The complementary export-group filters retain all other Chromium cases, including translated workshop controls. `npm run test:skift` runs only the game spec in the WebGL project. The public page matrix includes every page in v185 plus the code-owned SKIFT page, with the existing responsive and no-JavaScript checks. The former `browser.py --section pages` checks were already duplicated there; only that Python section was removed.
+`npm run test:public-pages` runs three separate invocations: ordinary Chromium excluding the exhaustive export group; the same 240 exports alone with one worker; then the independent `chromium-webgl` project with one worker and `--no-deps`. The complementary export-group filters retain all other Chromium cases, including translated workshop controls. `npm run test:skift` runs only the game spec in the WebGL project. The public page matrix includes every page in v185 plus the code-owned SKIFT page, with the existing responsive and no-JavaScript checks.
 
-Each invocation uses its own subdirectory under `output/playwright/artifacts/`, so later phases cannot erase earlier attachments. Retries are zero. The export phase retains fresh test contexts, the 8-second readiness deadline, all text/layout assertions and actual PNG checks. It is a content/export matrix, not a concurrent-load benchmark. Isolation changes workload overlap after distinct export pages became unavailable to DOM/DevTools observation while independent HTTP remained responsive. The underlying cause remains unknown; passing this arrangement does not prove concurrent-load performance or a production fix. Failed exports retain bounded HTTP and DOM/resource receipts plus poll progress. Only after failure, bounded browser CDP connections collect version/CPU samples and an independent geometry-free DOM read; late connections are detached. Poll state is recorded at the direct response and capture end, so later recovery is not misreported as the original cause. Successful tests have no additional diagnostic sessions, native tracing or console markers; ordinary Playwright tracing still records each test and retains failed runs; diagnostics never change a failed result. Without `CHROMIUM_PATH` or `PW_CHANNEL`, JavaScript Playwright uses its installed Chromium build.
+Each invocation uses its own subdirectory under `output/playwright/artifacts/`, so later phases cannot erase earlier attachments. Retries are zero. The export phase retains fresh test contexts, the 8-second readiness deadline, all text/layout assertions and actual PNG checks. It is a content/export matrix, not a concurrent-load benchmark. Isolation changes workload overlap after distinct export pages became unavailable to DOM/DevTools observation while independent HTTP remained responsive. The underlying cause remains unknown; passing this arrangement does not prove concurrent-load performance or a production fix. Failed exports retain bounded HTTP and DOM/resource receipts plus poll progress. Only after failure, bounded browser CDP connections collect version/CPU samples and an independent geometry-free DOM read; late connections are detached. Poll state is recorded at the direct response and capture end, so later recovery is not misreported as the original cause. Successful tests have no additional diagnostic sessions, native tracing or console markers; ordinary Playwright tracing still records each test and retains failed runs; diagnostics never change a failed result. `tests/card-export.spec.mjs` sets trace `snapshots: false` at spec-file level, because full tracing stalled the matrix. It lowered the stall rate from about once per 350 exports to once in 2,934 across the recorded runs, which were not a controlled comparison. It does not remove the stall, and the root cause is unproven, so a red card job can still be this stall. The symptom is a card text poll that receives `undefined` while independent HTTP still answers. Without `CHROMIUM_PATH` or `PW_CHANNEL`, JavaScript Playwright uses its installed Chromium build. With `CARD_CORPUS=pr`, `tests/card-export.spec.mjs` exports a 24-card representative subset of `public/data/cards.json` (selected by `tests/helpers/card-corpus.mjs`) instead of the full bank. CI sets that variable for the `quality` job.
 
-Public page and card-export specs create a published v185 Worker per Playwright worker and use its `runtime.url`. To use Playwright's managed `webServer` instead, set `PLAYWRIGHT_PORT` to an available port; it launches `scripts/cms-dev.mjs --public-tests` with the same v185 publication and production assets settings. `BASE_URL` selects an already managed local fixture. Specs with their own `cmsRuntime()` keep using port 0. The normal `npm run dev` and `npm run preview` commands publish the build's initial project instead; all storage stays local and ephemeral. `SKIP_CHECK=1 npm run quality` skips the build/lint/general Node gate but still runs the migrated HTTP suite before the browser checks.
+Public page and card-export specs create a published v185 Worker per Playwright worker and use its `runtime.url`. To use Playwright's managed `webServer` instead, set `PLAYWRIGHT_PORT` to an available port; it launches `scripts/cms-dev.mjs --public-tests` with the same v185 publication and production assets settings. `BASE_URL` selects an already managed local fixture. Specs with their own `cmsRuntime()` keep using port 0. The normal `npm run dev` and `npm run preview` commands publish the build's initial project instead; all storage stays local and ephemeral. `SKIP_CHECK=1 npm run quality` skips the build/lint/general Node gate but still runs `tests/http-checks.test.mjs` and `tests/revision-scroll.test.mjs` before the browser checks.
 
-`test:cms` prepares the editor/public module fixtures and the library/navigation/transport cases, runs them with fresh page contexts in one Chromium worker, includes the main 42-case authenticated CMS suite and four interaction cases, then runs the remaining Python review suites in independent ephemeral Workers with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself needs a separately authorized production check.
+`test:cms` prepares the editor/public module fixtures and the library/navigation/transport cases, runs them with fresh page contexts in one Chromium worker, includes the main authenticated CMS suite (`tests/cms-browser.spec.mjs`), the interaction suite (`tests/cms-interactions.spec.mjs`) and the review and footer suites (`tests/cms-review-browser.spec.mjs`, `tests/cms-review-final-browser.spec.mjs` and `tests/footer-cms-browser.spec.mjs`). Each of those starts its own ephemeral Worker with real D1/R2 and signed RSA identity fixtures. There is no production authentication bypass. The local JWKS provider is replaced only in the harness. Cloudflare Access itself needs a separately authorized production check.
 
 Additional public regressions after a build:
 
@@ -57,17 +56,34 @@ Product browser checks navigate over real HTTP and load built modules. Declared 
 
 Setup, the engine matrix and verification limits are documented in [CMS-LOCAL-VERIFICATION.md](CMS-LOCAL-VERIFICATION.md). After a build, run `node scripts/test-cms-compat.mjs` for targeted Firefox/WebKit acceptance.
 
-The former Python module and managed-SVG suites are retired after assertion review, paired execution in Chromium/Firefox/WebKit and targeted mutation checks. Their Playwright replacements retain all 25 module cases and the separate SVG comparison; the seven-case `@modules-smoke` selection matches the old smoke profile. Module cases run serially within their file. Other compatibility specs can still run concurrently, which remains subject to the normal CI gate. Module PNGs and metrics use Playwright attachments; the explicit compatibility runner gives each engine separate artifacts and JSON results. The CI module report is retained separately from later editor results. Other Python suites remain until their own qualification. The former 19 browser-helper tests and one delayed asset-usage test are also retired after paired three-engine runs and 15 mutations covering all 20 original cases. Their replacements add a clean-fixture regression and retain the separate real-studio delayed-response check. Library renderer unit fixtures start in a blank document to avoid callbacks from a discarded editor. The old Python card-export helper had no remaining consumers after module retirement and is removed; its qualified layout/export checks remain in the JavaScript module suite. The main CMS scenario gate now uses `cms-browser.spec.mjs`: it retains the 41 original scenarios and adds an explicit existing-publication Save alongside the original first/full Save. First admin desktop/mobile checks also retain their empty-database precondition, and signed fixture cookies retain HttpOnly. Its Python file remains available as a shared helper for four remaining Python suites and the manual capture tool, but is no longer selected as a duplicate standalone default gate. The remaining interaction/review/footer suites keep their original gates until separately qualified.
+The former Python module, managed-SVG, browser-helper and asset-usage suites are replaced by Playwright specs: `tests/cms-modules.spec.mjs` (25 module cases; the `@modules-smoke` tag selects the smoke profile), `tests/managed-svg-fidelity.spec.mjs`, `tests/test_cms_browser_helpers.spec.mjs` and `tests/test_cms_asset_usage.spec.mjs`. Module PNGs and metrics use Playwright attachments. `scripts/test-cms-compat.mjs` writes a separate JSON result file for each engine under `output/playwright/`. CI does not run that script and has no separate module report: `functional-browser` and `editor-compatibility` run the module spec and retain `output/playwright/**`. `tests/cms-browser.spec.mjs` is the main CMS scenario gate. It has a first-publication variant that starts from an empty database and checks version 0, and an existing-publication variant that saves over a published version. Its fixture cookies are HttpOnly. `tests/cms-browser.py` remains only as a helper for the manual capture tool.
 
 Focused commands after a build remain available directly:
 
 ```sh
 node scripts/run-node-tests.mjs watch
 npx playwright test tests/cms-modules.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=1
-node scripts/test-cms-parallel.mjs
+npx playwright test tests/cms-review-browser.spec.mjs tests/cms-review-final-browser.spec.mjs tests/footer-cms-browser.spec.mjs --project=chromium --no-deps --workers=1
 ```
 
-`tests/browser.py` retains interaction and privacy sections. For standalone HTTP use, pass both `--base-url` and `--analytics-url` (or `BASE_URL` and `ANALYTICS_URL`); the Node runner supplies its own ephemeral URLs automatically. `python tests/browser.py --render-only --screenshots` remains a document-rendering diagnostic for those sections. Other Python suites and their runners remain until their separate migrations.
+The HTTP-mode interaction and privacy checks are in `tests/public-interactions.spec.mjs`, and the revision checks are in `tests/revision_browser.spec.mjs`. Both start their own Workers through `tests/helpers/cms-runtime.mjs`.
+
+## Python and manual tools
+
+Normal verification does not use Python. The `quality`, `check`, `test:cms`, `test:public-pages`, `test:skift` and compatibility commands run Node and Playwright only.
+
+Python is used only by these manual tools: `scripts/capture-cms.py`, `scripts/artwork.py`, `scripts/mail-art.py` and `tests/machine_depth.py`. `scripts/capture-cms.py` loads the helpers `tests/cms-browser.py` and `tests/contrast.py`. `scripts/artwork.py`, `tests/machine_depth.py` and `tests/contrast.py` import `tests/render_support.py`. Set them up in a virtual environment:
+
+```sh
+python3 -m venv .test-venv
+. .test-venv/bin/activate
+pip install -r requirements-test.txt
+python -m playwright install chromium
+```
+
+`requirements-test.txt` pins Python Playwright only. `scripts/artwork.py` also needs CairoSVG and `scripts/mail-art.py` needs Pillow; neither is in that file.
+
+The standalone SKIFT package in `games/skift` is separate from these commands. Its local server (`start.py`), audio script and release (`npm run release`) use the system `python3`.
 
 ## Build prerequisites
 
@@ -79,9 +95,10 @@ The following entry points do not run the site build themselves. Run `npm run bu
 | --- | --- |
 | `npm run preview`, `node scripts/cms-dev.mjs` | Built assets and the Worker's generated CMS seed. |
 | `npm run test:slow`, `npm run test:cms`, direct `node --test tests/*.test.mjs`, `scripts/run-node-tests.mjs` modes | Node suites read built pages/assets or import the generated seed directly or through `tests/helpers/cms-runtime.mjs` and `tests/helpers/pre-agent-footer.mjs`. |
-| `scripts/test-cms.mjs`, `test-cms-parallel.mjs`, `test-footer-cms.mjs`, `test-cms-compat.mjs` | Local Worker assets and generated seed; Python/browser setup from the README. |
-| Direct Playwright specs and `scripts/run-quality-browser.mjs` | Worker specs use built assets/seed and own port-0 fixtures by default. Setting `PLAYWRIGHT_PORT` enables Playwright's managed `webServer`; that configuration starts the built preview but does not build it. The quality runner owns its public/analytics fixtures. |
-| `tests/render_support.py` consumers: `tests/browser.py --render-only`, `tests/contrast.py`, `tests/machine_depth.py` | Built HTML, CSS and modules. HTTP modes of `tests/browser.py` and `tests/revision_browser.py` instead need preview servers started after the build. The former Python HTTP suite was replaced by `tests/http-checks.test.mjs`. |
+| `scripts/test-cms-compat.mjs` | Built assets and generated seed; Firefox and WebKit browsers installed. |
+| `scripts/test-cms.mjs` (manual tool wrapper) | Built local Worker and generated seed. Runs the Python file it is given; see [Python and manual tools](#python-and-manual-tools). |
+| Direct Playwright specs and `scripts/run-quality-browser.mjs` | Worker specs use built assets/seed and own port-0 fixtures by default. Setting `PLAYWRIGHT_PORT` enables Playwright's managed `webServer`; that configuration starts the built preview but does not build it. The quality runner owns one public fixture. |
+| `tests/render_support.py` consumers: `tests/contrast.py`, `tests/machine_depth.py` (manual tools) | Built HTML, CSS and modules. |
 | `node scripts/test-cms.mjs scripts/capture-cms.py` | Built local Worker and generated seed; the wrapper supplies the local identity. |
 | `scripts/artwork.py`, `scripts/mail-art.py` | Built home HTML (artwork also uses built CSS through `render_support.py`). Optional Python tooling needs Playwright/Chromium plus CairoSVG for artwork or Pillow for mail art. These tools overwrite committed artwork in `public/`; run only for an intended artwork change, then rebuild. |
 | `scripts/cms-check-release.mjs`, direct `scripts/cms-pull-release.mjs` | Generated seed matching the source being checked. The former takes a trusted local SQL file; the latter contacts D1 and belongs to the authorized release procedure. |
@@ -90,11 +107,20 @@ The following entry points do not run the site build themselves. Run `npm run bu
 
 One tool reads another project's output: the one-off `scripts/legacy-keys.mjs` needs the supplied `e5592bc` checkout built with that checkout's own source; a current build cannot replace that frozen input. Ordinary builds and verification do not regenerate the committed legacy map.
 
-CI's `verify` job builds through `quality` before the dry-run and browser steps, and explicitly runs the nested `games/skift/tests/*.test.mjs` suite that the root Node runner does not discover. The `editor-compatibility`, `functional-browser` and manual `stored-revisions` jobs each have an explicit build before their consumers. The independent `functional-browser` job runs frame public parity, the functional browser ports, library and managed SVG regressions in Chromium with two workers and port-0 fixtures. Existing Python runners remain gates pending verified parity and retirement. No CI step needs a tracked copy of `dist/`.
+CI (`.github/workflows/ci.yml`) has these jobs:
+
+- `quality` runs `npm run quality` with `CARD_CORPUS=pr`, the SKIFT Node tests in `games/skift/tests/*.test.mjs` (which the root Node runner does not discover), the Wrangler dry-run and the third-party notice check. `npm run quality` includes `tests/revision_browser.spec.mjs` and `tests/public-interactions.spec.mjs`.
+- `functional-browser` runs the frame parity, frame recovery, preview, CMS browser, interaction, review, footer, module, browser helper, asset usage, library, managed SVG, editor and mail specs in Chromium with two workers and port-0 fixtures. `npm run test:cms` is a local command; its suites also run here.
+- `editor-compatibility` runs the Firefox and WebKit project selections, one engine per matrix entry.
+- `skift-release` runs `npm run release` in `games/skift` and retains the ZIP, its checksum and the browser receipt.
+- `card-exports-full` runs all 240 card exports on the nightly schedule at 02:17 UTC, on pushes to `main` and on manual runs. On pull requests the job starts every time, but its export steps run only when card inputs changed. The nightly schedule runs no other job.
+- `stored-revisions` runs only on manual `workflow_dispatch` and needs read-only D1 credentials.
+
+No CI step needs a tracked copy of `dist/`.
 
 ## Repository maintenance regression checks
 
-[tests/docs.test.mjs](../tests/docs.test.mjs) runs in the fast suite and checks npm build wiring, ignored/untracked `dist/`, the moved privacy document and relative links in the README and docs, including heading fragments.
+[tests/docs.test.mjs](../tests/docs.test.mjs) runs in the fast suite and checks npm build wiring, ignored/untracked `dist/`, the moved privacy document, relative links in the README and docs, including heading fragments, and that every script the docs name exists.
 
 ## What is checked
 
@@ -129,7 +155,7 @@ P2B_EVIDENCE_DIR=/tmp/p2b-after npx playwright test tests/public-evidence.spec.m
 
 ## Visual evidence
 
-`scripts/capture-cms.py` captures actual browser surfaces and each main section in desktop/mobile canvases. Run it with an isolated local Worker using:
+`scripts/capture-cms.py`, a manual Python tool (see [Python and manual tools](#python-and-manual-tools)), captures actual browser surfaces and each main section in desktop/mobile canvases. Run it with an isolated local Worker using:
 
 ```sh
 node scripts/test-cms.mjs scripts/capture-cms.py
@@ -137,12 +163,11 @@ node scripts/test-cms.mjs scripts/capture-cms.py
 
 Screenshots are review inputs, not an automatic assertion of visual correctness. Compare the baseline and changed captures byte for byte, alongside the public identity dump; inspect any difference before accepting a public rendering change.
 
-- `output/visual/studio/`: main studio states and section captures.
-- `output/visual/cms/`: timestamped scenario evidence, including Shift+Enter.
-- `artifacts/screenshots/`: public responsive captures.
+- `output/visual/studio/`: main studio states and section captures from the capture tool.
+- `artifacts/screenshots/`: public responsive captures from `tests/public-pages.spec.mjs`.
 - `output/playwright/artifacts/`: Playwright failure artifacts and retained card-export screenshots. PNG dimensions and layout are asserted by `tests/card-export.spec.mjs`; no separate card-export JSON report is written.
-- `output/logs/`: complete test logs, kept outside Git.
-- `output/perf/`: Lighthouse JSON and measured admin readiness/contrast data.
+- `output/logs/cms-capture.log`: the capture tool's log, kept outside Git.
+- `output/perf/`: the capture tool's admin readiness and contrast data.
 
 The computed contrast audit checks text over simple solid backgrounds. It excludes disabled/decorative content and complex compositing; it is not a full WCAG certification. Admin readiness measurements include the harness's explicit stabilization waits, documented in the JSON, and must not be presented as pure network latency.
 
@@ -154,4 +179,4 @@ The release instructions remain in [DEPLOYMENT.md](DEPLOYMENT.md). Neither mock 
 
 ## Distribution and notice gates
 
-Every root build checks tracked full third-party notices and actual browser bundle inputs. The verify job additionally checks the Wrangler Worker bundle. A separate `skift-release` job installs the game lockfile, builds and packages it, rebuilds its extracted source outside the repository, and exercises the actual ZIP in pinned Chromium. Its artifact includes the ZIP, checksum and browser receipt. Missing license text or a missing build input fails the gate.
+Every root build checks tracked full third-party notices and actual browser bundle inputs. The `quality` job additionally checks the Wrangler Worker bundle. A separate `skift-release` job installs the game lockfile, builds and packages it, rebuilds its extracted source outside the repository, and exercises the actual ZIP in pinned Chromium. Its artifact includes the ZIP, checksum and browser receipt. Missing license text or a missing build input fails the gate.
