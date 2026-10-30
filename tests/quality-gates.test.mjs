@@ -32,7 +32,7 @@ test('QA documents the startup spec without claiming it selects engines itself',
   assert.doesNotMatch(qa, /That file selects Chromium, Firefox and WebKit within its suites/);
 });
 
-test('retired Python fixture gates retain every replacement in all engines', async () => {
+test('retired Python gates preserve their qualified engine registrations', async () => {
   const config = (await import('../playwright.config.mjs')).default;
   for (const engine of ['firefox', 'webkit']) {
     const project = config.projects.find(item => item.name === engine);
@@ -45,6 +45,8 @@ test('retired Python fixture gates retain every replacement in all engines', asy
     assert.ok(compatibility.includes(spec), `The explicit compatibility command must retain ${spec}`);
   }
   const remainingRunners = await Promise.all(['scripts/test-cms.mjs', 'scripts/test-cms-parallel.mjs'].map(source));
+  assert.ok(scripts['test:cms'].includes('tests/cms-browser.spec.mjs'), 'The qualified main CMS scenarios must remain in the Chromium CMS command');
+  assert.doesNotMatch(remainingRunners.join(''), /'tests\/cms-browser\.py'/, 'The qualified standalone Python gate must not run twice');
   assert.doesNotMatch(remainingRunners.join(''), /test_cms_(?:browser_helpers|asset_usage)\.py|CMS_SKIP_HELPERS/);
   assert.doesNotMatch(workflow + packageSource + compatibility, /(?:test|prepare)-cms-modules(?:-parallel)?\.mjs|managed-svg-fidelity\.py/);
 });

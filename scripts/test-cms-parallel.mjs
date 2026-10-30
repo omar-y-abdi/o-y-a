@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 
 const suites = process.argv.slice(2);
 const files = suites.length ? suites : [
-  'tests/cms-browser.py',
   'tests/cms-interactions.py',
   'tests/cms-review-browser.py',
   'tests/cms-review-final-browser.py',
