@@ -16,6 +16,7 @@ import { isVersionedApiPath, rejectUnsupportedApiVersion, withApiVersion } from 
 import { BodyTooLarge, readBounded } from './api/http.mjs';
 
 const PAGES = new Set(routes.filter(page => !page.noindex).map(page => page.path));
+const ADMIN_ASSETS = new Set(built.adminAssets);
 const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
 const CANONICAL = 'https://omaryusuf.se';
 const MAX_BODY_BYTES = 256;
@@ -95,7 +96,7 @@ export default {
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       response = await handleAdmin(request,env,{seed,initial,built});
       const secured = secure(response,url.protocol === 'https:',ADMIN_CSP);
-      secured.headers.set('Cache-Control','no-store');
+      secured.headers.set('Cache-Control', response.status === 200 && ['GET','HEAD'].includes(request.method) && ADMIN_ASSETS.has(url.pathname) ? 'private, max-age=31536000, immutable' : 'no-store');
       secured.headers.set('X-Robots-Tag','noindex, nofollow');
       return request.method === 'HEAD' ? new Response(null,secured) : secured;
     }
