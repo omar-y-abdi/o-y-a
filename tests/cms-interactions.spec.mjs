@@ -12,8 +12,8 @@ test.beforeAll(async ({ playwright }) => {
 test.afterEach(async () => { await seedRuntime(runtime, api, baseline); });
 test.afterAll(async () => { try { await api?.dispose(); } finally { await runtime?.close(); } });
 
-async function admin(browser, testInfo, run) {
-  const qa = new CMSBrowserQA(browser, runtime, testInfo), { context, page, errors } = await qa.adminPage(DESKTOP);
+async function admin(browser, testInfo, run, fixture = runtime) {
+  const qa = new CMSBrowserQA(browser, fixture, testInfo), { context, page, errors } = await qa.adminPage(DESKTOP);
   try { await run(page, qa, context); assertClean(errors, testInfo.title); }
   finally { await context.close(); }
 }
@@ -23,29 +23,34 @@ async function shot(page, qa, name) {
 }
 
 test('literal-text-survives-three-save-reload-cycles', async ({ browser }, testInfo) => {
-  await admin(browser, testInfo, async (page, qa, context) => {
+  const fixture = await cmsRuntime({ port: 0 });
+  try { await admin(browser, testInfo, async (page, qa, context) => {
     for (let iteration = 0; iteration < 3; iteration++) {
       await (await frame(page)).locator('h1').click();
       const text = 'Omar\nYusuf' + '.'.repeat(iteration + 2);
       await expect(page.locator('#element-text')).not.toHaveValue(text);
       await page.locator('#element-text').fill(text);
       await expect(page.locator('[data-action=save]')).toBeEnabled();
-      const pending = page.waitForResponse(response => response.url() === runtime.url + '/admin/api/save' && response.request().method() === 'POST');
+      const pending = page.waitForResponse(response => response.url() === fixture.url + '/admin/api/save' && response.request().method() === 'POST');
       await save(page);
       const saved = await pending;
       expect(saved.status(), await saved.text()).toBe(200);
+      const envelope = saved.request().postDataJSON();
+      expect(envelope.baseVersion, 'Original sequence starts with full version-zero publication').toBe(iteration);
+      expect(Object.hasOwn(envelope, iteration === 0 ? 'project' : 'changes')).toBe(true);
       await page.reload();
       await waitCanvas(page);
       await (await frame(page)).locator('h1').click();
       await expect(page.locator('#element-text')).toHaveValue(text);
       await expect((await frame(page)).locator('h3 a[href="/projekt/blade-blend/"]')).toHaveText('Blade & Blend ');
-      const response = await context.request.get(runtime.url + '/');
+      const response = await context.request.get(fixture.url + '/');
       expect(await response.text()).not.toContain('Blade &amp;amp;');
       await response.dispose();
     }
     await shot(page, qa, 'newline-roundtrip');
     await original(page);
-  });
+  }, fixture); }
+  finally { await fixture.close(); }
 });
 
 test('keyboard-blocks-and-memory-style-survives-reset', async ({ browser }, testInfo) => {
@@ -65,16 +70,17 @@ test('keyboard-blocks-and-memory-style-survives-reset', async ({ browser }, test
     await page.locator('#extra-property').fill('border-radius');
     await page.locator('#extra-value').fill('31px');
     await page.locator('#apply-property').click();
-    const key = await card.getAttribute('data-cms-node');
     await shot(page, qa, 'memory-design');
     await save(page);
     const publicContext = await qa.context(DESKTOP, false, { reducedMotion: 'reduce' });
     try {
       const live = await publicContext.newPage();
       await live.goto(runtime.url + '/verkstad/');
-      const target = live.locator(`[data-cms-node="${key}"]`);
+      const target = live.locator('[data-memory-card="0"]');
+      await expect(target).toHaveCount(1);
       await expect(target).toHaveCSS('border-radius', '31px');
       await live.locator('[data-memory-reset]').click();
+      await expect(target).toHaveCount(1);
       await expect(target).toHaveCSS('border-radius', '31px');
       await expect(live.locator('[data-memory-card]')).toHaveCount(12);
     } finally { await publicContext.close(); }
