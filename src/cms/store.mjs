@@ -121,7 +121,9 @@ const addressable = card => (card.state ?? 'active') !== 'trash';
 // Read once per publication, before any page composes: a Save crossing a year
 // boundary keeps the older proof, so the next Save renders every page.
 export const renderProof = renderKey => renderKey ? `${renderKey}:${new Date().getUTCFullYear()}` : undefined;
-const RENDERED_REUSE_SQL = "SELECT path, length(CAST(path || html || css || meta AS BLOB)) AS bytes, CASE WHEN path = '@frame' THEN css END AS frame_css, CASE WHEN path = '@resources' THEN html END AS resources_html, CASE WHEN path = '@manifest' THEN json_extract(meta, '$.renderKey') END AS proof FROM cms_rendered WHERE version = ?";
+// bytes is the row's JSON bind, as publicationChunks counts a rendered row, so reuse never changes what a publication accepts.
+// lazy dev: a lone surrogate in html or css is 3 stored bytes but 6 as JSON, so a copied row counts 3 bytes short for each.
+const RENDERED_REUSE_SQL = "SELECT path, length(CAST(json_object('path', path, 'html', html, 'css', css, 'meta', json(meta)) AS BLOB)) + 1 AS bytes, CASE WHEN path = '@frame' THEN css END AS frame_css, CASE WHEN path = '@resources' THEN html END AS resources_html, CASE WHEN path = '@manifest' THEN json_extract(meta, '$.renderKey') END AS proof FROM cms_rendered WHERE version = ?";
 const utf8Bytes = value => new TextEncoder().encode(value).byteLength;
 export const PUBLIC_ROW_LIMIT = 1500000;
 export const PUBLIC_BIND_LIMIT = 1800000;
@@ -146,7 +148,6 @@ export function publicationChunks(project, resources = resourceSlots, references
     ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest], ['email', project.email ?? null]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: key === 'manifest' && proof ? { renderKey: proof } : {} })),
   ];
   const chunks = [[]];
-  // lazy dev: copied rows count their stored bytes, which omit JSON escaping, so the 16 MB ceiling is slightly looser for them.
   let chunkBytes = 2, totalBytes = reused?.bytes ?? 0;
   for (const item of rendered) {
     const rowBytes = utf8Bytes(item.path + item.html + item.css + JSON.stringify(item.meta)) + 64;
