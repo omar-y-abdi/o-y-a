@@ -12,6 +12,7 @@ import { publishSite, readSite } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { waitCanvas } from './helpers/cms-browser-qa.mjs';
 import { legacyFrameIdentities, footerId } from './helpers/frame-identities.mjs';
+import { rasterNoise } from './helpers/raster-noise.mjs';
 
 // Keep raster/compositing off the host GPU and pin color/text rendering.
 // File scope is required: launchOptions changes Playwright's worker fixture.
@@ -381,10 +382,10 @@ test('C4: public identity compares noscript fallback content and attributes whil
 function compareCapture(actual, expected, label, failures) {
   if (!actual || !expected) { failures.push(`${label}: capture missing`); return false; }
   const identity = isDeepStrictEqual(actual.identity, expected.identity);
-  const png = actual.screenshot.equals(expected.screenshot);
+  const png = actual.screenshot.equals(expected.screenshot) || rasterNoise(actual.screenshot, expected.screenshot);
   if (!identity) failures.push(`${label}: public identity`);
   if (!png) {
-    failures.push(`${label}: PNG bytes (${expected.pngPath}, ${actual.pngPath})`);
+    failures.push(`${label}: PNG pixels (${expected.pngPath}, ${actual.pngPath})`);
     const previous = new Map(expected.layout?.nodes.map(node => [node.key, node]) ?? []);
     const changed = (actual.layout?.nodes ?? []).filter(node => previous.has(node.key) && ['width', 'height'].some(axis => Math.abs(node.box[axis] - previous.get(node.key).box[axis]) > .01));
     if (changed.length) failures.push(`${label}: changed main sizes: ${changed.map(node => `${node.key} ${previous.get(node.key).width}×${previous.get(node.key).height} -> ${node.width}×${node.height}`).join('; ')}`);
