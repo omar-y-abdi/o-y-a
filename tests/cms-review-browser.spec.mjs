@@ -48,7 +48,8 @@ test('incomplete-recovery-export-unsafe-import', async ({ context }, info) => {
   const page = await admin(context, runtime);
   await page.locator('#page-description').fill('Valuable incomplete draft survives');
   await page.locator('#page-title').fill('');
-  await backupSettled(page);
+  // The status may already report the description's backup, so wait for the title's own.
+  await expect.poll(async () => (await records(page, true)).some(row => row.project.pages[0].title === ''), { timeout: 10_000 }).toBe(true);
   await page.reload(); await ready(page); await restorePrompt(page);
   await expect(page.locator('#page-title')).toHaveValue('');
   await expect(page.locator('#page-description')).toHaveValue('Valuable incomplete draft survives');
