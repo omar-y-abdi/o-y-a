@@ -120,9 +120,11 @@ test('real Worker atomically applies one Draft change set across page, card, run
   const changeBodyBytes = Buffer.byteLength(JSON.stringify(payload));
   assert.ok(changeBodyBytes < fullBodyBytes / 2, `change body ${changeBodyBytes}B must be materially smaller than full body ${fullBodyBytes}B`);
 
-  const responses = await Promise.all([admin('save', payload), admin('save', payload)]);
-  for (const response of responses) assert.equal(response.status, 200, await response.clone().text());
-  const versions = await Promise.all(responses.map(response => response.json().then(result => result.version)));
+  // Read each body on arrival: one left unread across an await can be collected mid-stream.
+  const save = async () => { const response = await admin('save', payload); return { status: response.status, text: await response.text() }; };
+  const responses = await Promise.all([save(), save()]);
+  for (const response of responses) assert.equal(response.status, 200, response.text);
+  const versions = responses.map(response => JSON.parse(response.text).version);
   assert.equal(versions[0], versions[1], 'parallel identical intents publish once');
   const publishedVersion = versions[0];
   assert.equal(publishedVersion, state.version + 1);
