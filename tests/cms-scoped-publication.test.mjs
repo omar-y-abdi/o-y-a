@@ -84,8 +84,8 @@ test('a page text edit renders only that page', async () => {
   assert.deepEqual(cardsOf(rendered), []);
 });
 
-// stripNodeKeys removes the key itself. Frame keys reach public bytes only because
-// a ">" stops composePage's nav regex, so that page loses its aria-current.
+// stripNodeKeys removes the key itself, so a frame key changes no public byte.
+// Its page still renders: frameKeys belong to the page identity Save compares.
 for (const [name, mutate] of [
   ['stylesheet', page => { page.css += '.scoped-css-edit{margin:0}'; }],
   ['title', page => { page.title = 'Ändrad titel'; }],
