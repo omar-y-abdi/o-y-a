@@ -12,6 +12,7 @@ import { Draft } from '../src/cms/client/draft.mjs';
 import { mergeProjects } from '../src/cms/client/merge.mjs';
 import { draftBackup, readDraftBackup } from '../src/cms/client/recovery.mjs';
 import { publicationChunks } from '../src/cms/store.mjs';
+import { stripNodeKeys } from '../src/cms/public-html.mjs';
 import { resourceReferences, replaceResource } from '../src/cms/resources.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { normalizeStoredProject as legacyProject } from '../src/cms/legacy-project.mjs';
@@ -125,6 +126,31 @@ test('B8: publication distinguishes absent legacy keys from new frame identities
   assert.deepEqual(frame.validateFrameKeys(page.frameKeys), page.frameKeys, 'Several legacy nodes may have no public key');
   assert.equal(frame.composePage(shared, page), `<header><span>Äldre text</span><br><p data-cms-node="${key}">Ny ramnod</p></header><main></main>`);
   assert.equal(shared.html.includes('data-cms-node="f-n1"'), true, 'Internal frame identity stays intact');
+});
+
+test('B8: attribute values and text in the frame cannot spell tags on the public page', () => {
+  const base = validateProject(conversion.toFrameProject(v185, seed), seed);
+  const about = project => project.pages.find(page => page.path === '/om/');
+  const published = project => elements(parseFragment(stripNodeKeys(frame.composePage(project.frame, about(project)))));
+  const baseline = published(base).map(node => node.tagName);
+  const payload = '><img src=x onerror=alert(1)>', link = '<a href="/om/" data-cms-node="f-n14">', title = `a${payload}`;
+  for (const [name, mutate] of Object.entries({
+    'frame key on the link': draft => { about(draft).frameKeys['f-n14'] = 'x>y'; },
+    'frame key on the navigation': draft => { about(draft).frameKeys['f-n12'] = 'scoped>nav'; },
+    'link title': draft => { draft.frame.html = draft.frame.html.replace(link, link.replace(' data', ` title="${title}" data`)); },
+    'navigation label': draft => { draft.frame.html = draft.frame.html.replace('aria-label="Huvudmeny"', 'aria-label="Huvud>meny"'); },
+    'text that shifts the quotes': draft => { draft.frame.html = draft.frame.html.replace('<span aria-hidden="true" data-cms-node="f-n16">↗</span>', '<span title="<a " aria-hidden="true" data-cms-node="f-n16">x" href="/om/" y"</span>').replace('<a class="shift-link"', `<a title="z${payload}" class="shift-link"`); },
+  })) {
+    const draft = structuredClone(base);
+    mutate(draft);
+    const nodes = published(validateProject(draft, seed));
+    assert.deepEqual(nodes.map(node => node.tagName), baseline, `${name}: only the validated elements are public`);
+    const current = nodes.filter(node => node.tagName === 'a' && attribute(node, 'aria-current') === 'page');
+    assert.deepEqual(current.map(node => attribute(node, 'href')), ['/om/'], `${name}: the route stays marked`);
+    assert.equal(current[0].childNodes[0].value, 'Människan', `${name}: no attribute bytes become text`);
+    assert.equal(attribute(current[0], 'title'), name === 'link title' ? title : undefined, `${name}: the value survives`);
+    assert.ok(nodes.every(node => attribute(node, 'data-cms-node') === undefined), `${name}: keys stay private`);
+  }
 });
 
 test('B8: v185 becomes one frame, complete mains and scoped contracts; only Q9 changes main CSS', () => {

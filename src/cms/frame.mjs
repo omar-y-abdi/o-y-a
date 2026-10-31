@@ -74,6 +74,23 @@ export function splitPage(html) {
   return { html: serialize(tree), page, tree };
 }
 
+function routeNav(node) {
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) if (parent.tagName === 'nav' && (hasClass(parent, 'primary-nav') || hasClass(parent, 'mobile-menu'))) return parent;
+  return null;
+}
+
+// Navigation state is a projection of the route, never shared draft content.
+// Parsed offsets, not a regex: attribute values and text can spell a tag.
+function routeEdits(nodes, path) {
+  return nodes.filter(node => node.tagName === 'a').flatMap(node => {
+    const nav = routeNav(node), href = attribute(node, 'href'), location = node.sourceCodeLocation;
+    const skift = attribute(node, 'data-skift-link') !== undefined || attribute(node, 'data-skift-mobile-link') !== undefined;
+    if (!nav || !href || !(hasClass(nav, 'primary-nav') && ['/om/', '/verkstad/'].includes(href) || skift)) return [];
+    const stale = location.attrs['aria-current'], end = location.startTag.endOffset - 1;
+    return [...(stale ? [{ start: stale.startOffset - 1, end: stale.endOffset, replacement: '' }] : []), ...(href === path ? [{ start: end, end, replacement: ' aria-current="page"' }] : [])];
+  });
+}
+
 export function composePage(frame, page, { year = new Date().getUTCFullYear() } = {}) {
   if (!frame) return page.html;
   let html = projectedFrameHtml(frame, page).replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + year + after);
@@ -83,20 +100,14 @@ export function composePage(frame, page, { year = new Date().getUTCFullYear() } 
     const original = page.frameKeys[key];
     return original === null ? '' : ` data-cms-node="${original}"`;
   });
-  // Navigation state is a projection of the route, never shared draft content.
-  html = html.replace(/<nav\b[^>]*class="[^"]*\b(?:primary-nav|mobile-menu)\b[^"]*"[^>]*>[\s\S]*?<\/nav>/g, nav => nav.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>/g, (all, attrs, href) => {
-    const primary = /class="[^"]*\bprimary-nav\b/.test(nav);
-    if (!(primary && ['/om/', '/verkstad/'].includes(href) || /\bdata-skift-(?:mobile-)?link=/.test(attrs))) return all;
-    attrs = attrs.replace(/\saria-current="[^"]*"/g, '');
-    return `<a${attrs}${href === page.path ? ' aria-current="page"' : ''}>`;
-  }));
   // Comments and attributes can contain the slot's spelling. Only the actual
   // parsed element identifies where page content belongs; preserve other bytes.
   const tree = parseFragment(html, { scriptingEnabled: true, sourceCodeLocationInfo: true });
-  const mains = elements(tree).filter(node => node.tagName === 'main');
+  const nodes = elements(tree), mains = nodes.filter(node => node.tagName === 'main');
   const slot = mains[0], location = slot?.sourceCodeLocation;
   if (mains.length !== 1 || slot.parentNode !== tree || slot.attrs.length || slot.childNodes.length || !location?.endTag) fail('Sidramen behöver exakt en tom plats för huvudinnehållet.');
-  return html.slice(0, location.startOffset) + page.html + html.slice(location.endOffset);
+  const edits = [...routeEdits(nodes, page.path), { start: location.startOffset, end: location.endOffset, replacement: page.html }];
+  return edits.sort((a, b) => b.start - a.start).reduce((result, edit) => result.slice(0, edit.start) + edit.replacement + result.slice(edit.end), html);
 }
 
 export function frameShape(html) {
