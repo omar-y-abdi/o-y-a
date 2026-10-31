@@ -124,11 +124,11 @@ Spelet har egen `package.json`, `index.html`, källa i `src/`, tester i `tests/`
 
 ### Förhandsvisning (`/admin/api/preview`)
 
-`validate()` i `admin-site.mjs` hanterar förhandsvisning när adressen slutar på `/preview`. `previewPayload` väljer en sida eller ett vinstkort. `previewBaseline` i `preview-store.mjs` hämtar giltiga bevis. `validateProjectWithReferences` kontrollerar utkastet, och svaret är HTML från `renderPage` eller `renderWinPreview`. Studion visar HTML:en i en srcdoc-ruta. Ingen rad skrivs.
+`validate()` i `admin-site.mjs` hanterar förhandsvisning när adressen slutar på `/preview`. `previewPayload` väljer en sida eller ett vinstkort. `previewBaseline` i `preview-store.mjs` hämtar giltiga bevis. `validateProjectWithReferences` kontrollerar utkastet, och svaret är HTML från `renderPage` eller `renderWinPreview`. Studion visar HTML:en i en srcdoc-ruta. Ingen revision skapas och huvudpekaren flyttas inte, men `validateReferencedMedia` kan uppdatera `cms_media.validation_version` för refererad äldre media efter lyckad integritetskontroll.
 
 ### Validera (`/admin/api/validate`)
 
-`validate()` kör samma projektregler som Save och kontrollerar refererade filer med `validateReferencedMedia`. `reusableRows` avgör vilka rader en Save skulle kopiera, och `publicationChunks` renderar resten för att se om publiceringen ryms. Inget skrivs. Svaret är projektet.
+`validate()` kör samma projektregler som Save och kontrollerar refererade filer med `validateReferencedMedia`. `reusableRows` avgör vilka rader en Save skulle kopiera, och `publicationChunks` renderar resten för att se om publiceringen ryms. Ingen revision skapas och huvudpekaren flyttas inte, men `validateReferencedMedia` kan uppdatera `cms_media.validation_version` för refererad äldre media efter lyckad integritetskontroll. Svaret är projektet.
 
 ### Spara (`/admin/api/save`)
 
@@ -139,7 +139,7 @@ Spelet har egen `package.json`, `index.html`, källa i `src/`, tester i `tests/`
 5. `publishSite` i `store.mjs` komprimerar hela projektet (högst 1,5 MB efter gzip). I en `db.batch` skriver den revisionen, resursindexet, raderna i `cms_rendered`, mediets publiceringstid, studiokopian och valideringsbevisen, tar bort raderna för högst en utgången version och uppdaterar huvudpekaren. Villkoren i varje SQL-sats gör att en inaktuell skrivning inte lämnar delvisa rader.
 6. Efter batchen läses den committade raden. Om den inte finns eller har annan identitet blir svaret 409.
 
-En delta-Save renderar bara de sidor och kort som ändringen berör. `reusableRows` jämför projektet med huvudversionen, och oförändrade rader i `cms_rendered` kopieras från den i samma batch. Det kräver att sidramen, typsnitten, resurserna, renderingskoden och UTC-året är oförändrade. Annars renderas alla rader. Det gäller också en Save med hela projektet och ramflytten (`/admin/api/migrate-frame`). Raden `@frame` och dataraderna renderas alltid. Revisionen, komprimeringen och studiokopians digest omfattar hela projektet. Ett projekt som inte ryms i D1:s gränser avvisas med 413 före skrivning.
+En delta-Save renderar bara de sidor och kort som ändringen berör. `reusableRows` jämför projektet med huvudversionen, och oförändrade rader i `cms_rendered` kopieras från den i samma batch. Det kräver att sidramen, typsnitten, resurserna, renderingskoden och UTC-året är oförändrade. Annars renderas alla rader. Det gäller också en Save med hela projektet och ramflytten (`/admin/api/migrate-frame`). Raden `@frame` och dataraderna renderas alltid. Revisionen, komprimeringen och studiokopians digest omfattar hela projektet. `publicationChunks` i `store.mjs` avvisar publiceringen med 413 före skrivning när en renderad rad överskrider `PUBLIC_ROW_LIMIT` eller `PUBLIC_BIND_LIMIT`, eller när raderna tillsammans överskrider applikationens publiceringsgräns på 16 MiB. Kopierade och renderade rader räknas på samma sätt mot den gränsen.
 
 ### Återställning (`/admin/api/recover`)
 
