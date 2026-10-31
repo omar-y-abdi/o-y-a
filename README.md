@@ -29,7 +29,7 @@ Välj sida till vänster. Klicka eller dubbelklicka på innehållet i arbetsytan
 
 **Save publicerar direkt i aktuell miljö.** Revert hämtar senast sparat innehåll. History visar tidigare versioner; Restore läser in vald version som utkast. Save krävs sedan för att publicera återställningen. Originalversionen finns som version 0. Historik och publicerade filer raderas inte av dessa åtgärder.
 
-Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [säkerhetsgränserna](docs/CMS-SECURITY.md) och [driftsättningen](docs/DEPLOYMENT.md).
+Läs [användarguiden](docs/CMS-GUIDE.md), [CMS-designen](docs/CMS-DESIGN.md), [arkitekturen](docs/ARCHITECTURE.md), [säkerhetsgränserna](docs/CMS-SECURITY.md) och [driftsättningen](docs/DEPLOYMENT.md).
 
 ## Kodens delar
 
