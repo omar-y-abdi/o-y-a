@@ -21,11 +21,9 @@ function run(command, args, env) {
 }
 
 async function runBrowser(browser) {
-  const env = { ...process.env, CMS_BROWSER: browser, CMS_BROWSER_WORKERS: process.env.CMS_COMPAT_BROWSER_WORKERS || '2', PLAYWRIGHT_JSON_OUTPUT_FILE: `output/playwright/modules-${runId}-${browser}.json` };
+  const env = { ...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: `output/playwright/modules-${runId}-${browser}.json` };
   console.log(`\n=== CMS compatibility: ${browser} ===`);
-  let code = await run(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', 'tests/cms-modules.spec.mjs', 'tests/managed-svg-fidelity.spec.mjs', 'tests/test_cms_browser_helpers.spec.mjs', 'tests/test_cms_asset_usage.spec.mjs', `--project=${browser}`, '--no-deps', '--workers=1', `--output=output/playwright/artifacts/modules-${runId}-${browser}`, '--reporter=line,json'], env);
-  if (code) return { browser, code };
-  code = await run('node', ['scripts/test-cms-parallel.mjs', 'tests/cms-review-browser.py', 'tests/cms-review-final-browser.py'], env);
+  const code = await run(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', 'tests/cms-modules.spec.mjs', 'tests/managed-svg-fidelity.spec.mjs', 'tests/test_cms_browser_helpers.spec.mjs', 'tests/test_cms_asset_usage.spec.mjs', 'tests/cms-review-browser.spec.mjs', 'tests/cms-review-final-browser.spec.mjs', 'tests/footer-cms-browser.spec.mjs', `--project=${browser}`, '--no-deps', '--workers=1', `--output=output/playwright/artifacts/modules-${runId}-${browser}`, '--reporter=line,json'], env);
   return { browser, code };
 }
 

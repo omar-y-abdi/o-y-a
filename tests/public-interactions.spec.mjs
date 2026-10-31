@@ -2,7 +2,7 @@ import { test as base, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { publicRuntime } from './helpers/cms-runtime.mjs';
 
-// HTTP-mode parity for browser.py: actual Worker, browser cookies and CSP.
+// Interaction and privacy checks over HTTP: actual Worker, browser cookies and CSP.
 // Fresh contexts preserve independent consent/motion state for every visit.
 const test = base.extend({
   origins: [async ({}, use) => {
@@ -46,6 +46,8 @@ async function screenshot(page, info, name, fullPage = true) {
   if (fullPage) await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: 'instant' }));
   await page.screenshot({ path: info.outputPath(name + '.png'), fullPage, animations: 'disabled' });
 }
+
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 
 test('Machine: all flavors, distinct receipts, close and focus restore', async ({ visit }, info) => {
   const session = await visit('/verkstad/', mobile), { page } = session, messages = [];

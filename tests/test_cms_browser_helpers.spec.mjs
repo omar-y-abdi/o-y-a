@@ -8,6 +8,7 @@ import { lockPreview, openAssets, saveAssetMetadata, seedRuntime, uploadFile } f
 import { libraryBundle, libraryPage } from './helpers/cms-browser-library.mjs';
 
 let runtime, api, bundle, record;
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.describe.configure({ mode: 'default', timeout: 60_000 });
 test.beforeAll(async ({ playwright }) => {
   runtime = await cmsRuntime({ port: 0 });
@@ -189,6 +190,7 @@ test.describe('TransportOrderingTests', () => {
 });
 
 test.describe('StateConnectionTests', () => {
+  test.use({ actionTimeout: 5_000 });
   let server, origin, calls, resets, status, body, serverError, headers;
   test.beforeEach(async () => {
     calls = 0; resets = 0; status = 200; body = null; serverError = null;

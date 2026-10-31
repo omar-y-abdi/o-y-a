@@ -4,6 +4,7 @@ import { CMSBrowserQA, seedRuntime, uploadFile, upload } from './helpers/cms-bro
 import { libraryBundle, libraryPage } from './helpers/cms-browser-library.mjs';
 
 let runtime, api, bundle;
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.describe.configure({ mode: 'default', timeout: 60_000 });
 test.beforeAll(async ({ playwright }) => {
   runtime = await cmsRuntime({ port: 0 });

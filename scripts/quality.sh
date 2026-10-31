@@ -4,8 +4,6 @@ cd "$(dirname "$0")/.."
 if [[ "${SKIP_CHECK:-0}" != "1" ]]; then
   npm run check
 else
-  node --test tests/http-checks.test.mjs
+  node --test tests/http-checks.test.mjs tests/revision-scroll.test.mjs
 fi
-python=$(node --input-type=module -e 'import { testPython } from "./scripts/test-python.mjs"; console.log(await testPython());')
-"$python" -m unittest discover -s tests -p test_revision_scroll.py
 node scripts/run-quality-browser.mjs
