@@ -13,7 +13,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
   maxFailures: process.env.CI ? 20 : 5,
-  reporter: process.env.CI ? [['line'], ['json', { outputFile: 'output/playwright/results.json' }]] : 'line',
+  reporter: process.env.CI ? [['line'], ['json', { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE || 'output/playwright/results.json' }]] : 'line',
   use: {
     browserName: 'chromium',
     ...(process.env.CHROMIUM_PATH || !process.env.PW_CHANNEL ? {} : { channel: process.env.PW_CHANNEL }),
@@ -39,7 +39,7 @@ export default defineConfig({
     { name: 'chromium-webgl', grep: /@webgl/, workers: 1 },
 
     // The studio editor, mail preview images and public startup need every engine; other email cases skip there.
-    { name: 'firefox', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs'], use: { browserName: 'firefox', channel: '', launchOptions: {} } },
-    { name: 'webkit', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs'], use: { browserName: 'webkit', channel: '', launchOptions: {} } },
+    { name: 'firefox', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs', 'cms-modules.spec.mjs', 'managed-svg-fidelity.spec.mjs', 'test_cms_browser_helpers.spec.mjs', 'test_cms_asset_usage.spec.mjs'], use: { browserName: 'firefox', channel: '', launchOptions: {} } },
+    { name: 'webkit', testMatch: ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs', 'cms-modules.spec.mjs', 'managed-svg-fidelity.spec.mjs', 'test_cms_browser_helpers.spec.mjs', 'test_cms_asset_usage.spec.mjs'], use: { browserName: 'webkit', channel: '', launchOptions: {} } },
   ],
 });

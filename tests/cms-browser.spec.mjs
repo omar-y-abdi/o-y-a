@@ -3,9 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { routes } from '../src/content/site.mjs';
 import { SKIFT_PATH } from '../src/content/skift.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { CMSBrowserQA, DESKTOP, MOBILE, assertClean, assertNoOverflow, confirmYes, discoverPages, firstTextTarget, fontSelect, frame, lockPreview, openAssets, openPage, revertIfDirty, save, saveAssetMetadata, seedRuntime, shiftEnterText, trackPage, upload, waitCanvas } from './helpers/cms-browser-qa.mjs';
+import { CMSBrowserQA, DESKTOP, MOBILE, assertClean, assertNoOverflow, confirmYes, discoverPages, firstTextTarget, fontSelect, frame, lockPreview, openPage, revertIfDirty, save, saveAssetMetadata, seedRuntime, shiftEnterText, trackPage, upload, waitCanvas } from './helpers/cms-browser-qa.mjs';
 
 let runtime, baseline, api;
+// Match the original Python scenario's timestamp-shaped authored labels.
+const RUN_ID = new Date().toISOString().slice(0, 19).replaceAll('-', '').replaceAll(':', '').replace('T', '-');
 const entries = routes.filter(route => route.path !== SKIFT_PATH).map(route => ({ id: route.template, name: route.name }));
 test.describe.configure({ mode: 'default', timeout: 180_000 });
 test.beforeAll(async ({ playwright }) => {
@@ -17,8 +19,8 @@ test.beforeAll(async ({ playwright }) => {
 test.afterEach(async () => { await seedRuntime(runtime, api, baseline); });
 test.afterAll(async () => { try { await api?.dispose(); } finally { await runtime?.close(); } });
 
-async function admin(browser, testInfo, run) {
-  const qa = new CMSBrowserQA(browser, runtime, testInfo);
+async function admin(browser, testInfo, run, fixture = runtime) {
+  const qa = new CMSBrowserQA(browser, fixture, testInfo);
   const { context, page, errors } = await qa.adminPage();
   try { await run(page, qa); }
   finally { try { assertClean(errors, testInfo.title); } finally { await context.close(); } }
@@ -40,54 +42,79 @@ for (const [device, viewport] of [['desktop', DESKTOP], ['mobile', MOBILE]]) {
   });
 
   test(`admin-${device}`, async ({ browser }, testInfo) => {
-    const qa = new CMSBrowserQA(browser, runtime, testInfo), { context, page, errors } = await qa.adminPage(viewport);
+    const fixture = await cmsRuntime({ port: 0 });
     try {
-      expect(await page.locator('[data-page-id]').count()).toBeGreaterThan(0);
-      if (device === 'desktop') expect(await discoverPages(page)).toEqual(entries);
-      await qa.screenshot(page, testInfo.title);
-      await assertNoOverflow(page, testInfo.title);
-      assertClean(errors, testInfo.title);
-    } finally { await context.close(); }
+      const qa = new CMSBrowserQA(browser, fixture, testInfo), { context, page, errors } = await qa.adminPage(viewport);
+      try {
+        const state = await page.request.get(fixture.url + '/admin/api/state');
+        try { expect((await state.json()).version, 'Original admin checks run before first publication').toBe(0); }
+        finally { await state.dispose(); }
+        expect(await page.locator('[data-page-id]').count()).toBeGreaterThan(0);
+        if (device === 'desktop') {
+          expect(await discoverPages(page)).toEqual(entries);
+          const identityCookie = (await context.cookies()).find(cookie => cookie.name === 'CF_Authorization');
+          expect(identityCookie).toMatchObject({ httpOnly: true, secure: false, sameSite: 'Lax', path: '/' });
+          expect(await page.evaluate(() => document.cookie)).not.toContain('CF_Authorization=');
+        }
+        await qa.screenshot(page, testInfo.title);
+        await assertNoOverflow(page, testInfo.title);
+        assertClean(errors, testInfo.title);
+      } finally { await context.close(); }
+    } finally { await fixture.close(); }
   });
 }
 
-test('edit-save-public-reload', async ({ browser }, testInfo) => {
-  await admin(browser, testInfo, async (page, qa) => {
-    await openPage(page, (await discoverPages(page))[0]);
-    await (await firstTextTarget(await frame(page))).click();
-    await page.locator('#element-text').waitFor({ state: 'visible', timeout: 10_000 });
-    const old = await page.locator('#element-text').inputValue(), marker = `${old} · QA-${testInfo.testId}`;
-    await page.locator('#element-text').fill(marker);
-    await page.waitForTimeout(600);
-    await expect(page.locator('[data-action=save]')).toBeEnabled();
-    expect((await save(page)).toLowerCase()).toMatch(/sparad|original/);
-    await page.locator('[data-device=compare]').click();
-    await page.locator('#preview-stage iframe').nth(1).waitFor({ state: 'attached', timeout: 20_000 });
-    await qa.screenshot(page, 'edit-save-compare');
-    const context = await qa.context(DESKTOP, false);
+for (const published of [false, true]) {
+  test(published ? 'edit-save-public-reload with existing publication' : 'edit-save-public-reload', async ({ browser }, testInfo) => {
+    // The original Python sequence starts from version zero. Keep that first
+    // publication distinct from the already-published delta-save scenario.
+    const fixture = published ? runtime : await cmsRuntime({ port: 0 });
     try {
-      const live = await context.newPage(), errors = trackPage(live);
-      const response = await live.goto(runtime.url + '/', { waitUntil: 'domcontentloaded', timeout: 20_000 });
-      if (response) expect(response.status()).toBeLessThan(400);
-      await live.waitForTimeout(700);
-      expect(await live.locator('body').innerText()).toContain(marker);
-      await live.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
-      await live.waitForTimeout(700);
-      expect(await live.locator('body').innerText()).toContain(marker);
-      await assertNoOverflow(live, 'public-reload');
-      assertClean(errors, 'public-reload');
-      await qa.screenshot(live, 'public-reload');
-    } finally { await context.close(); }
-    const scripts = await lockPreview(page);
-    expect(scripts.some(source => source.includes('main') || source.endsWith('.mjs'))).toBe(true);
-    await page.locator('[data-action=edit]').click();
-    await waitCanvas(page);
-    await (await firstTextTarget(await frame(page))).click();
-    await page.locator('#element-text').fill(old);
-    await page.waitForTimeout(500);
-    if (await page.locator('[data-action=save]').isEnabled()) await save(page);
+      await admin(browser, testInfo, async (page, qa) => {
+        let firstSave;
+        page.on('request', request => {
+          if (!firstSave && request.method() === 'POST' && new URL(request.url()).pathname === '/admin/api/save') firstSave = request.postDataJSON();
+        });
+        await openPage(page, (await discoverPages(page))[0]);
+        await (await firstTextTarget(await frame(page))).click();
+        await page.locator('#element-text').waitFor({ state: 'visible', timeout: 10_000 });
+        const old = await page.locator('#element-text').inputValue(), marker = `${old} · QA-${RUN_ID}`;
+        await page.locator('#element-text').fill(marker);
+        await page.waitForTimeout(600);
+        await expect(page.locator('[data-action=save]')).toBeEnabled();
+        expect((await save(page)).toLowerCase()).toMatch(/sparad|original/);
+        if (published) expect(firstSave.baseVersion).toBeGreaterThan(0);
+        else expect(firstSave.baseVersion, 'The original Python scenario publishes an empty database for the first time').toBe(0);
+        expect(Object.hasOwn(firstSave, published ? 'changes' : 'project')).toBe(true);
+        await page.locator('[data-device=compare]').click();
+        await page.locator('#preview-stage iframe').nth(1).waitFor({ state: 'attached', timeout: 20_000 });
+        await qa.screenshot(page, 'edit-save-compare');
+        const context = await qa.context(DESKTOP, false);
+        try {
+          const live = await context.newPage(), errors = trackPage(live);
+          const response = await live.goto(fixture.url + '/', { waitUntil: 'domcontentloaded', timeout: 20_000 });
+          if (response) expect(response.status()).toBeLessThan(400);
+          await live.waitForTimeout(700);
+          expect(await live.locator('body').innerText()).toContain(marker);
+          await live.reload({ waitUntil: 'domcontentloaded', timeout: 20_000 });
+          await live.waitForTimeout(700);
+          expect(await live.locator('body').innerText()).toContain(marker);
+          await assertNoOverflow(live, 'public-reload');
+          assertClean(errors, 'public-reload');
+          await qa.screenshot(live, 'public-reload');
+        } finally { await context.close(); }
+        const scripts = await lockPreview(page);
+        expect(scripts.some(source => source.includes('main') || source.endsWith('.mjs'))).toBe(true);
+        await page.locator('[data-action=edit]').click();
+        await waitCanvas(page);
+        await (await firstTextTarget(await frame(page))).click();
+        await page.locator('#element-text').fill(old);
+        await page.waitForTimeout(500);
+        if (await page.locator('[data-action=save]').isEnabled()) await save(page);
+      }, fixture);
+    } finally { if (!published) await fixture.close(); }
   });
-});
+}
 
 async function publicCopyCheck(qa, expected, label) {
   for (const [device, viewport] of [['desktop', DESKTOP], ['mobile', MOBILE]]) {
@@ -137,8 +164,8 @@ for (const source of ['rte', 'textarea']) {
 test('new-pages-duplicate', async ({ browser }, testInfo) => {
   await admin(browser, testInfo, async (page, qa) => {
     const before = await page.locator('[data-page-id]').count();
-    const id = testInfo.testId.replace(/[^a-z0-9]/gi, '').toLowerCase();
-    const name = `QA sida ${id}`, path = `/qa-browser-${id}/`, copy = `QA kopia ${id}`, copyPath = `/qa-browser-${id}-copy/`;
+    const slug = RUN_ID.replaceAll('-', '');
+    const name = `QA sida ${RUN_ID}`, path = `/qa-browser-${slug}/`, copy = `QA kopia ${RUN_ID}`, copyPath = `/qa-browser-${slug}-copy/`;
     await page.locator('[data-action=add-page]').click();
     await page.locator('#new-page-name').fill(name);
     await page.locator('#new-page-path').fill(path);
@@ -201,7 +228,7 @@ test('undo-redo-revert', async ({ browser }, testInfo) => {
     await openPage(page, (await discoverPages(page))[0]);
     await (await firstTextTarget(await frame(page))).click();
     await page.locator('#element-text').waitFor({ state: 'visible', timeout: 10_000 });
-    const old = await page.locator('#element-text').inputValue(), marker = `${old} · UNDO-${testInfo.testId}`;
+    const old = await page.locator('#element-text').inputValue(), marker = `${old} · UNDO-${RUN_ID}`;
     await page.locator('#element-text').fill(marker);
     await page.waitForTimeout(500);
     await page.locator('[data-action=undo]').click();
@@ -267,7 +294,7 @@ test('assets-upload-metadata', async ({ browser }, testInfo) => {
     await (await chooser).setFiles(upload());
     await page.locator('#asset-name').waitFor({ state: 'visible', timeout: 20_000 });
     expect((await page.locator('#asset-name').inputValue()).toLowerCase()).toMatch(/\.png$/);
-    const name = `QA metadata ${testInfo.testId}.png`, alt = `Lokal QA PNG ${testInfo.testId}`;
+    const name = `QA metadata ${RUN_ID}.png`, alt = `Lokal QA PNG ${RUN_ID}`;
     await page.locator('#asset-name').fill(name);
     await page.locator('#asset-alt').fill(alt);
     await saveAssetMetadata(page);
@@ -373,12 +400,13 @@ test('font-upload-theme-individual', async ({ browser }, testInfo) => {
 
 test('win-edit-export', async ({ browser }, testInfo) => {
   await admin(browser, testInfo, async (page, qa) => {
-    await openAssets(page, 'wins');
+    await page.locator('[data-library=assets]').click();
+    await page.locator('[data-special=wins]').click();
     const card = page.locator('.win-card').first();
     await card.waitFor({ state: 'visible', timeout: 15_000 });
     await card.click();
     await page.locator('#win-text').waitFor({ state: 'visible', timeout: 15_000 });
-    const marker = `${await page.locator('#win-text').inputValue()} · QA-${testInfo.testId}`;
+    const marker = `${await page.locator('#win-text').inputValue()} · QA-${RUN_ID}`;
     await page.locator('#win-text').fill(marker);
     await page.waitForTimeout(500);
     expect(await page.locator('#win-text').inputValue()).toBe(marker);

@@ -295,5 +295,10 @@ test('browser failures retain traces without retries and preserve the engine sel
   const config = await browserConfig();
   assert.equal(config.use.trace, 'retain-on-failure');
   assert.equal(config.retries, 0);
-  for (const name of ['firefox', 'webkit']) assert.deepEqual(config.projects.find(project => project.name === name).testMatch, ['cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs']);
+  const editorSuites = [
+    'cms-editor.spec.mjs', 'cms-email.spec.mjs', 'public-startup.spec.mjs',
+    'cms-modules.spec.mjs', 'managed-svg-fidelity.spec.mjs',
+    'test_cms_browser_helpers.spec.mjs', 'test_cms_asset_usage.spec.mjs',
+  ];
+  for (const name of ['firefox', 'webkit']) assert.deepEqual(config.projects.find(project => project.name === name).testMatch, editorSuites);
 });

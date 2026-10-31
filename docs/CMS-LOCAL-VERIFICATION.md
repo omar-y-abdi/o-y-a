@@ -20,7 +20,7 @@ node scripts/test-cms-compat.mjs &&
 npm run edge:check
 ```
 
-Run these sequentially and stop if a command fails. `quality` already includes build, lint, Node tests, the public HTTP suite, public browser regressions and all 240 standard card exports. `test:cms` first runs the isolated real-module fixtures, then the original CMS browser/interactions suites **and both review suites** against an ephemeral, authenticated local Worker. `node scripts/test-cms-compat.mjs` runs the module fixtures and targeted review suites in Firefox and WebKit. CI runs the same engine-specific module and review gates. These commands do not publish content or email to the real site. `edge:check` is a Wrangler **dry run**, not a deploy.
+Run these sequentially and stop if a command fails. `quality` already includes build, lint, Node tests, the public HTTP suite, public browser regressions and all 240 standard card exports. `test:cms` first runs the isolated real-module and library/navigation/transport fixtures, including the main CMS and interaction Playwright scenarios, then **both remaining original review suites** against an ephemeral, authenticated local Worker. `node scripts/test-cms-compat.mjs` runs the module, managed-SVG, browser-helper and asset-usage fixtures plus targeted review suites in Firefox and WebKit; the main 42-case CMS suite is qualified for Chromium. CI runs the same engine-specific module and review gates. These commands do not publish content or email to the real site. `edge:check` is a Wrangler **dry run**, not a deploy.
 
 The fast Node gate also prepares an immutable historical Worker fixture from commit `80630c7d280c71314702af791dbc0828d9ff8b0a`, using that revision's source, lockfile and build. It lives under `.generated/base-worker/` and supplies the actual old validator and publisher for deployment-compatibility regressions. A shallow checkout must first fetch that commit (`git fetch origin 80630c7d280c71314702af791dbc0828d9ff8b0a`). Its historical dependencies are isolated test evidence, never current release inputs. The root dependency audit applies to the current lockfile. A legacy-shaped project produced by current code is not a substitute for this fixture.
 
@@ -28,7 +28,7 @@ For a quicker focused rerun:
 
 ```sh
 npm run check
-node scripts/test-cms-modules-parallel.mjs
+npx playwright test tests/cms-modules.spec.mjs tests/managed-svg-fidelity.spec.mjs --project=chromium --no-deps --workers=1
 node scripts/test-cms.mjs tests/cms-review-browser.py tests/cms-review-final-browser.py
 ```
 
@@ -40,7 +40,7 @@ Node tests exercise actual local workerd/D1/R2 and offline image decoding. The m
 
 The navigational suites cover same-profile draft isolation, incomplete recovery, expired sessions, 413/network retry behavior, metadata CAS, clone references, global resource slots, active input/reload/publication, rich-text reload, preview script readiness, two genuinely different WOFF2 files, historical font restoration, rotated-card preview/export and IndexedDB write failure with usable export.
 
-Evidence is written beneath `output/logs/`, `output/visual/review/`, `output/visual/review-final/`, `output/cms-modules/`, `output/card-export/` and `artifacts/`. CI retains these. Do not treat a missing browser executable, blocked navigation or a failed setup as a passed test. Full browser acceptance must pass on your machine or GitHub before merge.
+Evidence is written beneath `output/logs/`, `output/visual/review/`, `output/visual/review-final/`, `output/playwright/artifacts/` and `artifacts/`. CI retains these. Do not treat a missing browser executable, blocked navigation or a failed setup as a passed test. Full browser acceptance must pass on your machine or GitHub before merge.
 
 ## Three manual checks after the automated suites
 

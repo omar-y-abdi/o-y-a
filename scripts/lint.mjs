@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { transform } from 'esbuild';
 // esbuild does not validate regexp early errors. Browser-only modules,
 // Playwright specs and these manual scripts are not loaded by the Node gates.
-const v8Only = new Set(['scripts/smoke-live.mjs', 'scripts/cms-dev.mjs', 'scripts/test-cms-modules.mjs', 'scripts/test-cms-compat.mjs']);
+const v8Only = new Set(['scripts/smoke-live.mjs', 'scripts/cms-dev.mjs', 'scripts/test-cms-compat.mjs']);
 const files = [];
 async function walk(dir) { for(const item of await readdir(dir,{withFileTypes:true})) { const p=dir+'/'+item.name;if(item.isDirectory())await walk(p);else files.push(p); } }
 for(const dir of ['src','scripts','tests'])await walk(dir);
