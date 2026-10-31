@@ -28,6 +28,7 @@ const workloads = {
   'preview-one-card': () => ({ path: '/admin/api/preview', tables: canonical, body: () => previewPayload(project, 'win', project.cards[0].id) }),
   'first-full-save': () => ({ path: '/admin/api/save', tables: canonical, body: () => ({ project: draft, baseVersion: 185, requestId: crypto.randomUUID() }) }),
   'first-delta-save': () => ({ path: '/admin/api/save', tables: canonical, body: () => ({ changes, baseVersion: 185, requestId: crypto.randomUUID() }) }),
+  'validate-current': () => ({ path: '/admin/api/validate', tables: canonical, body: () => ({ project: draft }) }),
   'recover-current': () => ({ path: '/admin/api/recover', tables: canonical, body: () => ({ project: draft }) }),
   'recover-current-pending': () => ({ path: '/admin/api/recover', tables: canonical, body: () => ({ project: draft, baseVersion: 185, pendingSave: { changes, baseVersion: 185, requestId: crypto.randomUUID() } }) }),
 };
@@ -116,7 +117,7 @@ async function sample(runtime, worker, workload) {
     if (workload.path.endsWith('/state') && (result.version !== 185 || JSON.stringify(result.project) !== JSON.stringify(project))) throw new Error('State identity changed');
     if (workload.path.endsWith('/save') && result.version !== 186) throw new Error('Save did not publish the intended version');
     if (workload.path.endsWith('/preview') && (typeof result.html !== 'string' || !result.html.includes('cms-preview-data'))) throw new Error('Preview output missing');
-    if (workload.path.endsWith('/recover') && !result.project.pages.find(page => page.path === '/om/').html.includes('CPU measurement edit.')) throw new Error('Recovery lost the requested edit');
+    if (['/recover', '/validate'].some(path => workload.path.endsWith(path)) && !result.project.pages.find(page => page.path === '/om/').html.includes('CPU measurement edit.')) throw new Error('Validation or recovery lost the requested edit');
   } catch (error) { failure = String(error); }
   const calls = globalThis.cmsValidationCalls; delete globalThis.cmsValidationCalls;
   return { ...measured, requestBytes, responseBytes: bytes?.byteLength ?? 0, status: response?.status ?? null, queries: runtime.queries.length, blobReads: runtime.blobSizes.length, blobBytes: runtime.blobSizes.reduce((a, b) => a + b, 0), htmlValidations: calls.filter(name => name === 'validateHtml').length, cssValidations: calls.filter(name => name === 'validateCss').length, ...(failure ? { error: failure } : {}) };

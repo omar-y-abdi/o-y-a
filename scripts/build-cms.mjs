@@ -19,6 +19,7 @@ import { parseFragment } from 'parse5';
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { SKIFT_PATH } from '../src/content/skift.mjs';
 import { verifyBundleNotices } from './third-party-notices.mjs';
+import { stripNodeKeys } from '../src/cms/public-html.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
 export async function studioBuildKey(seed, directory = process.cwd()) {
@@ -71,7 +72,11 @@ export async function buildCms({ styles, js }) {
     await writeFile(path, (await readFile(path, 'utf8')).replace(/[ \t]+$/gm, ''));
   }
   const output = entry => '/' + Object.entries(bundle.metafile.outputs).find(([, value]) => value.entryPoint === entry)[0].replace(/^dist\//, '');
-  const built = { styles, main: `/assets/${js.main}`, studio: output('src/cms/client/app.mjs'), preview: output('src/cms/client/preview.mjs'), css, vendorCss, loginCss };
+  const adminAssets = [...new Set([
+    ...Object.keys(bundle.metafile.outputs).filter(path => path.endsWith('.mjs')).map(path => '/' + path.replace(/^dist\//, '')),
+    css, vendorCss, vendorPath,
+  ])].sort();
+  const built = { styles, main: `/assets/${js.main}`, studio: output('src/cms/client/app.mjs'), preview: output('src/cms/client/preview.mjs'), css, vendorCss, loginCss, adminAssets };
   const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...preparePage(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null, footerVersion: FOOTER_VERSION })));
   const blank = { id: 'blank', path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida | Omar Yusuf', description: 'En ny idé från Omar Yusuf.', template: 'custom', css: '', project: null, footerVersion: FOOTER_VERSION, ...preparePage(layout({ path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida', description: 'En ny idé.', template: 'custom' }, '<section class="section-wrap" style="padding-block:80px;min-height:560px"><span class="eyebrow">EN NY IDÉ</span><h1>Här börjar något.</h1><p>Dubbelklicka för att skriva din berättelse.</p></section>', { css: styles.home, main: built.main })) };
   const assets = await Promise.all(Object.entries(resourceSlots).map(async ([slot, definition]) => {
@@ -93,6 +98,11 @@ export async function buildCms({ styles, js }) {
   const legacyInitial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
   const initial = validateProject(toFrameProject(legacyInitial, seed), seed);
   await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const legacyInitial = ${JSON.stringify(legacyInitial)};\nexport const legacySeed = seed.legacy;\nexport const built = ${JSON.stringify(built)};\n`);
+  // Public game markup follows this build, while the editor seed/initial and
+  // state descriptor keep their original identities and private contracts.
+  const { id, path, name, title, description, template, bodyClass, noindex, html } = seed.skiftPage;
+  const publicBuilt = { styles, main: built.main, skiftPage: { id, path, name, title, description, template, bodyClass, noindex: Boolean(noindex), html: stripNodeKeys(html) } };
+  await writeFile('.generated/cms-public.mjs', `export const publicBuilt = ${JSON.stringify(publicBuilt)};\n`);
   await writeFile('dist/admin/index.html', adminPage({ css, vendorCss, js: built.studio }));
   await writeFile('dist/login/index.html', loginPage(loginCss));
   return built;

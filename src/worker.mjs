@@ -3,6 +3,7 @@ import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
 import { CSP, SKIFT_CSP } from './csp.mjs';
 import { seed, initial, built } from '../.generated/cms-seed.mjs';
+import { publicBuilt } from '../.generated/cms-public.mjs';
 import { handleAdmin } from './cms/api.mjs';
 import { assetResponse } from './cms/media-files.mjs';
 import { serveMailFile } from './cms/email-api.mjs';
@@ -16,6 +17,7 @@ import { isVersionedApiPath, rejectUnsupportedApiVersion, withApiVersion } from 
 import { BodyTooLarge, readBounded } from './api/http.mjs';
 
 const PAGES = new Set(routes.filter(page => !page.noindex).map(page => page.path));
+const ADMIN_ASSETS = new Set(built.adminAssets);
 const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
 const CANONICAL = 'https://omaryusuf.se';
 const MAX_BODY_BYTES = 256;
@@ -95,7 +97,7 @@ export default {
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       response = await handleAdmin(request,env,{seed,initial,built});
       const secured = secure(response,url.protocol === 'https:',ADMIN_CSP);
-      secured.headers.set('Cache-Control','no-store');
+      secured.headers.set('Cache-Control', response.status === 200 && ['GET','HEAD'].includes(request.method) && ADMIN_ASSETS.has(url.pathname) ? 'private, max-age=31536000, immutable' : 'no-store');
       secured.headers.set('X-Robots-Tag','noindex, nofollow');
       return request.method === 'HEAD' ? new Response(null,secured) : secured;
     }
@@ -116,7 +118,7 @@ export default {
     else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
-      try { response = await publicContent(request,env,built,seed) ?? await env.ASSETS.fetch(request); }
+      try { response = await publicContent(request,env,publicBuilt,seed) ?? await env.ASSETS.fetch(request); }
       catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
     }
     if (url.pathname === '/404.html' && response.status === 200) {

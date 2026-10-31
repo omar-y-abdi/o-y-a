@@ -8,6 +8,7 @@ import { studioStatements } from './studio-store.mjs';
 import { previewFacts } from './preview-store.mjs';
 import { digest } from './digest.mjs';
 import { storedProjectView } from './stored-view.mjs';
+import { stripNodeKeys } from './public-html.mjs';
 export { digest } from './digest.mjs';
 
 async function compress(text) {
@@ -127,8 +128,11 @@ export function publicationChunks(project, resources = resourceSlots, references
   const addressableCards = project.cards.filter(card => (card.state ?? 'active') !== 'trash').map(publicCard);
   const activeIds = project.cards.filter(card => (card.state ?? 'active') === 'active').map(card => card.id);
   const rendered = [
-    ...project.pages.map(page => ({ path: page.path, html: composePage(project.frame, page), css: fonts + frameCss(project.frame, page) + page.css, meta: { ...metadata(page), resources, ...(project.frame ? { frameVersion: 2 } : {}) } })),
-    ...(project.frame ? [{ path: '@frame', html: project.frame.html, css: fonts + project.frame.css, meta: { id: 'skift', resources } }] : []),
+    ...project.pages.map(page => {
+      const html = composePage(project.frame, page);
+      return { path: page.path, html: project.frame ? stripNodeKeys(html) : html, css: fonts + frameCss(project.frame, page) + page.css, meta: { ...metadata(page), resources, ...(project.frame ? { frameVersion: 2 } : {}) } };
+    }),
+    ...(project.frame ? [{ path: '@frame', html: stripNodeKeys(project.frame.html), css: fonts + project.frame.css, meta: { id: 'skift', resources } }] : []),
     ...addressableCards.map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(card), css: '', meta: {} })),
     ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest], ['email', project.email ?? null]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: {} })),
   ];
