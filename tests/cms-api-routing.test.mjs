@@ -91,11 +91,13 @@ test('Worker rejects encoded admin path variants before authentication and prese
     if (method !== 'HEAD') assert.equal((await response.json()).error, 'Non-canonical path');
   }
   for (const path of ['/admin/api/state', '/admin/api/history', '/admin/api/revision/0', '/admin/api/absent', '/admin/api/mail/send']) {
-    const get = await real(path), head = await real(path, { method: 'HEAD' });
+    // An unread body held across the next dispatch can be collected mid-stream.
+    const get = await real(path);
+    await get.arrayBuffer();
+    const head = await real(path, { method: 'HEAD' });
     assert.equal(head.status, get.status, path);
     assert.equal(await head.text(), '', path);
     for (const header of ['content-type', 'cache-control', 'content-security-policy', 'x-robots-tag']) assert.equal(head.headers.get(header), get.headers.get(header), `${path} ${header}`);
-    await get.arrayBuffer();
   }
 });
 
