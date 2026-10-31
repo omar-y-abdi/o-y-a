@@ -128,6 +128,13 @@ test('B8: publication distinguishes absent legacy keys from new frame identities
   assert.equal(shared.html.includes('data-cms-node="f-n1"'), true, 'Internal frame identity stays intact');
 });
 
+test('B8: page keys rewrite real attributes, never text or values that spell one', () => {
+  const spelled = ' data-cms-node="f-n0"';
+  const shared = { html: `<header><p title='${spelled}' data-cms-node="f-n0">Skriv${spelled} här<!--${spelled}--></p><span data-cms-node="f-n1">Ny</span><noscript><a data-cms-node="f-n1" href="/x/">Länk${spelled}</a></noscript></header><main></main>`, css: '' };
+  const page = { html: '<main></main>', path: '/', frameKeys: { 'f-n0': null, 'f-n1': 'n7' } };
+  assert.equal(frame.composePage(shared, page), `<header><p title='${spelled}'>Skriv${spelled} här<!--${spelled}--></p><span data-cms-node="n7">Ny</span><noscript><a data-cms-node="n7" href="/x/">Länk${spelled}</a></noscript></header><main></main>`);
+});
+
 test('B8: attribute values and text in the frame cannot spell tags on the public page', () => {
   const base = validateProject(conversion.toFrameProject(v185, seed), seed);
   const about = project => project.pages.find(page => page.path === '/om/');

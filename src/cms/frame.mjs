@@ -79,35 +79,52 @@ function routeNav(node) {
   return null;
 }
 
+const dropAttribute = (html, location) => ({ start: location.startOffset - (html[location.startOffset - 1] === ' ' ? 1 : 0), end: location.endOffset, replacement: '' });
+
 // Navigation state is a projection of the route, never shared draft content.
 // Parsed offsets, not a regex: attribute values and text can spell a tag.
-function routeEdits(nodes, path) {
+function routeEdits(nodes, path, html) {
   return nodes.filter(node => node.tagName === 'a').flatMap(node => {
     const nav = routeNav(node), href = attribute(node, 'href'), location = node.sourceCodeLocation;
     const skift = attribute(node, 'data-skift-link') !== undefined || attribute(node, 'data-skift-mobile-link') !== undefined;
     if (!nav || !href || !(hasClass(nav, 'primary-nav') && ['/om/', '/verkstad/'].includes(href) || skift)) return [];
     const stale = location.attrs['aria-current'], end = location.startTag.endOffset - 1;
-    return [...(stale ? [{ start: stale.startOffset - 1, end: stale.endOffset, replacement: '' }] : []), ...(href === path ? [{ start: end, end, replacement: ' aria-current="page"' }] : [])];
+    return [...(stale ? [dropAttribute(html, stale)] : []), ...(href === path ? [{ start: end, end, replacement: ' aria-current="page"' }] : [])];
+  });
+}
+
+// A page reads the frame under its own keys. Only real attributes are keys, and
+// noscript fallback markup is text to the slot's parse, so it takes its own.
+function keyEdits(nodes, html, frameKeys) {
+  const parsed = /<noscript\b/i.test(html) ? elements(parseFragment(html, { scriptingEnabled: false, sourceCodeLocationInfo: true })) : nodes;
+  return parsed.flatMap(node => {
+    const location = node.sourceCodeLocation?.attrs?.['data-cms-node'], key = location && attribute(node, 'data-cms-node');
+    if (!location || !Object.hasOwn(frameKeys, key)) return [];
+    // Null preserves a legacy keyless node; an unmapped new node keeps its key.
+    const original = frameKeys[key];
+    return [original === null ? dropAttribute(html, location) : { start: location.startOffset, end: location.endOffset, replacement: `data-cms-node="${escapedAttribute(original)}"` }];
   });
 }
 
 export function composePage(frame, page, { year = new Date().getUTCFullYear() } = {}) {
   if (!frame) return page.html;
-  let html = projectedFrameHtml(frame, page).replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + year + after);
-  html = html.replace(/ data-cms-node="([^"]*)"/g, (all, key) => {
-    if (!Object.hasOwn(page.frameKeys ?? {}, key)) return all;
-    // Null preserves a legacy keyless node; an unmapped new node keeps its key.
-    const original = page.frameKeys[key];
-    return original === null ? '' : ` data-cms-node="${original}"`;
-  });
+  const html = projectedFrameHtml(frame, page).replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + year + after);
   // Comments and attributes can contain the slot's spelling. Only the actual
   // parsed element identifies where page content belongs; preserve other bytes.
   const tree = parseFragment(html, { scriptingEnabled: true, sourceCodeLocationInfo: true });
   const nodes = elements(tree), mains = nodes.filter(node => node.tagName === 'main');
   const slot = mains[0], location = slot?.sourceCodeLocation;
   if (mains.length !== 1 || slot.parentNode !== tree || slot.attrs.length || slot.childNodes.length || !location?.endTag) fail('Sidramen behöver exakt en tom plats för huvudinnehållet.');
-  const edits = [...routeEdits(nodes, page.path), { start: location.startOffset, end: location.endOffset, replacement: page.html }];
-  return edits.sort((a, b) => b.start - a.start).reduce((result, edit) => result.slice(0, edit.start) + edit.replacement + result.slice(edit.end), html);
+  const edits = [...keyEdits(nodes, html, page.frameKeys ?? {}), ...routeEdits(nodes, page.path, html), { start: location.startOffset, end: location.endOffset, replacement: page.html }];
+  // Every frame node has an edit, so reslicing the whole string per edit would be quadratic.
+  const parts = [];
+  let end = 0;
+  for (const edit of edits.sort((a, b) => a.start - b.start)) {
+    parts.push(html.slice(end, edit.start), edit.replacement);
+    end = edit.end;
+  }
+  parts.push(html.slice(end));
+  return parts.join('');
 }
 
 export function frameShape(html) {
