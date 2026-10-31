@@ -114,6 +114,16 @@ function metadata(page) {
   return { id, path, name, title, description, template, bodyClass, noindex: Boolean(noindex), sourceId, ...(footerVersion === undefined ? {} : { footerVersion }) };
 }
 
+const pageIdentity = page => [metadata(page), page.html, page.css, page.frameKeys ?? null, page.frameIds ?? null];
+// publicCard's fonts parse the design, so unchanged cards compare by its inputs.
+const cardIdentity = card => [card.id, card.flavor, card.text, card.design ? [card.design.html, card.design.css] : null];
+const addressable = card => (card.state ?? 'active') !== 'trash';
+// Read once per publication, before any page composes: a Save crossing a year
+// boundary keeps the older proof, so the next Save renders every page.
+export const renderProof = renderKey => renderKey ? `${renderKey}:${new Date().getUTCFullYear()}` : undefined;
+// bytes is the row's JSON bind, as publicationChunks counts a rendered row, so reuse never changes what a publication accepts.
+// lazy dev: a lone surrogate in html or css is 3 stored bytes but 6 as JSON, so a copied row counts 3 bytes short for each.
+const RENDERED_REUSE_SQL = "SELECT path, length(CAST(json_object('path', path, 'html', html, 'css', css, 'meta', json(meta)) AS BLOB)) + 1 AS bytes, CASE WHEN path = '@frame' THEN css END AS frame_css, CASE WHEN path = '@resources' THEN html END AS resources_html, CASE WHEN path = '@manifest' THEN json_extract(meta, '$.renderKey') END AS proof FROM cms_rendered WHERE version = ?";
 const utf8Bytes = value => new TextEncoder().encode(value).byteLength;
 export const PUBLIC_ROW_LIMIT = 1500000;
 export const PUBLIC_BIND_LIMIT = 1800000;
@@ -121,23 +131,24 @@ export const RENDERED_RETENTION_MS = 24 * 60 * 60 * 1000;
 // The successor timestamp is when this version was replaced. Receipt resources
 // and templates remain pinned for every retained revision.
 export const EXPIRED_RENDERED_SQL = "path NOT IN ('@resources','@email') AND EXISTS (SELECT 1 FROM cms_revisions successor WHERE successor.version = cms_rendered.version + 1 AND successor.base_version = cms_rendered.version AND successor.created_at <= ?)";
-export function publicationChunks(project, resources = resourceSlots, references = resourceReferences(project)) {
+// Rows named in `reused` are copied by SQL after these chunks; their render is skipped.
+export function publicationChunks(project, resources = resourceSlots, references = resourceReferences(project), { reused = null, proof } = {}) {
   const fonts = fontCss(project, references);
   const manifest = project.pages.map(metadata);
   const publicCard = card => ({ id: card.id, flavor: card.flavor, text: card.text, ...(card.design ? { design: { html: card.design.html, css: fontCss({ theme: {}, pages: [], cards: [card] }) + card.design.css } } : {}) });
-  const addressableCards = project.cards.filter(card => (card.state ?? 'active') !== 'trash').map(publicCard);
+  const addressableCards = project.cards.filter(addressable);
   const activeIds = project.cards.filter(card => (card.state ?? 'active') === 'active').map(card => card.id);
   const rendered = [
-    ...project.pages.map(page => {
+    ...project.pages.filter(page => !reused?.paths.has(page.path)).map(page => {
       const html = composePage(project.frame, page);
       return { path: page.path, html: project.frame ? stripNodeKeys(html) : html, css: fonts + frameCss(project.frame, page) + page.css, meta: { ...metadata(page), resources, ...(project.frame ? { frameVersion: 2 } : {}) } };
     }),
     ...(project.frame ? [{ path: '@frame', html: stripNodeKeys(project.frame.html), css: fonts + project.frame.css, meta: { id: 'skift', resources } }] : []),
-    ...addressableCards.map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(card), css: '', meta: {} })),
-    ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest], ['email', project.email ?? null]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: {} })),
+    ...addressableCards.filter(card => !reused?.paths.has(`@card/${card.id}`)).map(card => ({ path: `@card/${card.id}`, html: JSON.stringify(publicCard(card)), css: '', meta: {} })),
+    ...[['cards', { schemaVersion: 1, ids: activeIds }], ['runtime', project.runtime], ['theme', project.theme], ['resources', resources], ['manifest', manifest], ['email', project.email ?? null]].map(([key, value]) => ({ path: `@${key}`, html: JSON.stringify(value), css: '', meta: key === 'manifest' && proof ? { renderKey: proof } : {} })),
   ];
   const chunks = [[]];
-  let chunkBytes = 2, totalBytes = 0;
+  let chunkBytes = 2, totalBytes = reused?.bytes ?? 0;
   for (const item of rendered) {
     const rowBytes = utf8Bytes(item.path + item.html + item.css + JSON.stringify(item.meta)) + 64;
     const bindBytes = utf8Bytes(JSON.stringify(item)) + 1;
@@ -148,6 +159,30 @@ export function publicationChunks(project, resources = resourceSlots, references
     chunks.at(-1).push(item); chunkBytes += bindBytes;
   }
   return chunks;
+}
+
+// Each equality below covers one input that composePage, frameCss, fontCss,
+// the resources meta or publicCard reads. Any mismatch returns null: full render.
+// A schema 1 head has no @frame row, so a project converted from it stops here.
+export async function reusableRows(db, project, base, resources, references, proof) {
+  if (!proof || !base || project.schemaVersion !== 2 || !project.frame || !base.project.frame || JSON.stringify(project.frame) !== JSON.stringify(base.project.frame)) return null;
+  const rows = new Map((await db.prepare(RENDERED_REUSE_SQL).bind(base.version).all()).results.map(row => [row.path, row]));
+  if (rows.get('@manifest')?.proof !== proof) return null;
+  if (rows.get('@frame')?.frame_css !== fontCss(project, references) + project.frame.css) return null;
+  if (rows.get('@resources')?.resources_html !== JSON.stringify(resources)) return null;
+  const reused = { paths: new Set(), bytes: 0 };
+  const copy = path => { reused.paths.add(path); reused.bytes += rows.get(path).bytes; };
+  const basePages = new Map(base.project.pages.map(page => [page.id, page]));
+  for (const page of project.pages) {
+    const previous = basePages.get(page.id);
+    if (previous && rows.has(page.path) && JSON.stringify(pageIdentity(previous)) === JSON.stringify(pageIdentity(page))) copy(page.path);
+  }
+  const baseCards = new Map(base.project.cards.filter(addressable).map(card => [card.id, card]));
+  for (const card of project.cards.filter(addressable)) {
+    const previous = baseCards.get(card.id), path = `@card/${card.id}`;
+    if (previous && rows.has(path) && JSON.stringify(cardIdentity(previous)) === JSON.stringify(cardIdentity(card))) copy(path);
+  }
+  return reused;
 }
 
 export async function publicationMedia(db, project, references = resourceReferences(project)) {
@@ -162,7 +197,7 @@ export async function publicationMedia(db, project, references = resourceReferen
   return media;
 }
 
-export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical', studioKey, previewFrame, origin }) {
+export async function publishSite(db, { project, baseVersion, requestId, actor, payloadHash, references, requestFormat = 'canonical', studioKey, previewFrame, origin, renderKey, reuseFrom = null }) {
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0 || !/^[0-9a-f-]{36}$/.test(requestId)) throw new HttpError(400, 'Sparförsöket saknar en giltig version eller identitet.');
   const serialized = JSON.stringify(project);
   if (new TextEncoder().encode(serialized).byteLength > 8 * 1024 * 1024) throw new HttpError(413, 'Projektet är för stort.');
@@ -188,8 +223,11 @@ export async function publishSite(db, { project, baseVersion, requestId, actor, 
   const resourceIndex = [...trustedReferences.entries()];
   if (resourceIndex.length) statements.push(db.prepare("INSERT INTO cms_revision_resource_index(version,src,reference_count) SELECT ?, json_extract(value,'$[0]'), json_extract(value,'$[1]') FROM json_each(?) WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)").bind(version, JSON.stringify(resourceIndex), baseVersion, requestId));
   statements.push(db.prepare('INSERT INTO cms_revision_resource_indexed(version) SELECT ? WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id=?)').bind(version, baseVersion, requestId));
-  const chunks = publicationChunks(project, await resolveResources(db, project), trustedReferences);
+  const resources = await resolveResources(db, project), proof = renderProof(renderKey);
+  const reused = await reusableRows(db, project, reuseFrom, resources, trustedReferences, proof);
+  const chunks = publicationChunks(project, resources, trustedReferences, { reused, proof });
   for (const chunk of chunks) statements.push(db.prepare("INSERT INTO cms_rendered (version, path, html, css, meta) SELECT ?, json_extract(value, '$.path'), json_extract(value, '$.html'), json_extract(value, '$.css'), json_extract(value, '$.meta') FROM json_each(?) WHERE (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)").bind(version, JSON.stringify(chunk), baseVersion, requestId));
+  if (reused?.paths.size) statements.push(db.prepare('INSERT INTO cms_rendered (version, path, html, css, meta) SELECT ?, path, html, css, meta FROM cms_rendered WHERE version = ? AND path IN (SELECT value FROM json_each(?)) AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(version, baseVersion, JSON.stringify([...reused.paths]), baseVersion, requestId));
   if (mediaKeys.length) statements.push(db.prepare('UPDATE cms_media SET published_at = COALESCE(published_at, ?) WHERE object_key IN (SELECT value FROM json_each(?)) AND deleting_at IS NULL AND trashed_at IS NULL AND (SELECT version FROM cms_head WHERE id = 1) = ? AND EXISTS (SELECT 1 FROM cms_revisions WHERE request_id = ?)').bind(createdAt, JSON.stringify(mediaKeys), baseVersion, requestId));
   // Bound ordinary saves to one expired version; the paged maintenance script
   // handles a historical backlog without charging it to an owner's Save.

@@ -2,7 +2,7 @@ import { handleContact, contactConfig } from './server/contact.mjs';
 import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
 import { CSP, SKIFT_CSP } from './csp.mjs';
-import { built, seedAsset } from '../.generated/cms-build.mjs';
+import { built, renderKey, seedAsset } from '../.generated/cms-build.mjs';
 import { publicBuilt } from '../.generated/cms-public.mjs';
 import { loadAdminSeed } from './cms/admin-seed.mjs';
 import { handleAdmin } from './cms/api.mjs';
@@ -96,7 +96,7 @@ export default {
     }
     let response;
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
-      response = await handleAdmin(request,env,{built,studioKey:seedAsset.studioKey,loadSeed:() => loadAdminSeed(env)});
+      response = await handleAdmin(request,env,{built,studioKey:seedAsset.studioKey,renderKey,loadSeed:() => loadAdminSeed(env)});
       const secured = secure(response,url.protocol === 'https:',ADMIN_CSP);
       secured.headers.set('Cache-Control', response.status === 200 && ['GET','HEAD'].includes(request.method) && ADMIN_ASSETS.has(url.pathname) ? 'private, max-age=31536000, immutable' : 'no-store');
       secured.headers.set('X-Robots-Tag','noindex, nofollow');

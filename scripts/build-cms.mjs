@@ -22,13 +22,23 @@ import { verifyBundleNotices } from './third-party-notices.mjs';
 import { stripNodeKeys } from '../src/cms/public-html.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
+// The temporary in-memory bundles are neither emitted nor served.
+async function bundleOutputs(entryPoints, directory) {
+  return (await build({ absWorkingDir: directory, entryPoints, outdir: '.generated/studio-policy', bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', minify: true })).outputFiles;
+}
 export async function studioBuildKey(seed, directory = process.cwd()) {
   // Fingerprint the actual dependency closure, not a manually maintained
-  // version. The temporary in-memory bundles are neither emitted nor served.
-  const representation = await build({ absWorkingDir: directory, entryPoints: ['src/cms/frame-converter.mjs', 'src/cms/project.mjs', 'src/cms/preview-store.mjs', 'src/cms/stored-view.mjs'], outdir: '.generated/studio-policy', bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', minify: true });
+  // version.
+  const outputs = await bundleOutputs(['src/cms/frame-converter.mjs', 'src/cms/project.mjs', 'src/cms/preview-store.mjs', 'src/cms/stored-view.mjs'], directory);
   const { studioKey: _previousKey, ...definitions } = seed;
   const policy = createHash('sha256').update(JSON.stringify(definitions));
-  for (const output of representation.outputFiles) policy.update(output.contents);
+  for (const output of outputs) policy.update(output.contents);
+  return policy.digest('hex');
+}
+// Rendered rows depend on store.mjs, which studioKey's closure does not include.
+export async function renderBuildKey(directory = process.cwd()) {
+  const policy = createHash('sha256');
+  for (const output of await bundleOutputs(['src/cms/store.mjs'], directory)) policy.update(output.contents);
   return policy.digest('hex');
 }
 
@@ -107,7 +117,7 @@ export async function buildCms({ styles, js }) {
   const sha256 = createHash('sha256').update(definitions).digest('hex');
   const seedAsset = { path: `/admin/seed.${sha256}.json`, sha256, bytes: Buffer.byteLength(definitions), studioKey: seed.studioKey };
   await writeFile('dist' + seedAsset.path, definitions);
-  await writeFile('.generated/cms-build.mjs', `export const built = ${JSON.stringify(built)};\nexport const seedAsset = ${JSON.stringify(seedAsset)};\n`);
+  await writeFile('.generated/cms-build.mjs', `export const built = ${JSON.stringify(built)};\nexport const seedAsset = ${JSON.stringify(seedAsset)};\nexport const renderKey = ${JSON.stringify(await renderBuildKey())};\n`);
   // Public game markup follows this build, while the editor seed/initial and
   // state descriptor keep their original identities and private contracts.
   const { id, path, name, title, description, template, bodyClass, noindex, html } = seed.skiftPage;
