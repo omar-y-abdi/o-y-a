@@ -39,6 +39,8 @@ export async function readBytes(request, limit) {
   return bytes;
 }
 
+export const PROJECT_BODY_LIMIT = 16 * 1024 * 1024;
+
 export async function readJson(request, limit = 4 * 1024 * 1024) {
   const bytes = await readBytes(request, limit);
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }

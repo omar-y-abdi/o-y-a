@@ -1,4 +1,4 @@
-import { HttpError, json, readBytes, readJson } from './http.mjs';
+import { HttpError, json, PROJECT_BODY_LIMIT, readBytes, readJson } from './http.mjs';
 import { validateProject } from './project.mjs';
 import { replaceResource, resourceCatalog } from './resources.mjs';
 import { assetPage, assetSelection, builtinAssetStates, mergeBuiltinAssetStates, updateAsset, updateBuiltinAsset } from './assets.mjs';
@@ -29,7 +29,7 @@ async function upload(request, env) {
 
 async function managedSvg(request, env, context) {
   const { url, publishedBaseline, resourceIds } = context;
-  const body = await readJson(request, 16 * 1024 * 1024);
+  const body = await readJson(request, PROJECT_BODY_LIMIT);
   const { seed, fromClient } = await context.studio();
   const source = seed.assets.find(asset => asset.id === body.id);
   const builtin = source ? { ...source, builtin: true } : null;
@@ -64,7 +64,7 @@ async function usage(request, env, context) {
 
 async function change(request, env, context) {
   const { url, publishedBaseline } = context;
-  const body = await readJson(request, 16 * 1024 * 1024);
+  const body = await readJson(request, PROJECT_BODY_LIMIT);
   const { seed, fromClient } = await context.studio();
   const builtin = seed.assets.find(asset => asset.id === body.id);
   if (url.pathname === '/admin/api/asset-metadata') {
@@ -78,7 +78,7 @@ async function change(request, env, context) {
 
 async function replace(request, env, context) {
   const { url, publishedBaseline, resourceIds } = context;
-  const body = await readJson(request, 16 * 1024 * 1024);
+  const body = await readJson(request, PROJECT_BODY_LIMIT);
   const { seed, fromClient } = await context.studio();
   const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
   const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
