@@ -1,4 +1,4 @@
-import { HttpError, json, readBytes, readJson } from './http.mjs';
+import { HttpError, json, PROJECT_BODY_LIMIT, readBytes, readJson } from './http.mjs';
 import { validateProject } from './project.mjs';
 import { replaceResource, resourceCatalog } from './resources.mjs';
 import { assetPage, assetSelection, builtinAssetStates, mergeBuiltinAssetStates, updateAsset, updateBuiltinAsset } from './assets.mjs';
@@ -28,7 +28,7 @@ async function upload(request, env) {
 
 async function managedSvg(request, env, context) {
   const { seed, url, fromClient, publishedBaseline, resourceIds } = context;
-  const body = await readJson(request, 16 * 1024 * 1024);
+  const body = await readJson(request, PROJECT_BODY_LIMIT);
   const source = seed.assets.find(asset => asset.id === body.id);
   const builtin = source ? { ...source, builtin: true } : null;
   if (body.action === 'validate') return json(validateManagedSvg(builtin, body.svg));
@@ -62,7 +62,7 @@ async function usage(request, env, context) {
 
 async function change(request, env, context) {
   const { seed, url, fromClient, publishedBaseline } = context;
-  const body = await readJson(request, 16 * 1024 * 1024);
+  const body = await readJson(request, PROJECT_BODY_LIMIT);
   const builtin = seed.assets.find(asset => asset.id === body.id);
   if (url.pathname === '/admin/api/asset-metadata') {
     const { id, ...patch } = body;
@@ -75,7 +75,7 @@ async function change(request, env, context) {
 
 async function replace(request, env, context) {
   const { seed, url, fromClient, publishedBaseline, resourceIds } = context;
-  const body = await readJson(request, 16 * 1024 * 1024);
+  const body = await readJson(request, PROJECT_BODY_LIMIT);
   const project = validateProject(fromClient(body.project), seed, await publishedBaseline(), { publication: false, origins: [url.origin] });
   const [selectedAssets, builtinStates] = await Promise.all([assetSelection(env.CMS_DB, [...resourceIds(project), body.fromId, body.toId].filter(Boolean)), builtinAssetStates(env.CMS_DB)]);
   const builtinSeed = { ...seed, assets: mergeBuiltinAssetStates(seed.assets, builtinStates) };
