@@ -15,13 +15,17 @@ const resourceIds = project => [...resourceReferences(project).keys()].filter(sr
 // positional keys go through the frozen e5592bc map. Stored data uses rekeyHtml.
 export { normalizeClientProject } from './frame-converter.mjs';
 
-export async function handleAdmin(request, env, { seed, initial, built }) {
-  const storedProject = project => normalizeStoredProject(project, seed, initial);
-  const fromClient = project => normalizeClientProject(project, seed);
+export async function handleAdmin(request, env, { built, studioKey, loadSeed }) {
+  let definitions;
+  const studio = () => definitions ??= loadSeed().then(({ seed, initial }) => ({
+    seed, initial,
+    storedProject: project => normalizeStoredProject(project, seed, initial),
+    fromClient: project => normalizeClientProject(project, seed),
+  }));
   // One request-local snapshot; no process cache can outlive a Save or media
   // change. Internal proof facts never become the delta's project payload.
   let current;
-  const published = () => current ??= readCurrentProject(env.CMS_DB, seed, initial, new URL(request.url).origin);
+  const published = () => current ??= studio().then(({ seed, initial }) => readCurrentProject(env.CMS_DB, seed, initial, new URL(request.url).origin));
   const publishedBaseline = async () => (await published()).baseline;
   try {
     const identity = await authenticateAdmin(request, env);
@@ -29,9 +33,9 @@ export async function handleAdmin(request, env, { seed, initial, built }) {
     if (!url.pathname.startsWith('/admin/api/')) return env.ASSETS.fetch(request);
     // Mail owns its established route/uncertainty boundary, including settings
     // reads without D1 and unknown-route refusal before write guards.
-    if (url.pathname === '/admin/api/contact' || url.pathname.startsWith('/admin/api/mail/')) return await handleEmailAdmin(request, env, { identity, url, head: () => readCurrentResources(env.CMS_DB, seed, initial) });
+    if (url.pathname === '/admin/api/contact' || url.pathname.startsWith('/admin/api/mail/')) return await handleEmailAdmin(request, env, { identity, url, head: () => readCurrentResources(env.CMS_DB, studioKey, studio) });
     if (!env.CMS_DB) throw new HttpError(503, 'Studions lagring är inte tillgänglig.');
-    const context = { seed, initial, built, identity, url, storedProject, fromClient, published, publishedBaseline, resourceIds };
+    const context = { studio, studioKey, built, identity, url, published, publishedBaseline, resourceIds };
     if (request.method === 'GET' || request.method === 'HEAD') {
       const handler = reads.get(url.pathname);
       if (handler) return await handler(request, env, context);

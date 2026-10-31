@@ -106,7 +106,7 @@ test('C4 actual BASE publication, full/delta Save, recovery, restore and frame r
     assert.ok(keys(head.project.frame.html).length > 0);
     assert.ok(head.project.pages.every(page => keys(page.html).length > 0));
     assert.deepEqual(head.built, built, 'Public game markup does not enter the state descriptor');
-    const seedForbidden = new Proxy({}, { get() { throw new Error('Canonical public read reached the editor seed'); } });
+    const seedForbidden = () => { throw new Error('Canonical public read reached the editor seed'); };
     for (const page of head.project.pages) {
       const response = await publicContent(new Request(runtime.url + page.path), { CMS_DB: runtime.db }, publicBuilt, seedForbidden);
       assert.equal(response.status, page.path === '/404.html' ? 404 : 200);

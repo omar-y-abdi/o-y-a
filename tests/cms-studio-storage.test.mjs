@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { initial, seed } from '../.generated/cms-seed.mjs';
+import { seedAsset } from '../.generated/cms-build.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { normalizeStoredProject } from '../src/cms/frame-converter.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
@@ -9,23 +10,37 @@ import { readStudioHead, readStudioVersion, textParts, STUDIO_TEXT_CHUNK } from 
 import { nodeWorker, nodeCms } from './helpers/cms-node.mjs';
 
 const raw = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
+const definitionsText = await readFile('dist' + seedAsset.path, 'utf8');
 const project = validateProject(normalizeStoredProject(structuredClone(raw), seed, initial), seed, undefined, { origins: ['https://omaryusuf.se'] });
 const worker = await nodeWorker();
 const save = (runtime, baseVersion, next = project, options = {}) => publishSite(runtime.db, { project: next, baseVersion, requestId: crypto.randomUUID(), actor: 'owner@example.test', studioKey: seed.studioKey, ...options });
 
-test('canonical state serves trusted JSON without revision BLOBs or whole-project parsing; assets remain current', async () => {
+test('canonical state avoids stored-project parsing, loads definitions once and keeps assets current', async () => {
   assert.match(seed.studioKey, /^[0-9a-f]{64}$/);
   const runtime = await nodeCms(raw, worker);
   try {
     await save(runtime, 185);
     const parse = JSON.parse, stringify = JSON.stringify;
     runtime.queries.length = 0; runtime.blobSizes.length = 0;
-    let response;
-    try {
-      JSON.parse = (text, ...args) => { assert.ok(!(text.length > 100000 && text.includes('"pages"')), 'state parsed a full project'); return parse(text, ...args); };
-      JSON.stringify = (value, ...args) => { assert.ok(!value?.pages && !value?.project?.pages, 'state serialized a full project'); return stringify(value, ...args); };
-      response = await runtime.fetch('/admin/api/state');
-    } finally { JSON.parse = parse; JSON.stringify = stringify; }
+    async function readState(expectedDefinitionParses) {
+      let definitionParses = 0, storedProjectParses = 0, response;
+      try {
+        JSON.parse = (text, ...args) => {
+          if (text === definitionsText) definitionParses++;
+          else if (text.length > 100000 && text.includes('"pages"')) {
+            storedProjectParses++;
+            assert.fail('state parsed a full stored project');
+          }
+          return parse(text, ...args);
+        };
+        JSON.stringify = (value, ...args) => { assert.ok(!value?.pages && !value?.project?.pages, 'state serialized a full project'); return stringify(value, ...args); };
+        response = await runtime.fetch('/admin/api/state');
+      } finally { JSON.parse = parse; JSON.stringify = stringify; }
+      assert.equal(definitionParses, expectedDefinitionParses, 'Only the exact immutable build definitions may be parsed once on cold state');
+      assert.equal(storedProjectParses, 0, 'Canonical state must not parse the stored project');
+      return response;
+    }
+    const response = await readState(1);
     assert.equal(response.status, 200, await response.clone().text());
     const state = await response.json();
     assert.deepEqual(state.project, project);
@@ -36,7 +51,7 @@ test('canonical state serves trusted JSON without revision BLOBs or whole-projec
     const builtin = state.assets.find(asset => asset.builtin && asset.src);
     assert.ok(builtin);
     await runtime.db.prepare('INSERT INTO cms_builtin_resource_state(source_path,version,name,alt,updated_at) VALUES(?,1,?,?,?)').bind(builtin.src, 'Nytt namn utan Save', 'Ny alternativtext', new Date().toISOString()).run();
-    const updated = await (await runtime.fetch('/admin/api/state')).json();
+    const updated = await (await readState(0)).json();
     assert.equal(updated.assets.find(asset => asset.id === builtin.id).name, 'Nytt namn utan Save');
     assert.equal(updated.assets.find(asset => asset.id === builtin.id).alt, 'Ny alternativtext');
     assert.deepEqual(updated.project, project);

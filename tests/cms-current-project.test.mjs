@@ -137,7 +137,7 @@ test('proof identity is pinned to version/build/origin/content; missing proofs r
     runtime.sqlite.prepare('UPDATE cms_studio_heads SET build_key=?').run(seed.studioKey);
     runtime.sqlite.prepare('DELETE FROM cms_studio_text WHERE part=0').run();
     await assert.rejects(current(runtime), /CMS_STUDIO_TEXT_INCOMPLETE/);
-    await assert.rejects(readCurrentResources(runtime.db, seed, initial), /CMS_STUDIO_TEXT_INCOMPLETE/);
+    await assert.rejects(readCurrentResources(runtime.db, seed.studioKey, async () => ({ seed, initial })), /CMS_STUDIO_TEXT_INCOMPLETE/);
     assert.equal(canonical.hash.length, 64);
   } finally { delete globalThis.cmsValidationCalls; runtime.close(); }
 });
@@ -236,7 +236,7 @@ test('mail reads only canonical slot metadata, keeps provider bytes and replay o
     const payload = () => ({ intentVersion: 2, requestId: crypto.randomUUID(), to: ['recipient@example.test'], cc: [], bcc: [], subject: 'Lokalt prov', preheader: 'Resurskontroll', blocks: structuredClone(DEFAULT_EMAIL.templates.receipt.blocks), design: structuredClone(DEFAULT_EMAIL.templates.receipt.design), scheduledAt: null, attachments: [] });
     const send = (body, head) => handleEmailAdmin(new Request(origin + '/admin/api/mail/send', { method: 'POST', headers: { Origin: origin, 'X-CMS-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env, { identity: { email: actor }, url: new URL(origin + '/admin/api/mail/send'), head, transport });
     const fullHead = async () => normalizeStoredProject((await readSite(runtime.db)).project, seed, initial);
-    const smallHead = () => readCurrentResources(runtime.db, seed, initial);
+    const smallHead = () => readCurrentResources(runtime.db, seed.studioKey, async () => { throw new Error('Canonical mail resources must not load editor definitions'); });
     await checkedResponse(await send(payload(), fullHead));
     const frozen = payload(); runtime.queries.length = 0; runtime.blobSizes.length = 0;
     await checkedResponse(await send(frozen, smallHead));

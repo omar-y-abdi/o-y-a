@@ -284,7 +284,7 @@ test('central errors retain sanitized operation labels and mail keeps table/unce
   const logs = [];
   t.mock.method(console, 'error', line => logs.push(JSON.parse(line)));
   const secret = 'SQLITE_ERROR private-draft-and-key';
-  const env = { CMS_DB: { prepare() { throw new Error(secret); } } };
+  const env = { ASSETS: local.env.ASSETS, CMS_DB: { prepare() { throw new Error(secret); } } };
   for (const [path, method, body, operation] of [['state', 'GET', undefined, 'state'], ['asset-usage', 'POST', JSON.stringify({ id: crypto.randomUUID() }), 'admin']]) {
     const response = await app.fetch(request('/admin/api/' + path, { method, body }), env);
     assert.equal(response.status, 503);
