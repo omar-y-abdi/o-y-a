@@ -109,7 +109,7 @@ One tool reads another project's output: the one-off `scripts/legacy-keys.mjs` n
 
 CI (`.github/workflows/ci.yml`) has these jobs:
 
-- `quality` runs `npm run quality` with `CARD_CORPUS=pr`, the SKIFT Node tests in `games/skift/tests/*.test.mjs` (which the root Node runner does not discover), the Wrangler dry-run and the third-party notice check. `npm run quality` includes `tests/revision_browser.spec.mjs` and `tests/public-interactions.spec.mjs`.
+- `quality` runs `npm run quality` with `CARD_CORPUS=pr`, the SKIFT Node tests in `games/skift/tests/*.test.mjs` (which the root Node runner does not discover), the Wrangler dry-run, `tests/http-checks.test.mjs` against the minified `worker.js` from that dry-run (through `CMS_WORKER_SCRIPT`) and the third-party notice check. `npm run quality` includes `tests/revision_browser.spec.mjs` and `tests/public-interactions.spec.mjs`.
 - `functional-browser` runs the frame parity, frame recovery, preview, CMS browser, interaction, review, footer, module, browser helper, asset usage, library, managed SVG, editor and mail specs in Chromium with two workers and port-0 fixtures. `npm run test:cms` is a local command; its suites also run here.
 - `editor-compatibility` runs the Firefox and WebKit project selections, one engine per matrix entry.
 - `skift-release` runs `npm run release` in `games/skift` and retains the ZIP, its checksum and the browser receipt.

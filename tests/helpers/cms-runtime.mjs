@@ -19,9 +19,12 @@ export async function cmsRuntime({ port = 0, persist = false, project, analytics
   const team = 'https://cms-test.cloudflareaccess.com';
   const email = 'owner@example.test';
   const audience = 'cms-local-tests';
-  const bundle = await build({ entryPoints: ['src/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022' });
+  // CMS_WORKER_SCRIPT runs a built Worker, such as the minified deploy bundle, in place of source.
+  const script = process.env.CMS_WORKER_SCRIPT
+    ? await readFile(process.env.CMS_WORKER_SCRIPT, 'utf8')
+    : (await build({ entryPoints: ['src/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022' })).outputFiles[0].text;
   const options = {
-    host: '127.0.0.1', port, modules: true, script: bundle.outputFiles[0].text, unsafeTriggerHandlers: scheduled,
+    host: '127.0.0.1', port, modules: true, script, unsafeTriggerHandlers: scheduled,
     compatibilityDate: '2026-09-11',
     bindings: { CMS_ACCESS_TEAM: team, CMS_ACCESS_AUD: audience, CMS_ADMIN_EMAIL: email, CMS_STAGE: 'true', PREVIEW_ORIGIN: `http://127.0.0.1:${port}`, ANALYTICS_ENABLED: String(analytics) },
     assets: { directory: 'dist', binding: assetFetch ? 'STATIC_ASSETS' : 'ASSETS', run_worker_first: true, routerConfig: { has_user_worker: true }, assetConfig: { html_handling: 'force-trailing-slash', not_found_handling: '404-page' } },
