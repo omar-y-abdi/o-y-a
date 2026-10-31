@@ -101,4 +101,8 @@ test('CI installs Python only for the skift release and runs the card corpus spl
   assert.ok(fullMatrix);
   assert.doesNotMatch(fullMatrix, /CARD_CORPUS/, 'The full job must export every card');
   assert.match(fullMatrix, /--grep='all 240 production card exports' --workers=1/);
+  assert.match(fullMatrix, /^ {4}if: github\.event_name != 'push'$/m, 'Only the schedule, manual runs and pull requests export every card');
+  const cardInputs = new RegExp(fullMatrix.match(/grep -Eq '([^']+)'/)[1]);
+  for (const path of ['src/cms/public-html.mjs', 'src/cms/resources.mjs', 'src/content/resources.mjs', 'src/content/win-design.mjs']) assert.match(path, cardInputs);
+  assert.doesNotMatch('src/cms/client/app.mjs', cardInputs);
 });
