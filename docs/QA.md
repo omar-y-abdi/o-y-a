@@ -113,7 +113,7 @@ CI (`.github/workflows/ci.yml`) has these jobs:
 - `functional-browser` runs the frame parity, frame recovery, preview, CMS browser, interaction, review, footer, module, browser helper, asset usage, library, managed SVG, editor and mail specs in Chromium with two workers and port-0 fixtures. `npm run test:cms` is a local command; its suites also run here.
 - `editor-compatibility` runs the Firefox and WebKit project selections, one engine per matrix entry.
 - `skift-release` runs `npm run release` in `games/skift` and retains the ZIP, its checksum and the browser receipt.
-- `card-exports-full` runs all 240 card exports on the nightly schedule at 02:17 UTC, on pushes to `main` and on manual runs. On pull requests the job starts every time, but its export steps run only when card inputs changed. The nightly schedule runs no other job.
+- `card-exports-full` runs all 240 card exports on the nightly schedule at 02:17 UTC and on manual runs. Pushes to `main` skip it. On pull requests the job starts every time, but its export steps run only when card inputs changed, which includes every file directly under `src/cms/` and `src/content/`. The nightly schedule runs no other job.
 - `stored-revisions` runs only on manual `workflow_dispatch` and needs read-only D1 credentials.
 
 No CI step needs a tracked copy of `dist/`.
