@@ -1,4 +1,4 @@
-import { HttpError, json, readJson } from './http.mjs';
+import { HttpError, json, PROJECT_BODY_LIMIT, readJson } from './http.mjs';
 import { validateProject, validateProjectWithReferences } from './project.mjs';
 import { toLegacyProject } from './frame-converter.mjs';
 import { digest, publicationChunks, publicationMedia, publishSite, readCurrentVersion, readHistory, readSite, replaySave, replayFullSave } from './store.mjs';
@@ -80,7 +80,7 @@ async function migrateFrame(request, env, context) {
 
 async function recover(request, env, context) {
   const { seed, url, storedProject, fromClient, published, publishedBaseline } = context;
-  const body = await readJson(request, 16 * 1024 * 1024);
+  const body = await readJson(request, PROJECT_BODY_LIMIT);
   const baseline = await publishedBaseline();
   const project = validateProject(fromClient(body.project), seed, baseline, { origins: [url.origin], publication: false });
   const warnings = [];
