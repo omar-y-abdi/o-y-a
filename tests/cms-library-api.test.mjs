@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { initial } from '../.generated/cms-seed.mjs';
-import { uploadAsset } from '../src/cms/assets.mjs';
+import { uploadAsset } from '../src/cms/media-files.mjs';
 import { draftResourceText, assetReferenceCount } from '../src/cms/client/library.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 

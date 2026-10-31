@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { seed, initial } from '../.generated/cms-seed.mjs';
 import { validateProject, validateProjectWithReferences } from '../src/cms/project.mjs';
-import { uploadAsset } from '../src/cms/assets.mjs';
+import { uploadAsset } from '../src/cms/media-files.mjs';
 import { publishSite, readSite, digest } from '../src/cms/store.mjs';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';

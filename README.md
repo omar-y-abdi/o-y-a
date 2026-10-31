@@ -39,7 +39,9 @@ Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [
 | `src/client/` | Navigation, lekar, vinstdesign/export, kontakt och integritetsval |
 | `src/cms/client/` | Visuell editor, bibliotek, utkast och konfliktlösning |
 | `src/cms/auth.mjs`, `validation.mjs`, `project.mjs` | Ägarkontroll och serverns innehållsgräns |
-| `src/cms/store.mjs`, `assets.mjs`, `render.mjs` | D1-versioner, R2-filer och publicering |
+| `src/cms/api.mjs`, `admin-site.mjs`, `admin-media.mjs` | Skyddad adminrouting och domänåtgärder |
+| `src/cms/store.mjs`, `render.mjs` | D1-versioner och publicering |
+| `src/cms/assets.mjs`, `media-files.mjs`, `asset-lifecycle.mjs`, `managed-svg.mjs` | Bibliotek, R2-filer och resurslivscykler |
 | `src/server/` | Befintlig kontaktserver och mejlmallar |
 | `src/worker.mjs` | Routing och säkerhetshuvuden |
 | `scripts/build*.mjs` | Publikt bygge, separat editorbundle och CMS-original |

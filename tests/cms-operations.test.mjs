@@ -7,7 +7,7 @@ import { publishSite } from '../src/cms/store.mjs';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
 import { errorResponse } from '../src/cms/http.mjs';
 import worker from '../src/worker.mjs';
-import { uploadAsset } from '../src/cms/assets.mjs';
+import { uploadAsset } from '../src/cms/media-files.mjs';
 import { readFile } from 'node:fs/promises';
 
 let runtime;

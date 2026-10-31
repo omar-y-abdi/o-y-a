@@ -5,7 +5,7 @@ import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { initial, seed } from '../.generated/cms-seed.mjs';
 import { replaceResource, resourceReferences, resourceCatalog } from '../src/cms/resources.mjs';
 import { publicationChunks, PUBLIC_BIND_LIMIT, PUBLIC_ROW_LIMIT, publishSite, readPublicData } from '../src/cms/store.mjs';
-import { uploadAsset } from '../src/cms/assets.mjs';
+import { uploadAsset } from '../src/cms/media-files.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { acknowledgment } from '../src/server/emails.mjs';
 import { defaultResources } from '../src/content/resources.mjs';

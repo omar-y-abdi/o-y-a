@@ -9,7 +9,7 @@ import { normalizeClientProject } from '../src/cms/api.mjs';
 import { resourceReferences } from '../src/cms/resources.mjs';
 import { applyProjectChanges, projectChanges, validateProjectChanges } from '../src/cms/project-changes.mjs';
 import { publicationChunks } from '../src/cms/store.mjs';
-import { validateReferencedMedia } from '../src/cms/assets.mjs';
+import { validateReferencedMedia } from '../src/cms/media-files.mjs';
 
 // A16: the production head (v185, decoded) is the workload. CPU time, not wall
 // time, because the Worker limit is CPU time.
