@@ -33,7 +33,7 @@ Det här dokumentet beskriver hur koden är uppdelad, vilka filer som äger vilk
 | `api.mjs` | Admin-router. Kör autentisering först och skickar sedan till läs- eller skrivhanterare. |
 | `admin-site.mjs` | Åtgärder för sidor: `state`, `history`, `revision`, `save`, `validate`, `preview`, `recover`, ramflytt och CPU-migrering. |
 | `admin-media.mjs` | Åtgärder för media: bibliotek, uppladdning, SVG-operationer, användning, metadata, livscykel och ersättning av resurser. |
-| `admin-seed.mjs` | Laddar seed-definitionerna från den byggda filen och kontrollerar längd och SHA-256. |
+| `admin-seed.mjs` | Laddar seed-definitionerna från den byggda filen och kontrollerar längd, SHA-256, form och `studioKey`. Bara ett lyckat resultat cachas. |
 | `http.mjs`, `diagnostics.mjs` | `HttpError`, JSON-svar, begränsad läsning, skrivskydd och fel-ID. |
 | `store.mjs` | Revisioner, huvudpekaren `cms_head`, publicering i en D1-batch och publika läsningar. |
 | `studio-store.mjs` | Kanonisk studiokopia (`cms_studio_heads`, `cms_studio_text`). |

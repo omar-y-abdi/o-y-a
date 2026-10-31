@@ -182,6 +182,7 @@ jobs:
       - run: node scripts/cms-pull-release.mjs --all --allow=1-4,84-88 --allow-errors="$CMS_ALLOW_ERRORS_FILE"
 
   card-exports-full:
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -201,7 +202,7 @@ jobs:
             exit 0
           fi
           changed="$(git diff --name-only "origin/$GITHUB_BASE_REF...HEAD")"
-          if grep -Eq '^(\.github/workflows/ci\.yml|package\.json|package-lock\.json|playwright\.config\.mjs|public/data/cards\.json|src/client/(main|privacy|copy|previewdata|joy|playlogic|cards|win|games|memory)\.mjs|src/cms/(render|store|project|frame|frame-converter|legacy-project|theme|theme-core)\.mjs|src/content/win-design\.mjs|src/csp\.mjs|src/worker\.mjs|src/templates/(layout|pages|components)\.mjs|src/styles/(base|home|pages|toys|games)\.css|scripts/(build|build-cms|cms-dev)\.mjs|tests/card-export\.spec\.mjs|tests/fixtures/cms-v185-project\.json|tests/helpers/(card-[^/]+|cms-runtime|public-test)\.mjs)$' <<< "$changed"; then
+          if grep -Eq '^(\.github/workflows/ci\.yml|package\.json|package-lock\.json|playwright\.config\.mjs|public/data/cards\.json|src/client/(main|privacy|copy|previewdata|joy|playlogic|cards|win|games|memory)\.mjs|src/cms/[^/]+|src/content/[^/]+|src/csp\.mjs|src/worker\.mjs|src/templates/(layout|pages|components)\.mjs|src/styles/(base|home|pages|toys|games)\.css|scripts/(build|build-cms|cms-dev)\.mjs|tests/card-export\.spec\.mjs|tests/fixtures/cms-v185-project\.json|tests/helpers/(card-[^/]+|cms-runtime|public-test)\.mjs)$' <<< "$changed"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"

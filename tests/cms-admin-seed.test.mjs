@@ -197,14 +197,16 @@ test('real workerd cold concurrency and binding failure retry use actual asset b
   } });
   try {
     const get = path => runtime.mf.dispatchFetch(runtime.url + path);
-    const first = get('/first'), second = get('/second');
+    // Read each body on arrival: one left unread across an await can be collected mid-stream.
+    const read = async path => { const response = await get(path); return { response, text: await response.text() }; };
+    const first = read('/first'), second = read('/second');
     await Promise.all([entered.promise, secondEntered.promise]);
     release.resolve();
     const results = await Promise.all([first, second]);
-    for (const response of results) {
+    for (const { response, text } of results) {
       assert.equal(response.status, 503);
       assert.ok(response.headers.get('x-request-id'));
-      assert.doesNotMatch(await response.text(), /CMS_SEED|unavailable/);
+      assert.doesNotMatch(text, /CMS_SEED|unavailable/);
     }
     assert.equal(attempts, 2, 'Each concurrent cold request owns its failed read');
     fail = false;
