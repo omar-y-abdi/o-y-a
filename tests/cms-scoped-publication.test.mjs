@@ -16,6 +16,9 @@ const origins = ['https://omaryusuf.se'];
 const FONT = '6f1d6e5e-2c1a-4b7e-9d1e-7a3c2b1f0e11';
 const IMAGE = '9a2c4b6d-1e3f-4a5b-8c7d-0e9f1a2b3c4d';
 const ADDED_PATH = '/scoped-added/';
+const PUBLICATION_LIMIT = 16 * 1024 * 1024;
+// Every control character, then the rest of what JSON treats specially or stores as multibyte.
+const CHARACTERS = [...Array.from({ length: 32 }, (_, code) => String.fromCharCode(code)), '"', '\\', '/', '\x7f', 'å', '😀', '\u2028', '\u2029'];
 
 const raw = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
 const base = validateProject(normalizeStoredProject(structuredClone(raw), seed, initial), seed, undefined, { origins });
@@ -25,6 +28,7 @@ const pagesOf = paths => paths.filter(path => path.startsWith('/'));
 const cardsOf = paths => paths.filter(path => path.startsWith('@card/'));
 const pagePaths = project => project.pages.map(page => page.path).sort();
 const renderedRows = (runtime, version = 187) => runtime.sqlite.prepare('SELECT path, html, css, meta FROM cms_rendered WHERE version = ? ORDER BY path').all(version);
+const bindBytes = rows => rows.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify(row)) + 1, 0);
 const manifestMeta = (runtime, version) => JSON.parse(runtime.sqlite.prepare("SELECT meta FROM cms_rendered WHERE version=? AND path='@manifest'").get(version).meta);
 const editAbout = (draft, label) => { const page = draft.pages.find(item => item.path === '/om/'); page.html = page.html.replace('</main>', `<p>${label}</p></main>`); };
 
@@ -278,6 +282,34 @@ test('the render proof is written only on the manifest row, and only when a rend
   } finally { keyed.close(); plain.close(); }
 });
 
+test('a copied row counts exactly what a full render of it would count', async () => {
+  const runtime = await publishedBase();
+  try {
+    const reused = await reusableFor(runtime, base);
+    const full = publicationChunks(base, await resolveResources(runtime.db, base), resourceReferences(base), { proof: renderProof(RENDER_KEY) }).flat();
+    assert.equal(reused.paths.size, base.pages.length + base.cards.length);
+    assert.equal(reused.bytes, bindBytes(full.filter(row => reused.paths.has(row.path))));
+  } finally { runtime.close(); }
+});
+
+test('the reuse query prices every character as JSON.stringify does', async () => {
+  const about = base.pages.find(page => page.path === '/om/');
+  const project = { ...base, pages: [...base.pages, ...CHARACTERS.map((character, index) => ({ ...about, id: `escape-${index}`, path: `/escape-${index}/`, title: `a${character}b`, html: `<main>a${character}b</main>`, css: `/*a${character}b*/` }))] };
+  const runtime = await publishedBase(project);
+  try {
+    const bound = recordBinds(runtime), resources = await resolveResources(runtime.db, project), references = resourceReferences(project);
+    const reused = await reusableRows(runtime.db, project, { version: 186, project }, resources, references, renderProof(RENDER_KEY));
+    const stored = new Map(runtime.sqlite.prepare(bound.find(({ sql }) => sql.includes('AS bytes')).sql).all(186).map(row => [row.path, row.bytes]));
+    const full = publicationChunks(project, resources, references, { proof: renderProof(RENDER_KEY) }).flat();
+    for (const [index, character] of CHARACTERS.entries()) {
+      const row = full.find(item => item.path === `/escape-${index}/`);
+      assert.ok(row.html.includes(`a${character}b`) && row.css.endsWith(`/*a${character}b*/`));
+      assert.equal(stored.get(row.path), bindBytes([row]), `U+${character.codePointAt(0).toString(16)}`);
+    }
+    assert.equal(reused.bytes, bindBytes(full.filter(row => reused.paths.has(row.path))));
+  } finally { runtime.close(); }
+});
+
 test('a page whose base row is missing is rendered, not copied', async () => {
   const next = structuredClone(base);
   const { reused, rendered } = await compare(base, next, { beforeReuse: runtime => runtime.sqlite.prepare("DELETE FROM cms_rendered WHERE version=186 AND path='/om/'").run() });
@@ -338,12 +370,14 @@ async function accepted(response) {
   return response.json();
 }
 
+const sendDelta = (runtime, state, draft) => runtime.fetch('/admin/api/save', { changes: projectChanges(state.project, draft), baseVersion: state.version, requestId: crypto.randomUUID() });
+
 // The studio's Save: read the head, edit one page, send only the change.
 async function deltaSave(runtime, label) {
   const state = await accepted(await runtime.fetch('/admin/api/state'));
   const draft = structuredClone(state.project);
   editAbout(draft, label);
-  return accepted(await runtime.fetch('/admin/api/save', { changes: projectChanges(state.project, draft), baseVersion: state.version, requestId: crypto.randomUUID() }));
+  return accepted(await sendDelta(runtime, state, draft));
 }
 
 // Everything a handler binds on env.CMS_DB, so a test sees what it really writes.
@@ -407,8 +441,51 @@ test('Validate through the real handler reuses the head and still counts it', as
     editAbout(draft, 'Ej sparad');
     assert.equal(await yearReads(async () => accepted(await runtime.fetch('/admin/api/validate', { project: state.project }))), 1, 'Only the proof reads the year');
     assert.equal(await yearReads(async () => accepted(await runtime.fetch('/admin/api/validate', { project: draft }))), 2, 'Only the edited page composes');
-    // A copied row counts its stored bytes, so the limit still sees the whole publication.
+    // A copied row counts as its JSON bind, so the limit still sees the whole publication.
     runtime.sqlite.prepare('UPDATE cms_rendered SET html = html || ? WHERE version = ? AND path = ?').run(' '.repeat(17 * 1024 * 1024), state.version, `@card/${state.project.cards[0].id}`);
     assert.equal((await runtime.fetch('/admin/api/validate', { project: draft })).status, 413);
+  } finally { runtime.close(); }
+});
+
+// A handler-published head and a draft whose publication copies every row but /om/.
+async function headAndDraft(runtime) {
+  await deltaSave(runtime, 'Bas');
+  const state = await accepted(await runtime.fetch('/admin/api/state'));
+  const draft = structuredClone(state.project);
+  editAbout(draft, 'Ej sparad');
+  return { state, draft };
+}
+const copiedCard = state => `@card/${state.project.cards[0].id}`;
+const padCopiedCard = (runtime, state, padding) => runtime.sqlite.prepare('UPDATE cms_rendered SET html = html || ? WHERE version = ? AND path = ?').run(padding, state.version, copiedCard(state));
+
+async function assertRefused(runtime, state, draft) {
+  assert.equal((await runtime.fetch('/admin/api/validate', { project: draft })).status, 413);
+  assert.equal((await sendDelta(runtime, state, draft)).status, 413);
+  assert.equal(runtime.sqlite.prepare('SELECT version FROM cms_head').get().version, state.version);
+  assert.deepEqual(renderedRows(runtime, state.version + 1), []);
+}
+
+for (const [name, character] of [['quotes', '"'], ['newlines', '\n']]) test(`a copied row of ${name} under the limit as stored is refused over it as JSON`, async () => {
+  const runtime = await nodeCms(raw, worker);
+  try {
+    const { state, draft } = await headAndDraft(runtime);
+    padCopiedCard(runtime, state, character.repeat(9 * 1024 * 1024));
+    const { stored } = runtime.sqlite.prepare('SELECT sum(length(CAST(path || html || css || meta AS BLOB))) AS stored FROM cms_rendered WHERE version = ?').get(state.version);
+    assert.ok(stored < PUBLICATION_LIMIT, `${stored} stored bytes`);
+    await assertRefused(runtime, state, draft);
+  } finally { runtime.close(); }
+});
+
+test('Validate and delta Save meet the limit at the same byte, manifest proof included', async () => {
+  const runtime = await nodeCms(raw, worker);
+  try {
+    const { state, draft } = await headAndDraft(runtime);
+    const next = validateProject(structuredClone(draft), seed, undefined, { origins });
+    const rows = publicationChunks(next, await resolveResources(runtime.db, next), resourceReferences(next), { proof: manifestMeta(runtime, state.version).renderKey }).flat();
+    padCopiedCard(runtime, state, ' '.repeat(PUBLICATION_LIMIT - bindBytes(rows) + 1));
+    await assertRefused(runtime, state, draft);
+    runtime.sqlite.prepare('UPDATE cms_rendered SET html = substr(html, 1, length(html) - 1) WHERE version = ? AND path = ?').run(state.version, copiedCard(state));
+    await accepted(await runtime.fetch('/admin/api/validate', { project: draft }));
+    assert.equal((await accepted(await sendDelta(runtime, state, draft))).version, state.version + 1);
   } finally { runtime.close(); }
 });

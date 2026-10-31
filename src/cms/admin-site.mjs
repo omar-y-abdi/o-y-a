@@ -145,9 +145,9 @@ async function validate(request, env, context) {
   if (body.resources !== undefined) await validatePackageResources(env.CMS_DB, body.resources);
   await publicationMedia(env.CMS_DB, project, references);
   if (!isPreview) {
-    const resources = await resolveResources(env.CMS_DB, project), stored = await published();
-    const reused = await reusableRows(env.CMS_DB, project, stored, resources, references, renderProof(context.renderKey));
-    publicationChunks(project, resources, references, { reused });
+    const resources = await resolveResources(env.CMS_DB, project), stored = await published(), proof = renderProof(context.renderKey);
+    const reused = await reusableRows(env.CMS_DB, project, stored, resources, references, proof);
+    publicationChunks(project, resources, references, { reused, proof });
     return json({ project });
   }
   if (body.cardId) {
