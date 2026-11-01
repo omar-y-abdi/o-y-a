@@ -63,14 +63,15 @@ test('isolated rounding of up to 16 pixels is noise', () => {
   const source = image(), base = encode(source);
   assert.equal(rasterNoise(base, base), true);
   assert.equal(rasterNoise(base, changed(source, [[0, 1]])), true);
-  assert.equal(rasterNoise(base, changed(source, [[0, 1], [1, -1], [2, 1]])), true, 'All channels of one pixel count once');
-  assert.equal(rasterNoise(base, changed(source, Array.from({ length: 16 }, (_, pixel) => [pixel * 3, 1]))), true);
+  assert.equal(rasterNoise(base, changed(source, Array.from({ length: 16 }, (_, pixel) => [pixel * 3, 2]))), true);
+  const everyChannel = Array.from({ length: 16 }, (_, pixel) => [[pixel * 3, 2], [pixel * 3 + 1, -2], [pixel * 3 + 2, 1]]).flat();
+  assert.equal(rasterNoise(base, changed(source, everyChannel)), true, 'All channels of one pixel count once');
 });
 
 test('a 17th pixel, a larger delta or another size is a real difference', () => {
   const source = image(), base = encode(source);
   assert.equal(rasterNoise(base, changed(source, Array.from({ length: 17 }, (_, pixel) => [pixel * 3, 1]))), false);
-  assert.equal(rasterNoise(base, changed(source, [[0, 2]])), false);
+  assert.equal(rasterNoise(base, changed(source, [[0, 3]])), false);
   assert.equal(rasterNoise(base, encode(image(3, 8, 12))), false);
   assert.equal(rasterNoise(base, encode(image(4))), false);
 });

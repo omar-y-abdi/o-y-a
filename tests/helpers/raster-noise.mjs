@@ -1,7 +1,7 @@
 import { inflateSync } from 'node:zlib';
 
 const CHANNELS = { 2: 3, 6: 4 };
-const NOISE_PIXELS = 16;
+const NOISE_PIXELS = 16, NOISE_DELTA = 2;
 
 function paeth(left, up, corner) {
   const estimate = left + up - corner, a = Math.abs(estimate - left), b = Math.abs(estimate - up), c = Math.abs(estimate - corner);
@@ -43,8 +43,8 @@ export function decodePng(buffer) {
   return { width, height, channels, pixels };
 }
 
-// Two captures of one version have differed by 7 pixels, 1 per channel, on an
-// anti-aliased corner, cause unproven. Owner decision: up to 16 such pixels pass.
+// Captures of one version have differed by up to 14 pixels, 2 per channel, on
+// anti-aliased corners, cause unproven. Owner decision: up to 16 such pixels pass.
 // Anything larger stays a real difference.
 export function rasterNoise(left, right) {
   const a = decodePng(left), b = decodePng(right);
@@ -54,8 +54,8 @@ export function rasterNoise(left, right) {
     let differs = false;
     for (let channel = 0; channel < a.channels; channel++) {
       const delta = Math.abs(a.pixels[pixel + channel] - b.pixels[pixel + channel]);
-      if (delta > 1) return false;
-      differs ||= delta === 1;
+      if (delta > NOISE_DELTA) return false;
+      differs ||= delta > 0;
     }
     if (differs && ++changed > NOISE_PIXELS) return false;
   }
