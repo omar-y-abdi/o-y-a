@@ -105,7 +105,7 @@ function assertLayout(state) {
   expect(state.lineCount).toBeGreaterThan(0);
 }
 
-// Full trace stalled this file about once per 350 exports; snapshots:false once in 2,934; off none in 3,600. Not a controlled comparison, and the root cause is unproven.
+// Full trace stalled this file about once per 350 exports; snapshots:false once in 2,934; off none in 3,600 local exports, then once on CI. Not a controlled comparison, and the root cause is unproven.
 test.use({ trace: 'off' });
 test.beforeAll(async () => { await mkdir(OUTPUT, { recursive: true }); });
 
