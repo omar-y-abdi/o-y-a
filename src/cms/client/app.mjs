@@ -13,9 +13,11 @@ import { centerOffset, captureEditorView, captureInspectorScroll, restoreEditorV
 import { materializeManagedSvg } from './managed-svg-source.mjs';
 import { saveManagedSvgOperation } from './managed-svg-save.mjs';
 import { RESERVED } from '../routes.mjs';
+import { previewCache } from './preview-cache.mjs';
 
 // The Mejl view is its own chunk and loads the first time it is needed.
 const email = () => import('./email.mjs');
+const loadPreview = previewCache(api);
 // Same pattern as EMAIL_PATH in email.mjs, so a path can be tested without loading the chunk.
 const EMAIL_FIELD = /^(templates|sender|shell)\./;
 
@@ -444,7 +446,7 @@ async function preview(project = null, id = lastPage, label = '') {
   active?.flush();
   project ??= draft.project;
   const seq = ++previewSequence;
-  const result = await api('preview', { project, ...(current.type === 'win' ? { cardId: current.id } : { pageId: id }) });
+  const result = await loadPreview(project === draft.project ? draft : project, project === draft.project ? draft.generation : 0, current.type === 'win' ? 'win' : 'page', current.type === 'win' ? current.id : id, project, assets);
   if (seq !== previewSequence) return;
   $('#editor').hidden = true; $('#special-stage').hidden = true; $('#preview-stage').hidden = false;
   $('#preview-stage').replaceChildren();

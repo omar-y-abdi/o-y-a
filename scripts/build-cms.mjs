@@ -19,8 +19,29 @@ import { parseFragment } from 'parse5';
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { SKIFT_PATH } from '../src/content/skift.mjs';
 import { verifyBundleNotices } from './third-party-notices.mjs';
+import { stripNodeKeys } from '../src/cms/public-html.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 12);
+// The temporary in-memory bundles are neither emitted nor served.
+async function bundleOutputs(entryPoints, directory) {
+  return (await build({ absWorkingDir: directory, entryPoints, outdir: '.generated/studio-policy', bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2022', minify: true })).outputFiles;
+}
+export async function studioBuildKey(seed, directory = process.cwd()) {
+  // Fingerprint the actual dependency closure, not a manually maintained
+  // version.
+  const outputs = await bundleOutputs(['src/cms/frame-converter.mjs', 'src/cms/project.mjs', 'src/cms/preview-store.mjs', 'src/cms/stored-view.mjs'], directory);
+  const { studioKey: _previousKey, ...definitions } = seed;
+  const policy = createHash('sha256').update(JSON.stringify(definitions));
+  for (const output of outputs) policy.update(output.contents);
+  return policy.digest('hex');
+}
+// Rendered rows depend on store.mjs, which studioKey's closure does not include.
+export async function renderBuildKey(directory = process.cwd()) {
+  const policy = createHash('sha256');
+  for (const output of await bundleOutputs(['src/cms/store.mjs'], directory)) policy.update(output.contents);
+  return policy.digest('hex');
+}
+
 export async function buildCms({ styles, js }) {
   await mkdir('dist/admin/assets', { recursive: true });
   await mkdir('dist/cms-public', { recursive: true });
@@ -61,7 +82,11 @@ export async function buildCms({ styles, js }) {
     await writeFile(path, (await readFile(path, 'utf8')).replace(/[ \t]+$/gm, ''));
   }
   const output = entry => '/' + Object.entries(bundle.metafile.outputs).find(([, value]) => value.entryPoint === entry)[0].replace(/^dist\//, '');
-  const built = { styles, main: `/assets/${js.main}`, studio: output('src/cms/client/app.mjs'), preview: output('src/cms/client/preview.mjs'), css, vendorCss, loginCss };
+  const adminAssets = [...new Set([
+    ...Object.keys(bundle.metafile.outputs).filter(path => path.endsWith('.mjs')).map(path => '/' + path.replace(/^dist\//, '')),
+    css, vendorCss, vendorPath,
+  ])].sort();
+  const built = { styles, main: `/assets/${js.main}`, studio: output('src/cms/client/app.mjs'), preview: output('src/cms/client/preview.mjs'), css, vendorCss, loginCss, adminAssets };
   const pages = await Promise.all(routes.map(async page => ({ ...page, id: page.template, ...preparePage(await readFile(page.noindex ? 'dist/404.html' : `dist${page.path}index.html`, 'utf8')), css: '', project: null, footerVersion: FOOTER_VERSION })));
   const blank = { id: 'blank', path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida | Omar Yusuf', description: 'En ny idé från Omar Yusuf.', template: 'custom', css: '', project: null, footerVersion: FOOTER_VERSION, ...preparePage(layout({ path: '/ny-sida/', name: 'Ny sida', title: 'Ny sida', description: 'En ny idé.', template: 'custom' }, '<section class="section-wrap" style="padding-block:80px;min-height:560px"><span class="eyebrow">EN NY IDÉ</span><h1>Här börjar något.</h1><p>Dubbelklicka för att skriva din berättelse.</p></section>', { css: styles.home, main: built.main })) };
   const assets = await Promise.all(Object.entries(resourceSlots).map(async ([slot, definition]) => {
@@ -74,14 +99,30 @@ export async function buildCms({ styles, js }) {
     return { id: `builtin-${name}`, slot, src, name, alt: alt ?? name, mime: mime ?? (src.endsWith('.gif') ? 'image/gif' : 'image/png'), bytes: bytes.length, width: dimensions?.width, height: dimensions?.height, builtin: true, ...(editableSrc ? { editableSrc, editableSvg } : {}) };
   }));
   const cards = JSON.parse(await readFile('public/data/cards.json', 'utf8'));
-  const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, ''));
+  // A fresh build writes these after the inventory. Repeating this builder
+  // must not feed its late outputs back into the established policy identity.
+  const lateOutputs = new Set(['/admin/index.html', '/login/index.html', '/data/runtime.json']);
+  const staticPaths = (await readdir('dist', { recursive: true, withFileTypes: true })).filter(entry => entry.isFile()).map(entry => '/' + `${entry.parentPath}/${entry.name}`.replace(/^dist\//, '')).filter(path => !lateOutputs.has(path) && !/^\/admin\/seed\.[0-9a-f]{64}\.json$/.test(path)).sort();
   // Anchor targets of the code-owned game build, for links like /play/skift/#main.
   const skiftIds = elements(parseFragment(pages.find(page => page.path === SKIFT_PATH).html)).map(node => attribute(node, 'id')).filter(Boolean);
   const seed = frameDefinitions({ pages, blank, footerPage: pages.find(page => page.path === '/developers/'), skiftIds, runtime: { ...defaultCopy, ...skiftCopy }, assets: assets.filter(Boolean), staticPaths, sharedContent: DEFAULT_SHARED_CONTENT });
+  seed.studioKey = await studioBuildKey(seed);
   await writeFile('dist/data/runtime.json', JSON.stringify(seed.runtime));
   const legacyInitial = validateProject({ schemaVersion: 1, pages, cards, runtime: seed.runtime, theme: defaultTheme, sharedContent: DEFAULT_SHARED_CONTENT }, seed);
   const initial = validateProject(toFrameProject(legacyInitial, seed), seed);
   await writeFile('.generated/cms-seed.mjs', `export const seed = ${JSON.stringify(seed)};\nexport const initial = ${JSON.stringify(initial)};\nexport const legacyInitial = ${JSON.stringify(legacyInitial)};\nexport const legacySeed = seed.legacy;\nexport const built = ${JSON.stringify(built)};\n`);
+  // Definitions are a protected immutable build input, not a Worker literal.
+  // Keep this file out of staticPaths to avoid hashing its own path into seed.
+  const definitions = JSON.stringify({ seed, initial });
+  const sha256 = createHash('sha256').update(definitions).digest('hex');
+  const seedAsset = { path: `/admin/seed.${sha256}.json`, sha256, bytes: Buffer.byteLength(definitions), studioKey: seed.studioKey };
+  await writeFile('dist' + seedAsset.path, definitions);
+  await writeFile('.generated/cms-build.mjs', `export const built = ${JSON.stringify(built)};\nexport const seedAsset = ${JSON.stringify(seedAsset)};\nexport const renderKey = ${JSON.stringify(await renderBuildKey())};\n`);
+  // Public game markup follows this build, while the editor seed/initial and
+  // state descriptor keep their original identities and private contracts.
+  const { id, path, name, title, description, template, bodyClass, noindex, html } = seed.skiftPage;
+  const publicBuilt = { styles, main: built.main, skiftPage: { id, path, name, title, description, template, bodyClass, noindex: Boolean(noindex), html: stripNodeKeys(html) } };
+  await writeFile('.generated/cms-public.mjs', `export const publicBuilt = ${JSON.stringify(publicBuilt)};\n`);
   await writeFile('dist/admin/index.html', adminPage({ css, vendorCss, js: built.studio }));
   await writeFile('dist/login/index.html', loginPage(loginCss));
   return built;

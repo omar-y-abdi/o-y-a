@@ -2,8 +2,11 @@ import { handleContact, contactConfig } from './server/contact.mjs';
 import { readConsent } from './client/privacy.mjs';
 import { routes } from './content/site.mjs';
 import { CSP, SKIFT_CSP } from './csp.mjs';
-import { seed, initial, built } from '../.generated/cms-seed.mjs';
-import { handleAdmin, assetResponse } from './cms/api.mjs';
+import { built, renderKey, seedAsset } from '../.generated/cms-build.mjs';
+import { publicBuilt } from '../.generated/cms-public.mjs';
+import { loadAdminSeed } from './cms/admin-seed.mjs';
+import { handleAdmin } from './cms/api.mjs';
+import { assetResponse } from './cms/media-files.mjs';
 import { serveMailFile } from './cms/email-api.mjs';
 import { maintainMailFiles } from './cms/mail-files.mjs';
 import { ADMIN_CSP, publicContent } from './cms/render.mjs';
@@ -12,8 +15,10 @@ import { errorResponse } from './cms/http.mjs';
 import { reportFailure } from './cms/diagnostics.mjs';
 import { negotiatePublicPage } from './server/markdown.mjs';
 import { isVersionedApiPath, rejectUnsupportedApiVersion, withApiVersion } from './server/api-version.mjs';
+import { BodyTooLarge, readBounded } from './api/http.mjs';
 
 const PAGES = new Set(routes.filter(page => !page.noindex).map(page => page.path));
+const ADMIN_ASSETS = new Set(built.adminAssets);
 const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
 const CANONICAL = 'https://omaryusuf.se';
 const MAX_BODY_BYTES = 256;
@@ -53,32 +58,14 @@ function json(data, status = 200, extra = {}) {
 function isLocalPreview(url, env) {
   return url.origin === env.PREVIEW_ORIGIN && ['localhost','127.0.0.1','[::1]'].includes(url.hostname);
 }
-async function boundedBody(request) {
-  const reader = request.body?.getReader();
-  if (!reader) throw new Error('empty');
-  const chunks = []; let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_BODY_BYTES) { await reader.cancel(); throw new RangeError('size'); }
-      chunks.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const all = new Uint8Array(size); let offset = 0;
-  for (const chunk of chunks) { all.set(chunk,offset);offset += chunk.byteLength; }
-  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(all));
-}
 async function eventResponse(request, env, url) {
   if (request.method !== 'POST') return json({error:'Method not allowed'},405,{Allow:'POST'});
   if (request.headers.get('Origin') !== url.origin || request.headers.get('X-OY-Consent') !== 'v1') return json({error:'Origin or consent missing'},403);
   if (request.headers.get('Sec-GPC') === '1' || request.headers.get('DNT') === '1' || readConsent(request.headers.get('Cookie') || '') !== 'allow') return json({error:'Consent required'},403);
   if (request.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return json({error:'JSON required'},415);
-  const length = request.headers.get('Content-Length');
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_BODY_BYTES)) return json({error:'Body too large'},413);
   let data;
-  try { data = await boundedBody(request); } catch (error) { return json({error:'Invalid event'},error instanceof RangeError ? 413 : 400); }
+  try { data = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await readBounded(request,MAX_BODY_BYTES) ?? new Uint8Array())); }
+  catch (error) { return json({error:error instanceof BodyTooLarge && error.declared ? 'Body too large' : 'Invalid event'},error instanceof RangeError ? 413 : 400); }
   if (!data || Array.isArray(data) || typeof data !== 'object' || Object.keys(data).length !== 2 || !EVENTS.has(data.event) || !PAGES.has(data.page)) return json({error:'Unknown event data'},400);
   if (!env.ANALYTICS || env.ANALYTICS_ENABLED !== 'true') return json({error:'Analytics not configured'},503);
   try { env.ANALYTICS.writeDataPoint({blobs:[data.page,data.event],doubles:[1],indexes:['site']}); }
@@ -109,9 +96,9 @@ export default {
     }
     let response;
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
-      response = await handleAdmin(request,env,{seed,initial,built});
+      response = await handleAdmin(request,env,{built,studioKey:seedAsset.studioKey,renderKey,loadSeed:() => loadAdminSeed(env)});
       const secured = secure(response,url.protocol === 'https:',ADMIN_CSP);
-      secured.headers.set('Cache-Control','no-store');
+      secured.headers.set('Cache-Control', response.status === 200 && ['GET','HEAD'].includes(request.method) && ADMIN_ASSETS.has(url.pathname) ? 'private, max-age=31536000, immutable' : 'no-store');
       secured.headers.set('X-Robots-Tag','noindex, nofollow');
       return request.method === 'HEAD' ? new Response(null,secured) : secured;
     }
@@ -132,7 +119,7 @@ export default {
     else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
-      try { response = await publicContent(request,env,built,seed) ?? await env.ASSETS.fetch(request); }
+      try { response = await publicContent(request,env,publicBuilt,async () => (await loadAdminSeed(env)).seed) ?? await env.ASSETS.fetch(request); }
       catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
     }
     if (url.pathname === '/404.html' && response.status === 200) {

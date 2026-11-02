@@ -46,7 +46,7 @@ for (const content of ['—', 'debugger', 'eval(', 'new Function(']) {
   });
 }
 
-for (const file of ['scripts/smoke-live.mjs', 'scripts/cms-dev.mjs', 'scripts/test-cms-modules.mjs', 'scripts/test-cms-compat.mjs']) {
+for (const file of ['scripts/smoke-live.mjs', 'scripts/cms-dev.mjs', 'scripts/test-cms-compat.mjs']) {
   test(`lint retains V8 regexp early-error checks for ${file}`, async () => {
     const result = await check({ [file]: 'const pattern = /(/;' });
     assert.notEqual(result.status, 0);

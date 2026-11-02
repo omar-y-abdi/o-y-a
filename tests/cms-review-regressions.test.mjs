@@ -9,6 +9,7 @@ import { digest, readSite, replayFullSave, publishSite } from '../src/cms/store.
 import { Draft } from '../src/cms/client/draft.mjs';
 import { ApiError } from '../src/cms/client/api.mjs';
 import { projectChanges } from '../src/cms/project-changes.mjs';
+import { previewPayload } from '../src/cms/preview-project.mjs';
 
 async function admin(runtime) {
   const token = await runtime.token();
@@ -175,5 +176,34 @@ test('F3: historical delta receipts cannot masquerade as full-project identities
     assert.equal(replay.status, 200, await replay.clone().text());
     assert.equal((await replay.json()).replayed, true);
     assert.equal((await readSite(runtime.db)).version, 2);
+  } finally { await runtime.close(); }
+});
+
+test('CPU preview transition accepts actual BASE history, then caches the new head without changing old Save replay', async () => {
+  const runtime = await cmsRuntime();
+  try {
+    const original = structuredClone(baseInitial);
+    original.pages.find(page => page.id === 'about').description = 'Från den faktiskt äldre Workern.';
+    const project = baseValidate(original, baseSeed), requestId = crypto.randomUUID();
+    await basePublish(runtime.db, { project, baseVersion: 0, requestId, actor: runtime.email });
+    const call = await admin(runtime), state = await (await call('state')).json();
+    const before = await call('preview', previewPayload(state.project, 'page', 'about'));
+    assert.equal(before.status, 200, await before.clone().text());
+    const expected = (await before.json()).html;
+    assert.match(expected, /Från den faktiskt äldre Workern/);
+    assert.deepEqual((await readSite(runtime.db, 1, { raw: true })).project, project);
+    const saved = await call('save', { project: state.project, baseVersion: 1, requestId: crypto.randomUUID() });
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const current = await (await call('state')).json();
+    assert.equal(current.version, 2);
+    const after = await call('preview', previewPayload(current.project, 'page', 'about'));
+    assert.equal(after.status, 200, await after.clone().text());
+    assert.equal((await after.json()).html, expected);
+    assert.ok((await runtime.db.prepare('SELECT count(*) AS n FROM cms_preview_facts WHERE version=2').first()).n > 0);
+    const replay = await call('save', { project, baseVersion: 0, requestId });
+    assert.equal(replay.status, 200, await replay.clone().text());
+    assert.equal((await replay.json()).replayed, true);
+    assert.equal((await runtime.db.prepare('SELECT version FROM cms_studio_heads').first()).version, 2);
+    assert.deepEqual((await readSite(runtime.db, 1, { raw: true })).project, project);
   } finally { await runtime.close(); }
 });

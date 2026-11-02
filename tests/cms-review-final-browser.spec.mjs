@@ -1,16 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { api, state, publish, admin, ready, frame, save, backupSettled, restorePrompt, openAssets, uploadFile, records, downloadBytes } from './helpers/review-browser.mjs';
+import { api, state, publish, admin, anonymousPage, ready, frame, save, backupSettled, restorePrompt, openAssets, uploadFile, records, downloadBytes } from './helpers/review-browser.mjs';
 
 let runtime;
 test.describe.configure({ mode: 'default', timeout: 120_000 });
-test.use({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', acceptDownloads: true, storageState: { cookies: [], origins: [] } });
+test.use({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce', acceptDownloads: true, storageState: { cookies: [], origins: [] }, actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.beforeAll(async () => { runtime = await cmsRuntime({ port: 0 }); });
 test.afterAll(async () => { await runtime?.close(); });
 
 async function setup(context, { markup, css = '', init } = {}) {
-  await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
+  await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url, httpOnly: true, secure: false, sameSite: 'Lax' }]);
   if (init) await context.addInitScript(init);
   const baseline = await api(context, runtime, 'revision/0');
   expect(baseline.ok(), await baseline.text()).toBe(true);
@@ -48,7 +48,7 @@ for (const [name, deleteKey] of [['active-input-backup-reload-publish', 'Backspa
     await page.locator('[data-page-id=final-acceptance]').click(); await ready(page);
     await expect(frame(page).locator('#live-copy')).toHaveText('Still typing before blurSecond line');
     await save(page);
-    const publicPage = await browser.newPage();
+    const publicPage = await anonymousPage(browser);
     try {
       await publicPage.goto(runtime.url + '/final-acceptance/');
       await expect(publicPage.locator('#live-copy')).toHaveText('Still typing before blurSecond line');
@@ -95,7 +95,7 @@ test('rich-inspector-structure-reload-public', async ({ context, browser }, info
   await page.locator('[data-page-id=final-acceptance]').click(); await ready(page);
   await expect(frame(page).locator('#rich-copy em')).toHaveText('today');
   await expect(frame(page).locator('#rich-copy a')).toHaveAttribute('href', '/om/');
-  const publicPage = await browser.newPage();
+  const publicPage = await anonymousPage(browser);
   try {
     await publicPage.goto(runtime.url + '/final-acceptance/');
     await expect(publicPage.locator('#accent-word')).toHaveText('world');
@@ -174,7 +174,7 @@ test('distinct-font-replacement-and-history', async ({ context, browser }, info)
   const current = (await state(context, runtime)).project;
   expect(current.theme.fontFamily).toBe('cms-font-' + replacement.id);
   expect(current.pages.find(page => page.id === 'final-acceptance').css).toContain('cms-font-' + replacement.id);
-  const publicPage = await browser.newPage();
+  const publicPage = await anonymousPage(browser);
   try {
     await publicPage.goto(runtime.url + '/final-acceptance/');
     await publicPage.evaluate(() => document.fonts.ready.then(() => undefined));

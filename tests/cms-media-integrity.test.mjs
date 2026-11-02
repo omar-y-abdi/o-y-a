@@ -5,7 +5,7 @@ import { digest } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 import { decodeRaster } from '../src/cms/raster-integrity.mjs';
-import { inspectAsset } from '../src/cms/assets.mjs';
+import { inspectAsset } from '../src/cms/media-files.mjs';
 import { initial } from '../.generated/cms-seed.mjs';
 
 const runtime = await cmsRuntime();

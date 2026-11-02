@@ -4,7 +4,11 @@
 
 Cloudflare Access protects `/admin` and its descendants. The Worker independently verifies an RS256 application JWT with `jose`: signature from the configured HTTPS Access organization, exact issuer and audience, required issued/expiry times, application token type, subject and exact allowed owner email. A session lasts at most one hour. Unsigned identity headers do not grant access. Missing configuration fails closed.
 
-All admin HTML, bundles and APIs require authentication. Writes additionally require POST, exact request origin, the CMS request marker, accepted content type and a same-origin Fetch Metadata value when present. The API does not enable credentialed CORS. Encoded/ambiguous routes cannot bypass admin routing. Admin responses and mutable public content use no-store; immutable revision styles and published files have stable URLs.
+All admin HTML, bundles and APIs require authentication. Writes additionally require POST, exact request origin, the CMS request marker, accepted content type and a same-origin Fetch Metadata value when present. The API does not enable credentialed CORS. Encoded/ambiguous routes cannot bypass admin routing. Successful authenticated GET/HEAD responses for the build's exact content-hashed studio MJS/CSS inventory use `private, max-age=31536000, immutable`, including the nested GrapesJS vendor module. The browser may reuse this code; shared caches may not. Admin HTML, APIs/state, other paths, mutations and errors remain `no-store`, as does mutable public content. Immutable revision styles and published files have stable URLs.
+
+Editor definitions and the initial project are a build-owned `/admin/seed.<sha256>.json` asset. Direct reads require the same Access verification and remain `no-store`; the JSON is not in the immutable browser code inventory. The Worker loads it internally only when a handler needs definitions, after admin authentication and existing request/replay guards. The exact generated path, byte length, SHA-256 and studio build key are checked before using the data. Missing, corrupt or mismatched assets fail through the internal 503 boundary; failed loads can retry. Concurrent cold requests own independent reads/parses; only the first completed plain definitions are reused, never a pending request's I/O. Access identity, D1 state, validation proofs and mutable media eligibility remain request-local. `/state` retains its existing build descriptor and editor data.
+
+Canonical public pages and the code-owned game do not load the editor seed. Older public rows can still require an internal definition read for compatibility normalization; this does not expose the seed asset to visitors. A missing asset on that branch returns an observable 503. Publishing an owner-approved schema-2 project removes that legacy prerequisite; deploying code or migrating the optional CPU cache alone does not republish old rows.
 
 The owner address is a Worker secret, never a bundled constant. Access application audience and organization hostname are identifiers, not credentials. Local test keys and cookies exist only under ignored output directories. Local identity fixtures cannot authenticate against the deployed Access organization. The local runtime replaces outbound JWKS only inside the test harness; production contains no development authentication bypass.
 
@@ -17,6 +21,8 @@ Protected component contracts preserve functional attributes, exact hook ownersh
 Public CSP is defined by the committed `CSP` and `SKIFT_CSP` constants in `src/csp.mjs`. Executable scripts may load only from the same origin and Cloudflare Turnstile; inline executable scripts and eval remain blocked. SKIFT additionally permits same-origin and blob media. JSON-LD and runtime JSON are inert data blocks and need no script hashes. The separate admin policy allows inline styles for GrapesJS and validated previews. The visual editor's affordances are not the security boundary: server checks run for direct API requests too.
 
 HTML/CSS are the canonical editor representation. Legacy page and card `project` JSON fields are never used to source rendered content and are normalized to `null`; their bytes still count toward the incoming request limit. Preview-only JSON is restricted to one server-owned head record in a studio-owned srcdoc iframe. CMS-rendered public HTML embeds runtime copy from the page's own revision, read in the same D1 query, in `script#cms-runtime[type="application/json"]`. Serialization replaces every `<` with the literal JSON escape `\u003c`, preventing stored text from closing the script or opening an HTML comment. The client reads this head block before fetching `/data/runtime.json`; the endpoint remains available to API clients and pages without a block. Public card loading continues to use validated endpoints.
+
+Schema-2 page publication removes only `data-cms-node` editor attributes after frame composition and ID projection, including noscript descendants. Raw revisions, studio state, draft recovery and previews retain their keys. Authored IDs, functional attributes and generated `data-cms-frame-id` style targets remain intact; editable CSS cannot select either internal marker. Legacy and explicit reverse-format rows keep the keys required by their compatibility reader. Existing published rows change only through a new publication, not a deployment or CPU-cache migration. The code-owned game main is projected at build time into a narrow public descriptor; the private editor seed and state descriptor remain unchanged.
 
 ## Storage and recovery
 
@@ -60,14 +66,18 @@ Incoming JSON and public-media bodies have route-specific limits enforced while 
 | --- | --- |
 | `save`, `validate`, `preview` | 8 MiB |
 | `recover`, `managed-svg`, `asset-metadata`, `asset-lifecycle`, `replace-resource` | 16 MiB |
-| `migrate-frame` | 4 KiB |
+| `migrate-frame`, `cpu-migration` | 4 KiB |
 | `asset-usage`, `mail/cancel`, `mail/attachment-remove` | 1 KiB |
 | `contact` settings | 8 KiB |
 | `mail/test`, `mail/send` | 1 MiB |
 | `upload` public media | 10 MiB |
 | `mail/attachment` private attachment | 30 MiB declared upload limit; returned R2 size must match |
 
-The JSON reader's default is 4 MiB; the registered routes above provide their own limits. The public contact endpoint accepts at most 16 KiB and the analytics event endpoint at most 256 bytes. Authoritative limits live in `src/cms/api.mjs`, `src/cms/email-api.mjs`, `src/cms/http.mjs`, `src/server/contact.mjs` and `src/worker.mjs`.
+The JSON reader's default is 4 MiB; the registered routes above provide their own limits. The public contact endpoint accepts at most 16 KiB and the analytics event endpoint at most 256 bytes. Authoritative limits live in `src/cms/admin-site.mjs`, `src/cms/admin-media.mjs`, `src/cms/email-api.mjs`, `src/cms/http.mjs`, `src/server/contact.mjs` and `src/worker.mjs`.
+
+`api.mjs` authenticates admin requests and owns generic route dispatch, storage availability, the shared write-policy call and final error mapping. Site and media handlers parse their own bounded bodies. The mail adapter uses the same write policy once after selecting a known write route, retaining contact-settings reads without D1, mail-specific unknown-route precedence and uncertain-delivery errors. Public media serving keeps its separate unpublished-file Access check in `media-files.mjs`; private signed attachments remain in the mail subsystem.
+
+Media responsibilities are divided by ownership: `assets.mjs` holds inventory and metadata projections, `media-files.mjs` admits and serves stored files, `asset-lifecycle.mjs` guards usage and recoverable deletion, and `managed-svg.mjs` owns staged source/derivative operations. Uploaded files, built-in resources and private attachments retain their distinct authoritative storage and lifecycle rules.
 
 Private mail attachments use a separate `mail-private/` prefix and HMAC-authorized `/mail-file/{id}/{expiry}?token=…` downloads. Their bearer token is kept out of the URL path, and Wrangler query redaction covers Worker logs and traces. A release must verify that effective platform setting; it does not erase previously stored URLs. `CONTACT_HASH_SECRET` also encrypts saved contact settings and signs public contact idempotency/rate keys. Changing it requires the controlled transition in [CONTACT-SETUP.md](CONTACT-SETUP.md), including outstanding attachment sends and saved-settings recovery.
 

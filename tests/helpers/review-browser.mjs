@@ -21,7 +21,7 @@ export async function publish(context, runtime, project) {
 }
 
 export async function seedReview(context, runtime) {
-  await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url }]);
+  await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url, httpOnly: true, secure: false, sameSite: 'Lax' }]);
   const baseline = await api(context, runtime, 'revision/0');
   expect(baseline.ok(), await baseline.text()).toBe(true);
   await publish(context, runtime, (await baseline.json()).project);
@@ -40,7 +40,18 @@ export async function admin(context, runtime, waitForReady = ready) {
   page.on('dialog', dialog => dialog.accept());
   await page.goto(runtime.url + '/admin/');
   await waitForReady(page);
+  expect(await page.evaluate(() => document.cookie.split(';').some(value => value.trimStart().startsWith('CF_Authorization='))), 'The original owner fixture keeps the Access cookie HttpOnly').toBe(false);
   return page;
+}
+
+export async function anonymousPage(browser) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, reducedMotion: 'no-preference', storageState: { cookies: [], origins: [] } });
+  try {
+    expect(page.viewportSize(), 'The original public checks use the browser API default viewport').toEqual({ width: 1280, height: 720 });
+    expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), 'The original public context uses ordinary motion').toBe(false);
+    expect(await page.context().cookies(), 'The public context must remain anonymous').toEqual([]);
+    return page;
+  } catch (error) { await page.close(); throw error; }
 }
 
 export async function save(page) {

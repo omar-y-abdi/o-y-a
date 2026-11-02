@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { parseFragment, serialize } from 'parse5';
 import { preparePage, validateCss, validateHtml } from '../src/cms/validation.mjs';
 import { splitPage, composePage, frameCss } from '../src/cms/frame.mjs';
@@ -655,6 +656,85 @@ test('built studio loads the exact external vendor module before creating its ca
     expect(await page.evaluate(() => globalThis.grapesjs.version)).toBe(vendor.version);
     expect(errors).toEqual([]);
   } finally { await runtime.close(); }
+});
+
+test('second studio navigation reuses private code while fetching fresh state', async ({ browser }, testInfo) => {
+  test.setTimeout(60_000);
+  const [{ cmsRuntime }, { built }, { waitCanvas }] = await Promise.all([
+    import('./helpers/cms-runtime.mjs'), import('../.generated/cms-seed.mjs'), import('./helpers/cms-browser-qa.mjs'),
+  ]);
+  const vendor = JSON.parse(await readFile('.generated/cms-vendor.json', 'utf8'));
+  const paths = [built.studio, built.css, built.vendorCss, vendor.path];
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const expectedBodies = Object.fromEntries(await Promise.all(paths.map(async path => {
+    const bytes = await readFile('dist' + path);
+    return [path, { bytes: bytes.length, sha256: digest(bytes) }];
+  })));
+  const runtime = await cmsRuntime();
+  let context;
+  const receipts = [];
+  try {
+    context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await context.addCookies([{ name: 'CF_Authorization', value: await runtime.token(), url: runtime.url, httpOnly: true, sameSite: 'Lax' }]);
+    const page = await context.newPage();
+    // No page/context routing or CDP cache override: this is the native HTTP
+    // cache across separate documents, not a reused module registry or BFCache.
+    // The pinned WebKit probe refetched across tabs; use same-tab navigation.
+    for (let visit = 0; visit < 2; visit++) {
+      const receipt = { visit, timing: null, bodies: [], states: [], errors: [] }, bodyPromises = [];
+      receipts.push(receipt);
+      const onError = error => receipt.errors.push(String(error));
+      const onResponse = response => {
+        const path = new URL(response.url()).pathname, status = response.status(), cache = response.headers()['cache-control'];
+        if (path === '/admin/api/state') receipt.states.push({ status, cache });
+        if (paths.includes(path)) bodyPromises.push(response.body().then(bytes => {
+          receipt.bodies.push({ path, status, cache, bytes: bytes.length, sha256: digest(bytes) });
+        }, error => { receipt.bodies.push({ path, error: String(error) }); }));
+      };
+      page.on('pageerror', onError);
+      page.on('response', onResponse);
+      try {
+        const response = await page.goto(runtime.url + '/admin/');
+        expect(response.status()).toBe(200);
+        expect(response.headers()['cache-control']).toBe('no-store');
+        await waitCanvas(page);
+        receipt.timing = await page.evaluate(paths => Object.fromEntries(paths.map(path => {
+          const entry = performance.getEntriesByName(new URL(path, location.origin).href).at(-1);
+          return [path, entry ? { transferSize: entry.transferSize, encodedBodySize: entry.encodedBodySize, decodedBodySize: entry.decodedBodySize } : null];
+        })), paths);
+        await Promise.all(bodyPromises);
+        expect(receipt.states.length, 'Every new studio document must obtain current state').toBeGreaterThan(0);
+        for (const state of receipt.states) expect(state).toEqual({ status: 200, cache: 'no-store' });
+        for (const [path, entry] of Object.entries(receipt.timing)) {
+          expect(entry, path).not.toBeNull();
+          if (visit === 0) expect(entry.transferSize, 'Cold native transfer: ' + path).toBeGreaterThan(0);
+          else expect(entry.transferSize, 'Warm native cache: ' + path).toBe(0);
+          const bodies = receipt.bodies.filter(body => body.path === path);
+          // Firefox omits response events for memory-cached styles; WebKit
+          // instead exposes their bodies but reports zero decoded timing size.
+          // Every cold body was hashed. Warm delivery must expose either its
+          // exact bytes or that same nonzero decoded size, always with no transfer.
+          if (visit === 1 && bodies.length === 0) {
+            expect(expectedBodies[path].bytes, path).toBeGreaterThan(0);
+            expect(entry.decodedBodySize, 'Cached body size: ' + path).toBe(expectedBodies[path].bytes);
+          } else expect(bodies.length, 'Actual response bytes: ' + path).toBeGreaterThan(0);
+          for (const { cache: _cache, ...body } of bodies) expect(body).toEqual({ path, status: 200, ...expectedBodies[path] });
+        }
+        expect(receipt.errors).toEqual([]);
+      } finally { page.off('response', onResponse); page.off('pageerror', onError); }
+      if (visit === 0) {
+        const away = await page.goto(runtime.url + '/login/');
+        expect(away.status()).toBe(200);
+        expect(new URL(page.url()).pathname).toBe('/login/');
+      }
+    }
+    // Check policy after both measurements so the old no-store behavior is
+    // rejected by actual warm transfer, not only by its redundant header check.
+    for (const receipt of receipts) for (const body of receipt.bodies) expect(body.cache).toBe('private, max-age=31536000, immutable');
+  } finally {
+    try { await testInfo.attach('studio-native-cache', { body: JSON.stringify(receipts, null, 2), contentType: 'application/json' }); }
+    finally { try { await context?.close(); } finally { await runtime.close(); } }
+  }
 });
 
 for (const alias of [undefined, 'older-root']) test(`nested CSS keeps cascade and frame identity (${alias ?? 'canonical'})`, async ({ page, context }) => {

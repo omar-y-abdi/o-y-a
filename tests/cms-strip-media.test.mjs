@@ -5,7 +5,7 @@ import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 import { initial } from '../.generated/cms-seed.mjs';
 import { digest, publishSite, readSite } from '../src/cms/store.mjs';
-import { inspectAsset } from '../src/cms/assets.mjs';
+import { inspectAsset } from '../src/cms/media-files.mjs';
 import { stripExistingMedia } from '../scripts/cms-strip-media.mjs';
 
 function legacyJpeg() {

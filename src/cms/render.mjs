@@ -13,22 +13,22 @@ import { reportFailure } from './diagnostics.mjs';
 export const ADMIN_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const safeStyle = css => css.replaceAll('<', '\\3c ');
 
-export function renderWinPreview(card, project, built) {
-  return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
+export function renderWinPreview(card, project, built, references) {
+  return `<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Förhandsvisning av liten vinst</title><style>${safeStyle(fontCss(project, references))}body{margin:24px;background:#f4f5ee}#cms-win-preview{max-width:600px;margin:auto}</style><script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: [card], runtime: {} }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script></head><body data-cms-preview="true"><div id="cms-win-preview"></div></body></html>`;
 }
 
-export function renderPage(page, built, { version, preview, project, runtimeJson = page.runtimeJson, resources = page.resources, resourceOrigin } = {}) {
+export function renderPage(page, built, { version, preview, project, runtimeJson = page.runtimeJson, resources = page.resources, resourceOrigin, references } = {}) {
   let base = layout(page, '', { css: built.styles[page.template] ?? built.styles.home, main: built.main, resources, resourceOrigin });
   if (preview) base = base.replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, '');
   const attributes = `id="top" class="${escape(page.bodyClass)}" data-page="${escape(page.path)}" data-cms-version="${version ?? 0}"${preview ? ' data-cms-preview="true"' : ''}`;
   const html = composePage(project?.frame, page).replace(/<footer\b[^>]*class="[^"]*\bsite-footer\b[^"]*"[^>]*>[\s\S]*?<\/footer>/g, footer => footer.replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + new Date().getUTCFullYear() + after));
   let result = base.replace(/<body\b[^>]*>[\s\S]*<\/body>/, () => `<body ${attributes}>${html}</body>`);
-  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project) + frameCss(project.frame, page) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
+  const styles = preview ? `<style>${safeStyle(themeCss(project.theme) + fontCss(project, references) + frameCss(project.frame, page) + page.css)}</style>` : `<link rel="stylesheet" href="/cms-public/v${version}/${page.id}.css">`;
   const fixture = preview ? `<script type="application/json" id="cms-preview-data">${JSON.stringify({ schemaVersion: 1, cards: project.cards, runtime: project.runtime }).replaceAll('<', '\\u003c')}</script><script type="module" src="${built.preview}"></script>` : runtimeJson === undefined ? '' : `<script type="application/json" id="cms-runtime">${runtimeJson.replaceAll('<', '\\u003c')}</script>`;
   return result.replace('</head>', () => `${styles}${fixture}</head>`);
 }
 
-export async function publicContent(request, env, built, seed = {}) {
+export async function publicContent(request, env, built, loadSeed = () => ({})) {
   if (!env.CMS_DB) return null;
   const url = new URL(request.url);
   if (url.pathname === '/login' || url.pathname.startsWith('/login/')) return null;
@@ -68,8 +68,8 @@ export async function publicContent(request, env, built, seed = {}) {
   // The game is code-owned: its build is served even if a revision stored it.
   if (isSkiftPath(canonical)) {
     const frame = await readPublicPage(env.CMS_DB, '@frame');
-    if (!frame?.html || !seed.skiftPage) return null;
-    const page = { ...seed.skiftPage, html: composePage(frame, seed.skiftPage), resources: frame.resources, runtimeJson: frame.runtimeJson };
+    if (!frame?.html || !built.skiftPage) return null;
+    const page = { ...built.skiftPage, html: composePage(frame, built.skiftPage), resources: frame.resources, runtimeJson: frame.runtimeJson };
     return new Response(renderPage(page, built, { version: frame.version, resourceOrigin: url.origin }), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-CMS-Version': String(frame.version) } });
   }
   const state = await readPublicPage(env.CMS_DB, canonical);
@@ -84,12 +84,14 @@ export async function publicContent(request, env, built, seed = {}) {
   const missing = state.page === null || url.pathname === '/404.html';
   const page = state.page === null ? await readPublicPage(env.CMS_DB, '/404.html') : state;
   if (!page || page.page === null) return new Response('Sidan finns inte.', { status: 404 });
-  const legacy = legacySeed(seed);
-  const definition = legacy.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? legacy.blank;
   let normalized = page;
   // Read-time migrations must not take a published page offline. Serve the
   // stored page and report; Save and validation keep failing loudly.
-  try { if (page.frameVersion !== 2) normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, legacy.footerPage)), definition); }
-  catch (error) { reportFailure(error, 'public'); }
+  if (page.frameVersion !== 2) {
+    const legacy = legacySeed(await loadSeed());
+    const definition = legacy.pages?.find(item => item.id === page.id || item.id === page.sourceId) ?? legacy.blank;
+    try { normalized = normalizeSkiftPage(normalizeFooterPage(refreshDevelopersPage(page, legacy.footerPage)), definition); }
+    catch (error) { reportFailure(error, 'public'); }
+  }
   return new Response(renderPage(normalized, built, { version: page.version, resourceOrigin: url.origin }), { status: missing ? 404 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': CSP, 'X-CMS-Version': String(page.version) } });
 }

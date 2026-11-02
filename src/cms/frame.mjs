@@ -74,29 +74,57 @@ export function splitPage(html) {
   return { html: serialize(tree), page, tree };
 }
 
+function routeNav(node) {
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) if (parent.tagName === 'nav' && (hasClass(parent, 'primary-nav') || hasClass(parent, 'mobile-menu'))) return parent;
+  return null;
+}
+
+const dropAttribute = (html, location) => ({ start: location.startOffset - (html[location.startOffset - 1] === ' ' ? 1 : 0), end: location.endOffset, replacement: '' });
+
+// Navigation state is a projection of the route, never shared draft content.
+// Parsed offsets, not a regex: attribute values and text can spell a tag.
+function routeEdits(nodes, path, html) {
+  return nodes.filter(node => node.tagName === 'a').flatMap(node => {
+    const nav = routeNav(node), href = attribute(node, 'href'), location = node.sourceCodeLocation;
+    const skift = attribute(node, 'data-skift-link') !== undefined || attribute(node, 'data-skift-mobile-link') !== undefined;
+    if (!nav || !href || !(hasClass(nav, 'primary-nav') && ['/om/', '/verkstad/'].includes(href) || skift)) return [];
+    const stale = location.attrs['aria-current'], end = location.startTag.endOffset - 1;
+    return [...(stale ? [dropAttribute(html, stale)] : []), ...(href === path ? [{ start: end, end, replacement: ' aria-current="page"' }] : [])];
+  });
+}
+
+// A page reads the frame under its own keys. Only real attributes are keys, and
+// noscript fallback markup is text to the slot's parse, so it takes its own.
+function keyEdits(nodes, html, frameKeys) {
+  const parsed = /<noscript\b/i.test(html) ? elements(parseFragment(html, { scriptingEnabled: false, sourceCodeLocationInfo: true })) : nodes;
+  return parsed.flatMap(node => {
+    const location = node.sourceCodeLocation?.attrs?.['data-cms-node'], key = location && attribute(node, 'data-cms-node');
+    if (!location || !Object.hasOwn(frameKeys, key)) return [];
+    // Null preserves a legacy keyless node; an unmapped new node keeps its key.
+    const original = frameKeys[key];
+    return [original === null ? dropAttribute(html, location) : { start: location.startOffset, end: location.endOffset, replacement: `data-cms-node="${escapedAttribute(original)}"` }];
+  });
+}
+
 export function composePage(frame, page, { year = new Date().getUTCFullYear() } = {}) {
   if (!frame) return page.html;
-  let html = projectedFrameHtml(frame, page).replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + year + after);
-  html = html.replace(/ data-cms-node="([^"]*)"/g, (all, key) => {
-    if (!Object.hasOwn(page.frameKeys ?? {}, key)) return all;
-    // Null preserves a legacy keyless node; an unmapped new node keeps its key.
-    const original = page.frameKeys[key];
-    return original === null ? '' : ` data-cms-node="${original}"`;
-  });
-  // Navigation state is a projection of the route, never shared draft content.
-  html = html.replace(/<nav\b[^>]*class="[^"]*\b(?:primary-nav|mobile-menu)\b[^"]*"[^>]*>[\s\S]*?<\/nav>/g, nav => nav.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>/g, (all, attrs, href) => {
-    const primary = /class="[^"]*\bprimary-nav\b/.test(nav);
-    if (!(primary && ['/om/', '/verkstad/'].includes(href) || /\bdata-skift-(?:mobile-)?link=/.test(attrs))) return all;
-    attrs = attrs.replace(/\saria-current="[^"]*"/g, '');
-    return `<a${attrs}${href === page.path ? ' aria-current="page"' : ''}>`;
-  }));
+  const html = projectedFrameHtml(frame, page).replace(/(<span\b[^>]*>© )\d{4}( Omar Yusuf<\/span>)/, (_all, before, after) => before + year + after);
   // Comments and attributes can contain the slot's spelling. Only the actual
   // parsed element identifies where page content belongs; preserve other bytes.
   const tree = parseFragment(html, { scriptingEnabled: true, sourceCodeLocationInfo: true });
-  const mains = elements(tree).filter(node => node.tagName === 'main');
+  const nodes = elements(tree), mains = nodes.filter(node => node.tagName === 'main');
   const slot = mains[0], location = slot?.sourceCodeLocation;
   if (mains.length !== 1 || slot.parentNode !== tree || slot.attrs.length || slot.childNodes.length || !location?.endTag) fail('Sidramen behöver exakt en tom plats för huvudinnehållet.');
-  return html.slice(0, location.startOffset) + page.html + html.slice(location.endOffset);
+  const edits = [...keyEdits(nodes, html, page.frameKeys ?? {}), ...routeEdits(nodes, page.path, html), { start: location.startOffset, end: location.endOffset, replacement: page.html }];
+  // Every frame node has an edit, so reslicing the whole string per edit would be quadratic.
+  const parts = [];
+  let end = 0;
+  for (const edit of edits.sort((a, b) => a.start - b.start)) {
+    parts.push(html.slice(end, edit.start), edit.replacement);
+    end = edit.end;
+  }
+  parts.push(html.slice(end));
+  return parts.join('');
 }
 
 export function frameShape(html) {
@@ -149,7 +177,7 @@ function prepareScope(html, contracts, frame) {
     if (/^(?:k|skift-nav)/.test(original)) map[original] = attr.value;
   });
   // Main keeps its full-template identities and exact trusted fallbacks. Frame
-  // signatures count only frame nodes; publication restores each page's keys.
+  // signatures count only frame nodes; editor composition restores page keys.
   const scoped = contracts.filter(contract => names.has(contract.key)).map(contract => ({ ...contract, key: names.get(contract.key), parent: names.get(contract.parent) ?? null, ...(contract.spanKey ? { spanKey: names.get(contract.spanKey) } : {}), ...(frame && contract.fallback ? { fallback: serializeOuter(nodes.find(node => attribute(node, 'data-cms-node') === names.get(contract.key))) } : {}) }));
   return { html: serialize(tree), map, contracts: scoped };
 }
@@ -281,8 +309,10 @@ export function splitPageCss(source, frameHtml, pageHtml, path, ownerDecisions =
   return { frame: css.generate({ ...tree, children: result.frame }), page: css.generate({ ...tree, children: result.page }) };
 }
 
-export function validateFrame(input, seed) {
+export function validateFrame(input, seed, cached) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['html', 'css'].includes(key))) fail('Sidramens format är ogiltigt.');
+  // The caller may supply only server-held, exact-build/content/origin facts.
+  if (cached && cached.html === input.html && cached.css === (input.css ?? '') && Array.isArray(cached.nodes)) return cached;
   const checked = validateHtml(input.html, seed.frame?.contracts ?? [], true);
   const tree = parseFragment(checked.html), mains = elements(tree).filter(node => node.tagName === 'main');
   if (mains.length !== 1 || mains[0].parentNode !== tree || mains[0].attrs.length || mains[0].childNodes.length) fail('Sidramen behöver exakt en tom plats för huvudinnehållet.');

@@ -29,7 +29,7 @@ Välj sida till vänster. Klicka eller dubbelklicka på innehållet i arbetsytan
 
 **Save publicerar direkt i aktuell miljö.** Revert hämtar senast sparat innehåll. History visar tidigare versioner; Restore läser in vald version som utkast. Save krävs sedan för att publicera återställningen. Originalversionen finns som version 0. Historik och publicerade filer raderas inte av dessa åtgärder.
 
-Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [säkerhetsgränserna](docs/CMS-SECURITY.md) och [driftsättningen](docs/DEPLOYMENT.md).
+Läs [användarguiden](docs/CMS-GUIDE.md), [CMS-designen](docs/CMS-DESIGN.md), [arkitekturen](docs/ARCHITECTURE.md), [säkerhetsgränserna](docs/CMS-SECURITY.md) och [driftsättningen](docs/DEPLOYMENT.md).
 
 ## Kodens delar
 
@@ -39,7 +39,9 @@ Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [
 | `src/client/` | Navigation, lekar, vinstdesign/export, kontakt och integritetsval |
 | `src/cms/client/` | Visuell editor, bibliotek, utkast och konfliktlösning |
 | `src/cms/auth.mjs`, `validation.mjs`, `project.mjs` | Ägarkontroll och serverns innehållsgräns |
-| `src/cms/store.mjs`, `assets.mjs`, `render.mjs` | D1-versioner, R2-filer och publicering |
+| `src/cms/api.mjs`, `admin-site.mjs`, `admin-media.mjs` | Skyddad adminrouting och domänåtgärder |
+| `src/cms/store.mjs`, `render.mjs` | D1-versioner och publicering |
+| `src/cms/assets.mjs`, `media-files.mjs`, `asset-lifecycle.mjs`, `managed-svg.mjs` | Bibliotek, R2-filer och resurslivscykler |
 | `src/server/` | Befintlig kontaktserver och mejlmallar |
 | `src/worker.mjs` | Routing och säkerhetshuvuden |
 | `scripts/build*.mjs` | Publikt bygge, separat editorbundle och CMS-original |
@@ -50,14 +52,12 @@ Läs [användarguiden](docs/CMS-GUIDE.md), [arkitekturen](docs/CMS-DESIGN.md), [
 
 ## Verifiering
 
+Normal verifiering kräver Node.js 24, `npm ci` och Playwright-browsers. Python behövs inte för den. Se avsnittet om manuella Python-verktyg nedan.
+
 ```sh
-python3 -m venv .test-venv
-. .test-venv/bin/activate
-pip install -r requirements-test.txt
-python -m playwright install chromium
 npx playwright install chromium firefox webkit
 npm run check:fast &&
-CMS_MODULE_PROFILE=smoke node scripts/test-cms-modules-parallel.mjs
+npx playwright test tests/cms-modules.spec.mjs --project=chromium --no-deps --workers=1 --grep @modules-smoke
 ```
 
 Den lokala standardloopen bygger, lintar, kör parallella `node:test`-tester och kritiska GrapesJS-smokes. Följande är en bred lokal kontrollkedja. Den fullständiga PR-matrisen, inklusive funktionella browserportar och fristående SKIFT-release, definieras i [CI-workflowen](.github/workflows/ci.yml) och [QA-guiden](docs/QA.md). Kör tunga tester i GitHub när lokal belastning ska undvikas:
@@ -65,19 +65,31 @@ Den lokala standardloopen bygger, lintar, kör parallella `node:test`-tester och
 ```sh
 npm run quality &&
 npm run test:cms &&
-node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
-npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps &&
-npx playwright test --project=firefox --no-deps &&
-npx playwright test --project=webkit --no-deps &&
+npx playwright test tests/cms-editor.spec.mjs tests/cms-email.spec.mjs --project=chromium --no-deps --output=output/playwright/artifacts/editor &&
+npx playwright test --project=firefox --no-deps --output=output/playwright/artifacts/firefox &&
+npx playwright test --project=webkit --no-deps --output=output/playwright/artifacts/webkit &&
 npx wrangler deploy --dry-run --outdir artifacts/worker-build
 ```
 
 Riktade publika kontroller efter bygge: `node --test tests/http-checks.test.mjs`, `npm run test:public-pages` och `npm run test:skift`. Specs använder egna Worker-fixturer på port 0. `PLAYWRIGHT_PORT=8791 npm run test:public-pages` låter Playwright starta en lokal Worker via `webServer` på angiven port. Firefox och WebKit: `npx playwright test --project=firefox --no-deps`, sedan samma kommando med `--project=webkit`.
 
-Det lägger till publik HTTP/browser-E2E, 240 parallella kortexporter, autentiserad CMS-browser-E2E, sidfotsregressionen, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `python -m playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser, riktade kommandon och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
+Det lägger till publik HTTP/browser-E2E, hela matrisen med 240 kortexporter i en worker, autentiserad CMS-browser-E2E, sidfotsregressionen, Firefox/WebKit och Wrangler dry-run. `test:cms` startar isolerade Workers på lediga portar och kör autentiserad browser-E2E med riktig D1/R2. Linux kan behöva `npx playwright install --with-deps chromium`. [QA-guiden](docs/QA.md) beskriver testgränser, riktade kommandon och artefakter. GitHub Actions kör kontroller på PR; workflowen publicerar inte.
 
 `npm test` bygger först via `pretest`. `npm run check` lintar och anropar sedan `npm test`, så bygget körs en gång. `check:fast` har kvar sitt eget bygge. Direkta testkommandon, `test:slow`, `test:cms` och manuella verktyg bygger inte automatiskt: kör `npm run build` först enligt [QA-guiden](docs/QA.md#build-prerequisites).
+
+### Python för manuella verktyg
+
+Python används bara av de manuella verktygen `scripts/capture-cms.py`, `scripts/artwork.py`, `scripts/mail-art.py` och `tests/machine_depth.py`. Hjälparna `tests/cms-browser.py`, `tests/render_support.py` och `tests/contrast.py` används av dem. Installera dem i en egen miljö:
+
+```sh
+python3 -m venv .test-venv
+. .test-venv/bin/activate
+pip install -r requirements-test.txt
+python -m playwright install chromium
+```
+
+Det fristående paketet `games/skift` använder systemets `python3` för sin lokala server, ljudskript och release. Det ingår inte i kommandona ovan. Detaljer finns i [QA-guiden](docs/QA.md#python-and-manual-tools).
 
 ## Miljöer och kontakt
 

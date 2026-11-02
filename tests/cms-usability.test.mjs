@@ -2,7 +2,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
-import { transitionAsset, transitionBuiltinAsset, updateBuiltinAsset } from '../src/cms/assets.mjs';
+import { transitionAsset, transitionBuiltinAsset } from '../src/cms/asset-lifecycle.mjs';
+import { updateBuiltinAsset } from '../src/cms/assets.mjs';
 import { publishSite, readPublicData, readSite } from '../src/cms/store.mjs';
 import { initial, legacyInitial } from '../.generated/cms-seed.mjs';
 

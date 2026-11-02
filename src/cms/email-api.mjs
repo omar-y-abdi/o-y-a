@@ -247,7 +247,6 @@ async function requirePublishedImages(db, blocks, resources, path) {
 }
 
 async function saveSettings(request, env, { identity, now }) {
-  requireWriteRequest(request);
   const body = await readJson(request, 8 * 1024);
   if (!isRecord(body) || !isRecord(body.values)) throw reject('Inställningarna är ogiltiga.');
   await writeContactSecrets(env, body.values, identity.email, now);
@@ -262,7 +261,6 @@ const MAIL_BODY_LIMIT = 1024 * 1024;
 
 async function testMail(request, env, context) {
   const { identity, url, head, transport, now } = context;
-  requireWriteRequest(request);
   const body = await readJson(request, MAIL_BODY_LIMIT);
   if (!isRecord(body) || typeof body.requestId !== 'string' || !UUID.test(body.requestId) || !['receipt', 'notification'].includes(body.template)) throw reject('Provmejlet är ogiltigt.');
   const requestId = `mail-test/${body.requestId}`;
@@ -288,7 +286,6 @@ async function testMail(request, env, context) {
 
 async function sendMail(request, env, context) {
   const { identity, url, head, transport, now } = context;
-  requireWriteRequest(request);
   const body = await readJson(request, MAIL_BODY_LIMIT);
   if (!isRecord(body) || typeof body.requestId !== 'string' || !UUID.test(body.requestId)) throw reject(INVALID_SEND);
   // A confirmed request is answered from storage before any eligibility check:
@@ -364,7 +361,6 @@ async function mailStatus(env, { url, transport }) {
 }
 
 async function cancelMail(request, env, { transport, now }) {
-  requireWriteRequest(request);
   const id = (await readJson(request, 1024))?.id;
   const row = await sentRow(env, id);
   if (row.canceled_at) return json({ id, canceledAt: row.canceled_at });
@@ -384,7 +380,6 @@ async function cancelMail(request, env, { transport, now }) {
 }
 
 async function uploadFile(request, env, { now }) {
-  requireWriteRequest(request, 'application/octet-stream');
   if (!masterReady(env)) throw new HttpError(503, 'Huvudnyckeln saknas.');
   const length = request.headers.get('Content-Length');
   if (length === null || !/^\d+$/.test(length)) throw new HttpError(411, 'Filens storlek saknas.');
@@ -416,7 +411,6 @@ async function uploadFile(request, env, { now }) {
 }
 
 async function removeFile(request, env, { now }) {
-  requireWriteRequest(request);
   const id = (await readJson(request, 1024))?.id;
   if (typeof id !== 'string' || !UUID.test(id) || !await removeMailFile(env, id, now)) throw new HttpError(404, 'Bilagan finns inte.');
   return json({ removed: true });
@@ -443,6 +437,7 @@ export async function handleEmailAdmin(request, env, { identity, url, head, tran
     if (read && url.pathname === '/admin/api/mail/status') return await mailStatus(env, context);
     const handler = WRITES[url.pathname];
     if (!handler) throw new HttpError(404, 'Åtgärden finns inte.');
+    requireWriteRequest(request, url.pathname === '/admin/api/mail/attachment' ? 'application/octet-stream' : 'application/json');
     const response = await handler(request, env, context);
     return context.existing && !response.ok ? uncertainResponse(response) : response;
   } catch (error) {

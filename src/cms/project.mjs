@@ -1,7 +1,7 @@
 import { parseFragment } from 'parse5';
 import { HttpError } from './http.mjs';
 import { validateCss, validateHtml, validatePagePath, VALIDATION_POLICY } from './validation.mjs';
-import { resolveSiteLink } from './routes.mjs';
+import { resolveSiteLink, SITE_ORIGIN } from './routes.mjs';
 import { referencedIds } from './id-references.mjs';
 import { validateResources, resourceReferences } from './resources.mjs';
 import { normalizeSharedContent, validateSharedInstances, normalizeFooterProject, normalizeSkiftProject } from './legacy-project.mjs';
@@ -25,13 +25,15 @@ export const validateProject = (input, seed, baseline, options) => validateProje
 
 // A16: a publication also returns the resource references it computed, so the
 // save path walks the project once. References are null for a draft check.
-export function validateProjectWithReferences(input, seed, baseline, { origins = [], publication = true } = {}) {
-  if (!input || ![1, 2].includes(input.schemaVersion) || !Array.isArray(input.pages) || input.pages.length < 1 || input.pages.length > 64) fail('Projektets sidregister är ogiltigt.');
+export function validateProjectWithReferences(input, seed, baseline, { origins = [], publication = true, preview } = {}) {
+  const cardPreview = Boolean(preview?.cardId), origin = origins[0] ?? SITE_ORIGIN;
+  if (!input || ![1, 2].includes(input.schemaVersion) || !Array.isArray(input.pages) || input.pages.length < (cardPreview ? 0 : 1) || input.pages.length > 64) fail('Projektets sidregister är ogiltigt.');
+  if (preview && (cardPreview ? input.pages.length !== 0 : input.pages.length !== 1 || input.pages[0]?.id !== preview.pageId)) fail('Förhandsvisningen behöver exakt sitt valda innehåll.');
   const framed = input.schemaVersion === 2;
   if (framed && Object.hasOwn(input, 'sharedContent')) fail('Gemensamt innehåll hör till sidramen i det här projektformatet.');
   if (!framed) { seed = legacySeed(seed); input = normalizeSkiftProject(normalizeFooterProject(input, seed), seed); }
   if (framed && publication && input.frameConflicts?.length) fail('Välj vilken sidram som ska gälla innan du sparar.');
-  const frame = framed ? validateFrame(input.frame, seed) : null;
+  const frame = framed && !cardPreview ? validateFrame(input.frame, seed, baseline?.validatedFrame) : null;
   const frameIds = frame?.nodes.map(node => attribute(node, 'id')).filter(Boolean) ?? [];
   if (frameIds.some(id => seed.skiftIds?.includes(id))) fail('Sidramen använder ett ID som tillhör spelets huvudinnehåll.');
   const frameLinks = frame?.nodes.filter(node => node.tagName === 'a').map(node => attribute(node, 'href')).filter(Boolean) ?? [];
@@ -69,11 +71,11 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
     if (framed) frameCss(frame, projection);
     // An exact cache key avoids hash collisions and follows live contracts.
     // Only facts loaded from the trusted database may satisfy this comparison.
-    const validationKey = JSON.stringify([VALIDATION_POLICY, contracts, publication]);
+    const validationKey = JSON.stringify([VALIDATION_POLICY, seed.studioKey ?? null, contracts, publication]);
     // Facts proven for a publication also satisfy a draft check, which asks for less.
-    const compatible = baseline?.schemaVersion === input.schemaVersion && (saved?.facts?.validationKey === validationKey || !publication && saved?.facts?.validationKey === JSON.stringify([VALIDATION_POLICY, contracts, true]));
+    const compatible = baseline?.schemaVersion === input.schemaVersion && (saved?.facts?.validationKey === validationKey || !publication && saved?.facts?.validationKey === JSON.stringify([VALIDATION_POLICY, seed.studioKey ?? null, contracts, true]));
     let html, facts;
-    if (compatible && saved.sourceId === (source?.id ?? 'blank') && page.html === saved.html) {
+    if (compatible && saved.sourceId === (source?.id ?? 'blank') && page.html === saved.html && typeof saved.facts.usesCards === 'boolean') {
       html = saved.html; facts = saved.facts;
     } else {
       const checked = validateHtml(page.html, contracts, true);
@@ -84,7 +86,7 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
         const roots = parseFragment(html).childNodes.filter(node => node.tagName || node.nodeName === '#text' && node.value.trim());
         if (roots.length !== 1 || roots[0].tagName !== 'main') fail('Sidans innehåll behöver ligga i ett enda huvudinnehåll.');
       }
-      facts = { validationKey, ids: nodes.map(node => attribute(node, 'id')).filter(Boolean), links: nodes.filter(node => node.tagName === 'a').map(node => attribute(node, 'href')).filter(Boolean), references: nodes.flatMap(node => node.attrs.flatMap(item => referencedIds(item.name, item.value).map(target => [item.name, target]))) };
+      facts = { validationKey, ids: nodes.map(node => attribute(node, 'id')).filter(Boolean), links: nodes.filter(node => node.tagName === 'a').map(node => attribute(node, 'href')).filter(Boolean), references: nodes.flatMap(node => node.attrs.flatMap(item => referencedIds(item.name, item.value).map(target => [item.name, target]))), usesCards: nodes.some(node => attribute(node, 'data-machine') !== undefined) };
       for (const node of nodes) if (publication && node.tagName === 'img' && attribute(node, 'alt') === undefined) fail('Varje bild behöver alternativtext; dekorativa bilder kan ha tom text.');
     }
     if (facts.ids.some(id => pageFrameIds.includes(id))) fail(`Sidramen och ${path} använder samma ID.`);
@@ -94,6 +96,10 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
     }
     if (!framed) { const { references: _references, ...legacyFacts } = facts; facts = legacyFacts; }
     const style = compatible && page.css === saved.css ? saved.css : validateCss(page.css ?? '');
+    if (publication && !(compatible && page.html === saved.html && style === saved.css && facts.resourceOrigin === origin && Array.isArray(facts.resourceReferences))) {
+      const references = resourceReferences({ pages: [{ html, css: style }], cards: [], theme: {}, resources: {} }, origin);
+      facts = { ...facts, resourceOrigin: origin, resourceReferences: [...references] };
+    }
     const project = null;
     return { id, path, sourceId: source?.id ?? 'blank', name: text(page.name, 'Sidnamn', 80, publication ? 1 : 0), title: text(page.title, 'Sidtitel', 160, publication ? 1 : 0), description: text(page.description, 'Beskrivning', 320, publication ? 1 : 0), template: source?.template ?? 'custom', bodyClass: source?.bodyClass ?? 'page-custom', noindex: Boolean(original?.noindex), html, css: style, project, facts, ...(frameKeys === undefined ? {} : { frameKeys }), ...(aliases === undefined ? {} : { frameIds: aliases }), ...(framed || page.footerVersion === undefined ? {} : { footerVersion: page.footerVersion }) };
   };
@@ -105,7 +111,7 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
       throw new HttpError(error.status, `${label}: ${error.message}`, error.details);
     }
   });
-  if (!paths.has('/')) fail('Startsidan måste finnas kvar.');
+  if (!preview && !paths.has('/')) fail('Startsidan måste finnas kvar.');
   const targets = new Map([[SKIFT_PATH, new Set([...(seed.skiftIds ?? []), ...frameIds])], ...pages.map(page => [page.path, new Set([...page.facts.ids, ...frameIdsByPath.get(page.path)])])]);
   // A3: every page with a broken link is reported in one 422, not one per save.
   const linkProblem = (page, href) => {
@@ -116,6 +122,9 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
       if (link.path === '/login/' || link.path === '/login' || /^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp|avif|woff2)$/.test(link.path) || seed.staticPaths?.includes(link.path)) return null;
       return `Länken ${href} på ${page.path} går till en resurs som saknas.`;
     }
+    // The selected page still needs its own anchors. Destinations on omitted
+    // pages remain a whole-publication check, never a preview prerequisite.
+    if (preview && link.path !== page.path) return null;
     if (!targets.has(link.path)) return `Länken ${href} på ${page.path} går till en sida som saknas. Uppdatera länken innan du sparar.`;
     if (link.hash && link.hash !== 'top' && !targets.get(link.path).has(link.hash)) return `Länken ${href} på ${page.path} saknar ett mål.`;
     return null;
@@ -126,7 +135,8 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
     if (problem) brokenLinks.push(problem);
   }
   if (brokenLinks.length) fail(brokenLinks.join(' '));
-  const cards = input.cards;
+  const needsCards = pages.some(page => page.facts.usesCards) || Boolean(frame?.nodes.some(node => attribute(node, 'data-machine') !== undefined));
+  const cards = preview && !cardPreview && !needsCards ? [] : input.cards;
   if (!Array.isArray(cards) || cards.length > 2000) fail('Vinstbiblioteket är ogiltigt eller för stort.');
   const cardIds = new Set();
   const normalizedCards = cards.map(card => {
@@ -150,7 +160,8 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
     }
     return result;
   });
-  for (const flavor of FLAVORS) if (!normalizedCards.some(card => card.flavor === flavor && card.state === 'active')) fail('Varje kategori som maskinen visar behöver minst en vinst.');
+  if (cardPreview && (normalizedCards.length !== 1 || normalizedCards[0].id !== preview.cardId)) fail('Förhandsvisningen behöver exakt sin valda vinst.');
+  if (!preview || needsCards) for (const flavor of FLAVORS) if (!normalizedCards.some(card => card.flavor === flavor && card.state === 'active')) fail('Varje kategori som maskinen visar behöver minst en vinst.');
   const runtime = {};
   if (!input.runtime || typeof input.runtime !== 'object' || Array.isArray(input.runtime) || Object.keys(input.runtime).length > 300) fail('Funktionstexterna är ogiltiga.');
   for (const [key, value] of Object.entries(input.runtime)) {
@@ -169,8 +180,17 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
   if (!framed) validateSharedInstances(sharedUnchanged ? pages.filter(page => storedHtml.get(page.id) !== page.html) : pages, sharedContent, { publication, requiredEverywhere: Object.keys(seed.sharedContent ?? {}) });
   // The published head already passed this check, so unchanged mail settings are reused.
   const email = baseline && JSON.stringify(baseline.email) === JSON.stringify(input.email) ? baseline.email : validateEmailSettings(input.email);
-  const result = { schemaVersion: input.schemaVersion, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources), ...(framed ? { frame: { html: frame.html, css: frame.css }, ...(!publication && input.frameConflicts?.length ? { frameConflicts: input.frameConflicts } : {}) } : { sharedContent, ...(input.frameVersion === 2 ? { frameVersion: 2 } : {}) }), ...(email === undefined ? {} : { email }) };
-  const references = publication ? resourceReferences(result) : null;
+  const result = { schemaVersion: input.schemaVersion, pages, cards: normalizedCards, runtime: { ...seed.runtime, ...runtime }, theme: validateTheme(input.theme), resources: validateResources(input.resources), ...(framed ? { ...(frame ? { frame: { html: frame.html, css: frame.css } } : {}), ...(!publication && input.frameConflicts?.length ? { frameConflicts: input.frameConflicts } : {}) } : { sharedContent, ...(input.frameVersion === 2 ? { frameVersion: 2 } : {}) }), ...(email === undefined ? {} : { email }) };
+  // Each immutable HTML/CSS owner keeps its own trusted reference summary.
+  // Mutable global/card/mail data is still walked on this request.
+  const references = publication ? resourceReferences({ ...result, pages: [], frame: undefined }, origin) : null;
+  if (publication && frame && (frame.resourceOrigin !== origin || !Array.isArray(frame.resourceReferences))) {
+    frame.resourceOrigin = origin;
+    frame.resourceReferences = [...resourceReferences({ frame, pages: [], cards: [], theme: {}, resources: {} }, origin)];
+  }
+  if (publication) for (const entries of [...pages.map(page => page.facts.resourceReferences), frame?.resourceReferences ?? []]) {
+    for (const [src, count] of entries) references.set(src, (references.get(src) ?? 0) + count);
+  }
   if (publication && seed.staticPaths) {
     const inventory = new Set(seed.staticPaths);
     for (const path of references.keys()) {
@@ -179,5 +199,5 @@ export function validateProjectWithReferences(input, seed, baseline, { origins =
       }
     }
   }
-  return { project: result, references };
+  return { project: result, references, frame };
 }

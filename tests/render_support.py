@@ -2,8 +2,8 @@
 
 This is NOT an E2E substitute: CSS/HTML are the built files, scripts are the real
 source modules flattened for injection. Only origin, cookie storage, clipboard,
-network transport, and secure-context UUID generation are adapters. Use browser.py without --render-only for
-real URL/module/CSP/cookie navigation tests in an unrestricted test browser.
+network transport, and secure-context UUID generation are adapters. Real URL, module,
+CSP and cookie navigation is covered by the Playwright specs.
 No Chromium policy or security setting is modified.
 """
 from pathlib import Path

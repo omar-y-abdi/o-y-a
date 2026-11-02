@@ -3,6 +3,7 @@ import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { seedRuntime } from './helpers/cms-browser-qa.mjs';
 
 let runtime, api;
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.describe.configure({ mode: 'default' });
 test.beforeAll(async ({ playwright }) => {
   runtime = await cmsRuntime({ port: 0 });

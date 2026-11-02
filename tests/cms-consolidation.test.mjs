@@ -2,7 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkCompatibility } from '../src/cms/compatibility.mjs';
 import { decodeRaster } from '../src/cms/raster-integrity.mjs';
-import { inspectAsset } from '../src/cms/assets.mjs';
+import { inspectAsset } from '../src/cms/media-files.mjs';
 import { publishSite } from '../src/cms/store.mjs';
 import { validateProject } from '../src/cms/project.mjs';
 import { seed, initial } from '../.generated/cms-seed.mjs';

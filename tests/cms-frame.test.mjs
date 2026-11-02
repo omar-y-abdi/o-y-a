@@ -12,6 +12,7 @@ import { Draft } from '../src/cms/client/draft.mjs';
 import { mergeProjects } from '../src/cms/client/merge.mjs';
 import { draftBackup, readDraftBackup } from '../src/cms/client/recovery.mjs';
 import { publicationChunks } from '../src/cms/store.mjs';
+import { stripNodeKeys } from '../src/cms/public-html.mjs';
 import { resourceReferences, replaceResource } from '../src/cms/resources.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
 import { normalizeStoredProject as legacyProject } from '../src/cms/legacy-project.mjs';
@@ -50,7 +51,7 @@ test('B8: all fifteen v185 public identities retain main and frame semantics exc
   }
 });
 
-test('B8: every existing v185 key, including noscript descendants, survives publication and rollback', async t => {
+test('B8/C4: v185 keys survive editor composition and rollback, while publication omits them', async t => {
   const before = legacyProject(structuredClone(v185), seed.legacy);
   const after = validateProject(conversion.toFrameProject(v185, seed), seed);
   const rows = publicationChunks(after).flat();
@@ -61,7 +62,8 @@ test('B8: every existing v185 key, including noscript descendants, survives publ
     await t.test(page.path, () => {
       const next = after.pages.find(item => item.id === page.id);
       assert.deepEqual(nodeKeys(next.html), nodeKeys(frame.splitPage(page.html).page), `${page.path}: main`);
-      assert.deepEqual(nodeKeys(rows.find(row => row.path === page.path).html), nodeKeys(page.html), `${page.path}: publication`);
+      assert.deepEqual(nodeKeys(frame.composePage(after.frame, next)), nodeKeys(page.html), `${page.path}: editor composition`);
+      assert.deepEqual(nodeKeys(rows.find(row => row.path === page.path).html), nodeKeys(page.html).map(([tag]) => [tag, null]), `${page.path}: publication omits only editor keys`);
       assert.deepEqual(nodeKeys(reverse.pages.find(item => item.id === page.id).html), nodeKeys(page.html), `${page.path}: rollback`);
       assert.deepEqual(nodeKeys(frame.composePage(again.frame, again.pages.find(item => item.id === page.id))), nodeKeys(page.html), `${page.path}: second migration`);
     });
@@ -124,6 +126,38 @@ test('B8: publication distinguishes absent legacy keys from new frame identities
   assert.deepEqual(frame.validateFrameKeys(page.frameKeys), page.frameKeys, 'Several legacy nodes may have no public key');
   assert.equal(frame.composePage(shared, page), `<header><span>Äldre text</span><br><p data-cms-node="${key}">Ny ramnod</p></header><main></main>`);
   assert.equal(shared.html.includes('data-cms-node="f-n1"'), true, 'Internal frame identity stays intact');
+});
+
+test('B8: page keys rewrite real attributes, never text or values that spell one', () => {
+  const spelled = ' data-cms-node="f-n0"';
+  const shared = { html: `<header><p title='${spelled}' data-cms-node="f-n0">Skriv${spelled} här<!--${spelled}--></p><span data-cms-node="f-n1">Ny</span><noscript><a data-cms-node="f-n1" href="/x/">Länk${spelled}</a></noscript></header><main></main>`, css: '' };
+  const page = { html: '<main></main>', path: '/', frameKeys: { 'f-n0': null, 'f-n1': 'n7' } };
+  assert.equal(frame.composePage(shared, page), `<header><p title='${spelled}'>Skriv${spelled} här<!--${spelled}--></p><span data-cms-node="n7">Ny</span><noscript><a data-cms-node="n7" href="/x/">Länk${spelled}</a></noscript></header><main></main>`);
+});
+
+test('B8: attribute values and text in the frame cannot spell tags on the public page', () => {
+  const base = validateProject(conversion.toFrameProject(v185, seed), seed);
+  const about = project => project.pages.find(page => page.path === '/om/');
+  const published = project => elements(parseFragment(stripNodeKeys(frame.composePage(project.frame, about(project)))));
+  const baseline = published(base).map(node => node.tagName);
+  const payload = '><img src=x onerror=alert(1)>', link = '<a href="/om/" data-cms-node="f-n14">', title = `a${payload}`;
+  for (const [name, mutate] of Object.entries({
+    'frame key on the link': draft => { about(draft).frameKeys['f-n14'] = 'x>y'; },
+    'frame key on the navigation': draft => { about(draft).frameKeys['f-n12'] = 'scoped>nav'; },
+    'link title': draft => { draft.frame.html = draft.frame.html.replace(link, link.replace(' data', ` title="${title}" data`)); },
+    'navigation label': draft => { draft.frame.html = draft.frame.html.replace('aria-label="Huvudmeny"', 'aria-label="Huvud>meny"'); },
+    'text that shifts the quotes': draft => { draft.frame.html = draft.frame.html.replace('<span aria-hidden="true" data-cms-node="f-n16">↗</span>', '<span title="<a " aria-hidden="true" data-cms-node="f-n16">x" href="/om/" y"</span>').replace('<a class="shift-link"', `<a title="z${payload}" class="shift-link"`); },
+  })) {
+    const draft = structuredClone(base);
+    mutate(draft);
+    const nodes = published(validateProject(draft, seed));
+    assert.deepEqual(nodes.map(node => node.tagName), baseline, `${name}: only the validated elements are public`);
+    const current = nodes.filter(node => node.tagName === 'a' && attribute(node, 'aria-current') === 'page');
+    assert.deepEqual(current.map(node => attribute(node, 'href')), ['/om/'], `${name}: the route stays marked`);
+    assert.equal(current[0].childNodes[0].value, 'Människan', `${name}: no attribute bytes become text`);
+    assert.equal(attribute(current[0], 'title'), name === 'link title' ? title : undefined, `${name}: the value survives`);
+    assert.ok(nodes.every(node => attribute(node, 'data-cms-node') === undefined), `${name}: keys stay private`);
+  }
 });
 
 test('B8: v185 becomes one frame, complete mains and scoped contracts; only Q9 changes main CSS', () => {
@@ -366,7 +400,8 @@ test('B8: frame Save is 200, recovery retains it and stale concurrent Save is 40
       assert.equal(response.status, 200);
       const html = await response.text();
       assert.match(html, /En gemensam rad\./);
-      assert.ok(html.includes(`<p data-cms-node="${key}">Ny ramnod</p>`), `${path}: added frame key survives Save and publication`);
+      assert.ok(html.includes('<p>Ny ramnod</p>'), `${path}: added frame content survives publication`);
+      assert.ok(!html.includes(`data-cms-node="${key}"`), `${path}: editor identity stays out of public markup`);
     }
     const head = await (await request('state')).json();
     assert.deepEqual(head.project.frame, changed.frame);

@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inspectAsset } from '../src/cms/assets.mjs';
+import { inspectAsset } from '../src/cms/media-files.mjs';
 import { cleanRaster, checkRasterContainer } from '../src/cms/raster-integrity.mjs';
 import { digest } from '../src/cms/store.mjs';
 import { replaceResource } from '../src/cms/resources.mjs';

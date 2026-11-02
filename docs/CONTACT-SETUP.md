@@ -54,7 +54,6 @@ Behåll din befintliga repo-/Cloudflare-koppling. Deploykommandot `npm run deplo
 npm run edge:check &&
 npm run quality &&
 npm run test:cms &&
-node scripts/test-footer-cms.mjs &&
 node scripts/test-cms-compat.mjs &&
 npm run deploy:cloudflare
 ```

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { uploadAsset } from '../src/cms/assets.mjs';
+import { uploadAsset } from '../src/cms/media-files.mjs';
 import { publishSite } from '../src/cms/store.mjs';
 import { initial } from '../.generated/cms-seed.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';

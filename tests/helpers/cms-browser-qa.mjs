@@ -202,7 +202,7 @@ export class CMSBrowserQA {
 
   async context(viewport, authenticated = true, options = {}) {
     const context = await this.browser.newContext({ viewport, acceptDownloads: true, ...options });
-    if (authenticated) await context.addCookies([{ name: 'CF_Authorization', value: await this.runtime.token(), url: this.runtime.url }]);
+    if (authenticated) await context.addCookies([{ name: 'CF_Authorization', value: await this.runtime.token(), url: this.runtime.url, httpOnly: true, secure: false, sameSite: 'Lax' }]);
     return context;
   }
 

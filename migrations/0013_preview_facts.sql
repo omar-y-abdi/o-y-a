@@ -1,0 +1,1 @@
+CREATE TABLE cms_preview_facts (version INTEGER NOT NULL REFERENCES cms_studio_heads(version) ON DELETE CASCADE, target TEXT NOT NULL, content_hash TEXT NOT NULL, origin TEXT NOT NULL, facts TEXT NOT NULL, PRIMARY KEY(version,target));

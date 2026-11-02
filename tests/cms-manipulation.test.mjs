@@ -17,7 +17,7 @@ import { projectChanges, validateProjectChanges, applyProjectChanges } from '../
 import { attribute, elements } from '../src/cms/html-tree.mjs';
 import { publishSite, readSite } from '../src/cms/store.mjs';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
-import { uploadAsset } from '../src/cms/assets.mjs';
+import { uploadAsset } from '../src/cms/media-files.mjs';
 import { rasterFixtures } from './helpers/raster-fixtures.mjs';
 
 // A1b manipulation suite. Every case runs on the three server paths that take
@@ -139,7 +139,7 @@ function cachedBaseline(change, expected, oldPolicies) {
   const forged = editStudio(stored, '/om/', change);
   const page = forged.pages.find(item => item.path === '/om/');
   const contracts = (frameSeed.pages.find(item => item.id === page.id) ?? frameSeed.pages.find(item => item.id === page.sourceId) ?? frameSeed.blank).contracts;
-  const baseline = policy => ({ ...forged, pages: forged.pages.map(item => item === page ? { ...item, facts: { ...item.facts, validationKey: JSON.stringify([policy, contracts, true]) } } : item) });
+  const baseline = policy => ({ ...forged, pages: forged.pages.map(item => item === page ? { ...item, facts: { ...item.facts, validationKey: JSON.stringify(policy === VALIDATION_POLICY ? [policy, frameSeed.studioKey ?? null, contracts, true] : [policy, contracts, true]) } } : item) });
   for (const policy of [VALIDATION_POLICY, ...oldPolicies]) {
     const old = baseline(policy);
     assert.throws(() => validateProject(structuredClone(forged), frameSeed, structuredClone(old), opts), expected, `full Save (${policy})`);

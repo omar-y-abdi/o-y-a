@@ -8,6 +8,7 @@ import { lockPreview, openAssets, saveAssetMetadata, seedRuntime, uploadFile } f
 import { libraryBundle, libraryPage } from './helpers/cms-browser-library.mjs';
 
 let runtime, api, bundle, record;
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.describe.configure({ mode: 'default', timeout: 60_000 });
 test.beforeAll(async ({ playwright }) => {
   runtime = await cmsRuntime({ port: 0 });
@@ -24,6 +25,16 @@ test.beforeAll(async ({ playwright }) => {
 });
 test.afterAll(async () => { try { await api?.dispose(); } finally { await runtime?.close(); } });
 
+test('library fixture has no callbacks from a discarded editor', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(String(error)));
+  await libraryPage(page, bundle, '<div id="special-stage"></div><div id="custom-inspector"></div>');
+  // Removing an observed editor element schedules ResizeObserver delivery.
+  // Two rendering turns expose that callback without an arbitrary sleep.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(errors).toEqual([]);
+});
+
 const count = fn => fn.mock.calls.length;
 function responsePage(status = 200, id = 'asset-one') {
   const cachedBody = () => { throw new Error('Request content was evicted from inspector cache'); };
@@ -38,7 +49,7 @@ function responsePage(status = 200, id = 'asset-one') {
 
 test.describe('LibraryNavigationTests', () => {
   test.beforeEach(async ({ page }) => {
-    await libraryPage(page, runtime, bundle, '<button data-library="pages" aria-selected="true">Sidor</button><button data-library="assets" aria-selected="false">Bilder</button><button data-library="wins" data-special="wins" aria-selected="false">Vinster</button><div id="library-list"></div><div id="special-stage"></div><div id="custom-inspector"></div>');
+    await libraryPage(page, bundle, '<button data-library="pages" aria-selected="true">Sidor</button><button data-library="assets" aria-selected="false">Bilder</button><button data-library="wins" data-special="wins" aria-selected="false">Vinster</button><div id="library-list"></div><div id="special-stage"></div><div id="custom-inspector"></div>');
     await page.evaluate(() => {
       window.fixture = { requests: 0, view: 'pages' };
       window.libraryFixture.pageList([{ id: 'home', name: 'Home', path: '/' }], 'home');
@@ -179,6 +190,7 @@ test.describe('TransportOrderingTests', () => {
 });
 
 test.describe('StateConnectionTests', () => {
+  test.use({ actionTimeout: 5_000 });
   let server, origin, calls, resets, status, body, serverError, headers;
   test.beforeEach(async () => {
     calls = 0; resets = 0; status = 200; body = null; serverError = null;

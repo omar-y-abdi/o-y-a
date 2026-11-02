@@ -2,6 +2,7 @@ import { test, expect } from './helpers/public-test.mjs';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { captureCardFailure } from './helpers/card-diagnostics.mjs';
+import { representativeCards } from './helpers/card-corpus.mjs';
 
 const BANK = JSON.parse(await readFile(new URL('../public/data/cards.json', import.meta.url), 'utf8'));
 const OUTPUT = new URL('../output/card-export-playwright/', import.meta.url);
@@ -104,6 +105,8 @@ function assertLayout(state) {
   expect(state.lineCount).toBeGreaterThan(0);
 }
 
+// Full trace stalled this file about once per 350 exports; snapshots:false once in 2,934; off none in 3,600 local exports, then once on CI. Not a controlled comparison, and the root cause is unproven.
+test.use({ trace: 'off' });
 test.beforeAll(async () => { await mkdir(OUTPUT, { recursive: true }); });
 
 for (const width of [320, 390, 768, 1024, 1440]) {
@@ -171,7 +174,7 @@ test.describe('all 240 production card exports', () => {
     });
     await testInfo.attach('card-browser-diagnostics.json', { body: JSON.stringify(receipt), contentType: 'application/json' });
   });
-  for (const card of BANK) {
+  for (const card of process.env.CARD_CORPUS === 'pr' ? representativeCards(BANK) : BANK) {
     test(`${card.id} exports valid PNG`, async ({ page }, testInfo) => {
       const browserErrors = [];
       page.on('pageerror', error => browserErrors.push(String(error)));

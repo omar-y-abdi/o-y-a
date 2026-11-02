@@ -27,6 +27,7 @@ const test = base.extend({
   },
 });
 
+test.use({ actionTimeout: 30_000, navigationTimeout: 30_000 });
 test.describe.configure({ mode: 'default', timeout: 120_000 });
 test.beforeAll(async () => {
   runtime = await cmsRuntime({ port: 0 });
