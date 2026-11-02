@@ -38,6 +38,10 @@ jobs:
         run: node --test --test-concurrency=1 games/skift/tests/*.test.mjs
       - name: Worker deploy dry-run
         run: npx wrangler deploy --dry-run --outdir artifacts/worker-build --metafile artifacts/worker-build/bundle-meta.json
+      - name: HTTP checks against the minified deploy bundle
+        env:
+          CMS_WORKER_SCRIPT: artifacts/worker-build/worker.js
+        run: node --test --test-concurrency=1 tests/http-checks.test.mjs
       - name: Verify full notices against the deployed Worker bundle
         run: node scripts/third-party-notices.mjs artifacts/worker-build/bundle-meta.json
       - name: Retain browser evidence
