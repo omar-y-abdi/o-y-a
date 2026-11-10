@@ -6,6 +6,7 @@ import sys
 import os
 import shutil
 import importlib.util
+import struct
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tests'))
 from render_support import document
@@ -15,6 +16,13 @@ import cairosvg
 public = ROOT/'public'; (public/'social').mkdir(exist_ok=True)
 svg=(public/'favicon.svg').read_text()
 cairosvg.svg2png(bytestring=svg.encode(),write_to=str(public/'apple-touch-icon.png'),output_width=180,output_height=180)
+for size in (192,512): cairosvg.svg2png(bytestring=svg.encode(),write_to=str(public/f'icon-{size}.png'),output_width=size,output_height=size)
+# favicon.ico answers clients that ask for it unprompted: an ICO directory of PNG-encoded 16, 32 and 48px images.
+icons=[(size,cairosvg.svg2png(bytestring=svg.encode(),output_width=size,output_height=size)) for size in (16,32,48)]
+directory=struct.pack('<HHH',0,1,len(icons)); images=b''
+for size,data in icons:
+    directory+=struct.pack('<BBBBHHII',size,size,0,0,1,32,len(data),6+16*len(icons)+len(images)); images+=data
+(public/'favicon.ico').write_bytes(directory+images)
 with sync_playwright() as p:
     browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH') or shutil.which('chromium'), args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':1200,'height':630},device_scale_factor=1)
@@ -40,4 +48,4 @@ with sync_playwright() as p:
     ''')
     page.screenshot(path=str(public/'social/omar-yusuf.png'))
     browser.close()
-print('Brand assets generated: SVG favicon, 180px icon and 1200x630 social image.')
+print('Brand assets generated: 180, 192 and 512px icons, favicon.ico and 1200x630 social image.')

@@ -20,7 +20,7 @@ export class UI {
     document.querySelector('[data-skift-menu]').setAttribute('aria-label',swedish?'Spelmeny':'Game menu');
     document.getElementById('joystick').setAttribute('aria-label',swedish?'Styrspak':'Movement joystick');
     this.nodes['pulse-control'].setAttribute('aria-label',swedish?'Puls':'Pulse');
-    document.getElementById('language-button').setAttribute('aria-label',swedish?'Byt till engelska':'Switch to Swedish');
+    document.getElementById('language-button').setAttribute('aria-label',swedish?'SV / EN: byt till engelska':'EN / SV: switch to Swedish');
     this.nodes.health.setAttribute('aria-label',this.t('hull'));this.updateTitle();if(this.isReady)document.getElementById('load-status').textContent=this.t('ready');
   }
   updateTitle(){

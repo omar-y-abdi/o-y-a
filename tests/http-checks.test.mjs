@@ -252,12 +252,18 @@ test('the web manifest is answered by the Worker and every icon it names is serv
   assert.equal(response.body.toString(), webManifest());
   const manifest = JSON.parse(response.body);
   assert.equal(manifest.start_url, '/');
-  assert.equal(manifest.icons.length, 2);
+  assert.equal(manifest.icons.length, 4);
   for (const icon of manifest.icons) {
     const file = await fetchHttp(icon.src);
     assert.equal(file.status, 200, icon.src);
     assert.ok(file.headers.get('content-type').startsWith(icon.type), `${icon.src}: ${file.headers.get('content-type')}`);
   }
+  // No page links /favicon.ico; it is the address clients ask for unprompted.
+  const ico = await fetchHttp('/favicon.ico');
+  assert.equal(ico.status, 200);
+  assert.match(ico.headers.get('content-type'), /^image\/(?:x-icon|vnd\.microsoft\.icon)$/);
+  assert.equal(ico.headers.get('x-content-type-options'), 'nosniff');
+  assert.deepEqual([...ico.body.subarray(0, 4)], [0, 0, 1, 0]);
   const head = await fetchHttp(MANIFEST_PATH, { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.equal(head.body.length, 0);

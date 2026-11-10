@@ -31,7 +31,8 @@
 .letter-fields input+label{margin-top:21px}
 .letter-fields [aria-invalid="true"]{border:2px solid #a73720}
 .letter-actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-top:22px}
-.letter-actions>a{font-size:12px;text-decoration:underline;text-underline-offset:4px}
+/* A 24px pointer target (WCAG 2.5.8) around the 14px line; the negative margin keeps the layout box at 14px. */
+.letter-actions>a{display:flex;align-items:center;min-height:24px;margin-block:-5px;font-size:12px;text-decoration:underline;text-underline-offset:4px}
 .letter-actions .button{font-size:13px}
 .form-feedback{font-size:13px;font-weight:700;line-height:1.6;max-width:640px;margin-top:14px}
 .form-feedback:empty{display:none}

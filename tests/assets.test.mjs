@@ -152,13 +152,22 @@ test('robots, sitemap and llms list canonical pages but not the error page', asy
 });
 
 test('social image has the promised PNG dimensions and icons really exist', async () => {
-  for (const [path, width, height] of [['dist/social/omar-yusuf.png',1200,630],['dist/apple-touch-icon.png',180,180]]) {
+  for (const [path, width, height] of [['dist/social/omar-yusuf.png',1200,630],['dist/apple-touch-icon.png',180,180],['dist/icon-192.png',192,192],['dist/icon-512.png',512,512]]) {
     const png = await readFile(path);
     assert.equal(png.subarray(1,4).toString(), 'PNG');
     assert.equal(png.readUInt32BE(16),width);
     assert.equal(png.readUInt32BE(20),height);
   }
   assert.match(await readFile('dist/favicon.svg','utf8'), /<svg[^>]+viewBox="0 0 100 100"/);
+  // favicon.ico: an ICO directory whose three entries each hold a square PNG of the size they declare.
+  const ico = await readFile('dist/favicon.ico');
+  assert.deepEqual([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)], [0, 1, 3]);
+  for (const [index, size] of [16, 32, 48].entries()) {
+    const entry = 6 + 16 * index, image = ico.subarray(ico.readUInt32LE(entry + 12), ico.readUInt32LE(entry + 12) + ico.readUInt32LE(entry + 8));
+    assert.deepEqual([ico[entry], ico[entry + 1]], [size, size]);
+    assert.equal(image.subarray(1,4).toString(), 'PNG');
+    assert.deepEqual([image.readUInt32BE(16), image.readUInt32BE(20)], [size, size]);
+  }
 });
 
 test('production transfer budgets stay small without framework bundles', async () => {
