@@ -53,9 +53,6 @@ test('site, game and license documentation links resolve to files and headings',
 
 test('documented script entry points exist in their site or standalone package', () => {
   for (const file of documentation()) {
-    // Frozen audit reports intentionally name deleted historical scripts.
-    // They are evidence maps, not operational command instructions.
-    if (file.startsWith('docs/maintenance-review/')) continue;
     const base = file.startsWith('games/skift/') ? 'games/skift' : '.';
     for (const [script] of readFileSync(file, 'utf8').matchAll(/\b(?:games\/skift\/)?scripts\/[\w.-]+\.(?:mjs|py|sh)\b/g)) {
       assert.ok(existsSync(resolve(base, script)), `${file}: missing script ${script}`);
