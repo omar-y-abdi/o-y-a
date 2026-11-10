@@ -66,7 +66,7 @@ for (const page of routes) {
 }
 await writeFile('dist/_headers',`/*\n  Content-Security-Policy: ${CSP}\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n  X-Frame-Options: DENY\n  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/play/skift/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/play/skift/audio/*\n  Cache-Control: public, max-age=86400\n`);
 await writeFile('dist/openapi.json',JSON.stringify(openApi,null,2)+'\n');
-await writeFile('dist/robots.txt',`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${site.origin}/sitemap.xml\n`);
+await writeFile('dist/robots.txt',`# omaryusuf.se crawl policy\n# Search engines and AI agents may read every public page. See /llms.txt.\n# Private paths answer with X-Robots-Tag: noindex and are deliberately not listed here.\nUser-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${site.origin}/sitemap.xml\n`);
 const indexed = routes.filter(page => !page.noindex);
 await writeFile('dist/sitemap.xml',`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${indexed.map(page => `  <url><loc>${site.origin}${page.path}</loc></url>`).join('\n')}\n</urlset>\n`);
 await writeFile('dist/llms.txt',llmsTxt(indexed,site));

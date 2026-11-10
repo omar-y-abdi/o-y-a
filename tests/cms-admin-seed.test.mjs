@@ -407,13 +407,62 @@ test('public canonical pages/game/data never load seed, while legacy fallback fa
     }
     assert.equal(reads, 0);
     await publishSite(runtime.db, { project: legacyInitial, baseVersion: 1, requestId: crypto.randomUUID(), actor: 'owner@example.test' });
-    const failed = await app.fetch(new Request(origin + '/'), runtime.env);
+    const browser = 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8';
+    const failed = await app.fetch(new Request(origin + '/', { headers: { Accept: browser } }), runtime.env);
     assert.equal(failed.status, 503); assert.equal(failed.headers.get('cache-control'), 'no-store');
-    assert.doesNotMatch(await failed.text(), /CMS_SEED|not available|schemaVersion/);
+    assert.equal(failed.headers.get('retry-after'), '60');
+    assert.match(failed.headers.get('content-type'), /^text\/html; charset=utf-8/);
+    assert.match(failed.headers.get('vary'), /\bAccept\b/i);
+    const requestId = failed.headers.get('x-request-id');
+    assert.ok(requestId);
+    const failedHtml = await failed.text();
+    assert.doesNotMatch(failedHtml, /CMS_SEED|not available|schemaVersion/);
+    assert.ok(failedHtml.includes(`Fel-ID: ${requestId}`), 'The branded page names the same error id as the header');
+    assert.match(failedHtml, /<html lang="sv">/);
+    assert.match(failedHtml, new RegExp(`<link rel="stylesheet" href="${built.styles.notFound.replaceAll('.', '\\.')}">`));
+    assert.doesNotMatch(failedHtml, /<script/);
     assert.equal(reads, 1);
+    for (const accept of ['text/markdown', 'text/plain']) {
+      const plain = await app.fetch(new Request(origin + '/', { headers: { Accept: accept } }), runtime.env);
+      assert.equal(plain.status, 503, accept);
+      assert.equal(plain.headers.get('retry-after'), '60', accept);
+      assert.equal(plain.headers.get('cache-control'), 'no-store', accept);
+      assert.match(plain.headers.get('content-type'), /^text\/plain; charset=utf-8/, accept);
+      assert.match(plain.headers.get('vary'), /\bAccept\b/i, accept);
+      assert.equal(await plain.text(), `Tillfälligt avbrott. Försök igen. Fel-ID: ${plain.headers.get('x-request-id')}`, accept);
+    }
+    assert.equal(reads, 3);
+    // No Accept header negotiates to HTML, as it does for a normal page (curl, uptime monitors).
+    const bare = await app.fetch(new Request(origin + '/'), runtime.env);
+    assert.equal(bare.status, 503);
+    assert.match(bare.headers.get('content-type'), /^text\/html; charset=utf-8/);
+    assert.match(bare.headers.get('vary'), /\bAccept\b/i);
+    const bareHtml = await bare.text();
+    assert.match(bareHtml, /<html lang="sv">/);
+    assert.ok(bareHtml.includes(`Fel-ID: ${bare.headers.get('x-request-id')}`));
+    assert.equal(reads, 4);
+    const head = await app.fetch(new Request(origin + '/', { method: 'HEAD' }), runtime.env);
+    assert.equal(head.status, 503);
+    assert.equal(head.headers.get('retry-after'), '60');
+    assert.equal(head.headers.get('cache-control'), 'no-store');
+    assert.match(head.headers.get('x-request-id'), /^[0-9a-f-]{36}$/);
+    assert.equal(await head.text(), '');
+    assert.equal(reads, 5);
+    // A file path is not a page, so even a browser gets the plain text. No file path reaches the seed load,
+    // so the static binding itself fails for this one request; the seed mock above is restored right after.
+    const seedFetch = runtime.env.ASSETS.fetch;
+    runtime.env.ASSETS.fetch = async () => { throw new Error('controlled static failure'); };
+    const file = await app.fetch(new Request(origin + '/robots.txt', { headers: { Accept: browser } }), runtime.env);
+    runtime.env.ASSETS.fetch = seedFetch;
+    assert.equal(file.status, 503);
+    assert.equal(file.headers.get('retry-after'), '60');
+    assert.match(file.headers.get('content-type'), /^text\/plain; charset=utf-8/);
+    assert.match(file.headers.get('vary'), /\bAccept\b/i);
+    assert.equal(await file.text(), `Tillfälligt avbrott. Försök igen. Fel-ID: ${file.headers.get('x-request-id')}`);
+    assert.equal(reads, 5);
     available = true;
     assert.equal((await app.fetch(new Request(origin + '/'), runtime.env)).status, 200);
-    assert.equal(reads, 2);
+    assert.equal(reads, 6);
   } finally { runtime.close(); }
 });
 

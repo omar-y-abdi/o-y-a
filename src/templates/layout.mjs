@@ -2,13 +2,15 @@ import { site } from '../content/site.mjs';
 import { escape, icon, flower } from './components.mjs';
 import { resourceSlots } from '../content/resources.mjs';
 import { shiftLink } from '../content/skift.mjs';
+import { MANIFEST_PATH } from '../content/manifest.mjs';
 export function structuredData(page) {
   const url = site.origin + page.path;
   const graph = [
     { '@type': 'Person', '@id': site.origin + '/#omar', name: site.name, url: site.origin + '/', description: 'Maskiningenjör med intresse för automation, mekatronik, kod och AI-verktyg. Visar offentliga projekt på omaryusuf.se.', jobTitle: 'Maskiningenjör', knowsAbout: ['Maskinteknik', 'Automation', 'Mekatronik', 'Kod', 'AI-verktyg'], sameAs: [site.github] },
     { '@type': 'WebSite', '@id': site.origin + '/#website', name: site.name, url: site.origin + '/', inLanguage: 'sv-SE', creator: { '@id': site.origin + '/#omar' } },
-    { '@type': page.path === '/om/' ? 'AboutPage' : page.path === '/kontakt/' ? 'ContactPage' : 'WebPage', '@id': url, url, name: page.title, description: page.description, inLanguage: 'sv-SE', isPartOf: { '@id': site.origin + '/#website' }, about: { '@id': site.origin + '/#omar' } },
   ];
+  // A noindex page has no public address of its own, so it gets no page node: its head names no canonical URL either.
+  if (!page.noindex) graph.push({ '@type': page.path === '/om/' ? 'AboutPage' : page.path === '/kontakt/' ? 'ContactPage' : 'WebPage', '@id': url, url, name: page.title, description: page.description, inLanguage: 'sv-SE', isPartOf: { '@id': site.origin + '/#website' }, about: { '@id': site.origin + '/#omar' } });
   if (page.path !== '/' && !page.noindex) graph.push({ '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Hem', item: site.origin + '/' }, { '@type': 'ListItem', position: 2, name: page.name, item: url }] });
   return JSON.stringify({ '@context': 'https://schema.org', '@graph': graph }).replace(/</g, '\\u003c');
 }
@@ -22,14 +24,14 @@ export function layout(page, content, assets) {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(page.title)}</title>
 <meta name="description" content="${escape(page.description)}">
-<link rel="canonical" href="${site.origin + page.path}"><link rel="alternate" type="text/markdown" href="${site.origin + page.path}">
+${page.noindex ? '' : `<link rel="canonical" href="${site.origin + page.path}"><link rel="alternate" type="text/markdown" href="${site.origin + page.path}">`}
 <meta name="theme-color" content="#fff0b3"><meta name="color-scheme" content="light">
 ${page.noindex ? '<meta name="robots" content="noindex, follow">' : ''}
 <meta property="og:type" content="website"><meta property="og:locale" content="sv_SE"><meta property="og:site_name" content="Omar Yusuf">
-<meta property="og:title" content="${escape(page.title)}"><meta property="og:description" content="${escape(page.description)}"><meta property="og:url" content="${site.origin + page.path}">
+<meta property="og:title" content="${escape(page.title)}"><meta property="og:description" content="${escape(page.description)}">${page.noindex ? '' : `<meta property="og:url" content="${site.origin + page.path}">`}
 <meta property="og:image" content="${escape(imageOrigin + social.src)}"><meta property="og:image:width" content="${social.width}"><meta property="og:image:height" content="${social.height}"><meta property="og:image:type" content="${escape(social.mime)}"><meta property="og:image:alt" content="${escape(social.alt)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${escape(page.title)}"><meta name="twitter:description" content="${escape(page.description)}"><meta name="twitter:image" content="${escape(imageOrigin + social.src)}"><meta name="twitter:image:alt" content="${escape(social.alt)}">
-<link rel="icon" href="${escape(resources.icon.src === resourceSlots.icon.src ? '/favicon.svg' : resources.icon.src)}" type="${resources.icon.src === resourceSlots.icon.src ? 'image/svg+xml' : escape(resources.icon.mime)}"><link rel="apple-touch-icon" href="${escape(resources.icon.src)}">
+<link rel="icon" href="${escape(resources.icon.src === resourceSlots.icon.src ? '/favicon.svg' : resources.icon.src)}" type="${resources.icon.src === resourceSlots.icon.src ? 'image/svg+xml' : escape(resources.icon.mime)}"><link rel="apple-touch-icon" href="${escape(resources.icon.src)}"><link rel="manifest" href="${MANIFEST_PATH}">
 <link rel="stylesheet" href="${assets.css}">
 <script type="application/ld+json">${structuredData(page)}</script>
 <script type="module" src="${assets.main}"></script>

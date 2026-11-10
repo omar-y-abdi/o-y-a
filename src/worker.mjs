@@ -13,7 +13,11 @@ import { ADMIN_CSP, publicContent } from './cms/render.mjs';
 import { isSkiftPath } from './cms/skift.mjs';
 import { errorResponse } from './cms/http.mjs';
 import { reportFailure } from './cms/diagnostics.mjs';
-import { negotiatePublicPage } from './server/markdown.mjs';
+import { negotiatePublicPage, preferredPageType } from './server/markdown.mjs';
+import { canonicalPagePath } from './cms/routes.mjs';
+import { securityTxt } from './content/security.mjs';
+import { MANIFEST_PATH, webManifest } from './content/manifest.mjs';
+import { unavailablePage } from './templates/unavailable.mjs';
 import { isVersionedApiPath, rejectUnsupportedApiVersion, withApiVersion } from './server/api-version.mjs';
 import { BodyTooLarge, readBounded } from './api/http.mjs';
 
@@ -23,6 +27,7 @@ const EVENTS = new Set(['page_view','joy','bubble_complete','project_open']);
 const CANONICAL = 'https://omaryusuf.se';
 const MAX_BODY_BYTES = 256;
 const TRUST_ALIASES = new Map([['/about','/om/'],['/contact','/kontakt/'],['/privacy','/integritet/']]);
+const MANIFEST = webManifest();
 const ERROR_GUIDANCE = {
   'Method not allowed': ['METHOD_NOT_ALLOWED', 'Use an HTTP method listed in the Allow response header.'],
   'Origin or consent missing': ['CONSENT_REQUIRED', 'Use the first-party webpage with an explicit analytics consent choice.'],
@@ -88,6 +93,13 @@ export default {
     if (['GET','HEAD'].includes(request.method) && TRUST_ALIASES.has(url.pathname)) {
       return secure(new Response(null, { status:308, headers:{Location:(local || stage ? url.origin : CANONICAL) + TRUST_ALIASES.get(url.pathname) + url.search} }),url.protocol === 'https:');
     }
+    // Page paths are stored lower-case. An upper-case address gets one redirect straight to the canonical page, aliases included.
+    // Reserved prefixes, file names and dot-paths keep their own handling.
+    if (['GET','HEAD'].includes(request.method) && /[A-Z]/.test(url.pathname) && !url.pathname.startsWith('/.')) {
+      const lower = url.pathname.toLowerCase();
+      const target = TRUST_ALIASES.get(lower) ?? (canonicalPagePath(url.pathname) !== null ? canonicalPagePath(lower) : null);
+      if (target !== null) return secure(new Response(null, { status:308, headers:{Location:(local || stage ? url.origin : CANONICAL) + target + url.search} }),url.protocol === 'https:');
+    }
     const versionedApi = isVersionedApiPath(url.pathname);
     const unsupportedVersion = versionedApi ? rejectUnsupportedApiVersion(request) : null;
     if (unsupportedVersion) {
@@ -117,10 +129,19 @@ export default {
         : json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
     } else if (url.pathname === '/api' || url.pathname.startsWith('/api/')) response = json({error:'Unknown public API endpoint'},404);
     else if (!['GET','HEAD'].includes(request.method)) response = json({error:'Method not allowed'},405,{Allow:'GET, HEAD'});
+    else if (url.pathname === '/.well-known/security.txt') response = new Response(securityTxt(new Date()),{headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'public, max-age=86400'}});
+    else if (url.pathname === MANIFEST_PATH) response = new Response(MANIFEST,{headers:{'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'public, max-age=86400'}});
     else if (url.pathname.endsWith('.map') || url.pathname.startsWith('/.')) response = new Response('Not found',{status:404,headers:{'Content-Type':'text/plain; charset=utf-8'}});
     else {
       try { response = await publicContent(request,env,publicBuilt,async () => (await loadAdminSeed(env)).seed) ?? await env.ASSETS.fetch(request); }
-      catch(error) { const requestId=reportFailure(error,'public'); response = new Response(`Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store','X-Request-ID':requestId}}); }
+      catch(error) {
+        const requestId=reportFailure(error,'public');
+        // Only GET and HEAD reach this branch. A page path gets the branded page whenever Accept negotiates to HTML, as normal pages do:
+        // that includes a missing Accept header and */* (curl, uptime monitors). Markdown clients, Accept values that allow neither
+        // HTML nor Markdown, and paths that are not pages get the plain text. The body depends on Accept, hence Vary on both variants.
+        const page = canonicalPagePath(url.pathname) !== null && preferredPageType(request.headers.get('Accept')) === 'html';
+        response = new Response(page ? unavailablePage({requestId,css:publicBuilt.styles.notFound}) : `Tillfälligt avbrott. Försök igen. Fel-ID: ${requestId}`,{status:503,headers:{'Content-Type':page ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8','Cache-Control':'no-store','Retry-After':'60','Vary':'Accept','X-Request-ID':requestId}});
+      }
     }
     if (url.pathname === '/404.html' && response.status === 200) {
       response = new Response(response.body,{status:404,headers:response.headers});
