@@ -137,6 +137,7 @@ function approvedBaseline(project) {
       const text = node.childNodes.filter(child => child.nodeName === '#text');
       expect(text).toHaveLength(1);
       text[0].value = 'Thanks for stopping by. ';
+      node.attrs = [...node.attrs.filter(item => item.name !== 'lang'), { name: 'lang', value: 'en' }];
     }
     page.html = serialize(tree);
     if (page.path !== '/') continue;
