@@ -5,6 +5,7 @@ import { securityTxt } from '../src/content/security.mjs';
 import { MANIFEST_PATH, webManifest } from '../src/content/manifest.mjs';
 import { unavailablePage } from '../src/templates/unavailable.mjs';
 import { layout } from '../src/templates/layout.mjs';
+import { projectDetail } from '../src/templates/expansion.mjs';
 
 const DAY = 86_400_000;
 const expiresOf = body => body.match(/^Expires: (.+)$/m)?.[1];
@@ -125,6 +126,8 @@ test('the web manifest is pretty JSON naming the site, its default colours and t
     icons: [
       { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml' },
       { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
     ],
   });
   assert.equal(MANIFEST_PATH, '/site.webmanifest');
@@ -137,6 +140,17 @@ test('every page head links the manifest exactly once and agrees with it on them
     assert.equal(html.split('<link rel="manifest" href="/site.webmanifest">').length, 2, page.path);
     assert.equal((html.match(/rel="manifest"/g) || []).length, 1, page.path);
     assert.equal(html.match(/<meta name="theme-color" content="([^"]+)">/)?.[1], manifest.theme_color, page.path);
-    assert.deepEqual([html.match(/<link rel="icon" href="([^"]+)"/)?.[1], html.match(/<link rel="apple-touch-icon" href="([^"]+)"/)?.[1]], manifest.icons.map(icon => icon.src), page.path);
+    // The head links the manifest's first two icons; the 192 and 512 px PNGs are named by the manifest only.
+    assert.deepEqual([html.match(/<link rel="icon" href="([^"]+)"/)?.[1], html.match(/<link rel="apple-touch-icon" href="([^"]+)"/)?.[1]], manifest.icons.slice(0, 2).map(icon => icon.src), page.path);
+  }
+});
+
+test('project pages keep their pull quote out of a complementary landmark inside main', () => {
+  const projects = routes.filter(route => ['blade', 'backhaul'].includes(route.template));
+  assert.equal(projects.length, 2);
+  for (const page of projects) {
+    const html = projectDetail(page);
+    assert.doesNotMatch(html, /<aside\b/, page.path);
+    assert.equal(html.split('<div class="about-side"><p>').length, 2, page.path);
   }
 });

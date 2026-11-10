@@ -24,7 +24,7 @@ const projects = {
 };
 export function projectDetail(page) {
   const p = projects[page.template];
-  return `<div class="section-wrap">${breadcrumb(page)}<section class="project-hero"><div><p class="eyebrow">${p.kicker}</p><h1>${p.heading}</h1><p class="large-lead">${p.lead}</p></div>${flower('project-detail-flower')}</section><div class="interest-tags project-meta">${p.meta.map(x=>`<span>${x}</span>`).join('')}</div><section class="about-body"><aside class="about-side"><p>${p.aside}</p></aside><div><h2>${p.title}</h2>${p.paragraphs.map(x=>`<p>${x}</p>`).join('')}${p.link ? `<a class="button button-ink" href="${p.link}">${p.label} ${icon('diagonal')}</a>` : ''}</div></section><section class="project-outro"><h2>Nästa idé börjar<br>med en fråga.</h2><a class="text-link" href="/#byggen">Fler byggen ${icon('arrow')}</a></section></div>`;
+  return `<div class="section-wrap">${breadcrumb(page)}<section class="project-hero"><div><p class="eyebrow">${p.kicker}</p><h1>${p.heading}</h1><p class="large-lead">${p.lead}</p></div>${flower('project-detail-flower')}</section><div class="interest-tags project-meta">${p.meta.map(x=>`<span>${x}</span>`).join('')}</div><section class="about-body"><div class="about-side"><p>${p.aside}</p></div><div><h2>${p.title}</h2>${p.paragraphs.map(x=>`<p>${x}</p>`).join('')}${p.link ? `<a class="button button-ink" href="${p.link}">${p.label} ${icon('diagonal')}</a>` : ''}</div></section><section class="project-outro"><h2>Nästa idé börjar<br>med en fråga.</h2><a class="text-link" href="/#byggen">Fler byggen ${icon('arrow')}</a></section></div>`;
 }
 
 export function experience() {

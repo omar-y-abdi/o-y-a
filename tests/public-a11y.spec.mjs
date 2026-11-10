@@ -6,15 +6,12 @@ const AXE = await readFile(new URL('../node_modules/axe-core/axe.min.js', import
 const PAGES = [...new Set([...project.pages.map(page => page.path), '/play/skift/'])];
 const SIZES = [[1366, 800], [360, 740]];
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-// Known violations per page and rule, as axe's node targets in document order. Production showed the same five
+// Known violations per page and rule, as axe's node targets in document order. Production showed the same four
 // nodes on 2026-11-10. Delete an entry when its cause is fixed: the comparison below is exact in both directions.
 const KNOWN = {
   // Owner content in the frozen v185 publication: the four project-card links name themselves with an aria-label
   // that leaves out the visible card text. The repository cannot change a stored page.
   '/': { 'label-content-name-mismatch': ['#inbstb', '.joy-art', '#iiio8d', '.backhaul-art'] },
-  // games/skift/src/ui.js labels the "SV / EN" button "Byt till engelska". The game bundle's hash names a file in
-  // dist/assets, so the fix changes the CMS studio build key and waits for a planned key change.
-  '/play/skift/': { 'label-content-name-mismatch': ['#language-button'] },
 };
 
 const describeViolation = ({ id, impact, help, targets, summaries }) => [
@@ -47,6 +44,26 @@ test.describe('public accessibility, axe-core WCAG A and AA', () => {
         expect(passes, 'axe reported no passing rule, so it did not audit this document').toBeGreaterThan(0);
         const known = KNOWN[path] ?? {};
         expect(Object.fromEntries(violations.map(({ id, targets }) => [id, targets])), `WCAG A/AA violations on ${path} at ${width}px differ from KNOWN. Fix a new violation; delete a KNOWN entry that no longer occurs.\nExpected known: ${JSON.stringify(known)}\nFound:\n${violations.map(describeViolation).join('\n') || '  none'}`).toEqual(known);
+      } finally { await context.close(); }
+    });
+  }
+});
+
+// The contact form sits in a closed <details>, so the axe audit above never renders its controls.
+test.describe('public pointer targets', () => {
+  for (const [width, height] of SIZES) {
+    test(`the opened contact form's privacy link is a 24 px target at ${width}px (WCAG 2.5.8)`, async ({ browser, baseURL }) => {
+      const context = await browser.newContext({ baseURL, viewport: { width, height }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+      try {
+        const page = await context.newPage();
+        await page.goto('/kontakt/', { waitUntil: 'networkidle' });
+        await page.locator('[data-postbox] > summary').click();
+        const link = page.locator('.letter-actions > a');
+        await expect(link).toHaveText('Så hanteras dina uppgifter');
+        await expect(link).toBeVisible();
+        const box = await link.boundingBox();
+        expect(box.height, JSON.stringify(box)).toBeGreaterThanOrEqual(24);
+        expect(box.width, JSON.stringify(box)).toBeGreaterThanOrEqual(24);
       } finally { await context.close(); }
     });
   }

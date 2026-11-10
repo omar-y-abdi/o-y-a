@@ -65,6 +65,24 @@ npx wrangler deploy --config wrangler.jsonc
 
 R2 has no SQL schema migration step. A CMS boot failure caused by missing D1 columns/tables is not repaired by replacing or reconnecting the R2 bucket.
 
+## A deploy that changes the studio build key
+
+`studioKey` in `.generated/cms-build.mjs` names the build that the stored studio copy (`cms_studio_heads`, `cms_studio_text`, `cms_preview_facts`) belongs to. `scripts/build-cms.mjs` derives it from the seed definitions and from the bundled validation, conversion, proof and stored-view modules. The definitions hold every file path in `dist/` with its hashed name, the `<body>` of every built page and the SKIFT page. A new, renamed or removed static file, a CSS or public JavaScript byte, a body template change and a game source change therefore each produce a new key. Compare the key with the one built from `main` before merging; a change of only `<head>` markup, Worker routes, tests or documentation keeps it.
+
+The deploy itself is not blocked. The release gate checks compatibility only: it prints the head version under `studioRefreshRequired` with the reason `build-key-changed` and still exits successfully when the stored copy is otherwise intact. Public pages are unaffected, because they are read from `cms_rendered`.
+
+After the deploy the stored copy no longer matches, so every studio request reads the compressed head revision instead (`readStudioHead` in `src/cms/studio-store.mjs` returns nothing for the new key). `/admin/api/state` then decompresses, parses and serialises the whole project, and Save, Validate, preview and recovery validate without stored proofs. On the Workers Free plan these are the requests that have exceeded the 10 ms CPU limit before (see the historical evidence above), so they can fail with 503 and outcome `exceededCpu` until the copy is refreshed.
+
+The owner refreshes the copy right after the deploy, before opening the studio:
+
+1. Do not save in the studio between the merge and the end of this procedure. Record a D1 Time Travel bookmark and the Worker version.
+2. Check out the exact deployed commit, run `npm ci` and `node scripts/build.mjs`. The locally built key must equal the running Worker's key; the tool compares them and refuses otherwise.
+3. With `CMS_MIGRATION_COOKIE` set in the environment to the owner's Access cookie (`CF_Authorization=…`), run `node scripts/cms-migrate-cpu.mjs --prepare --remote --origin=https://omaryusuf.se --receipt="$CPU_PRIVATE_RECEIPT"`. It only reads, and it refuses to overwrite an existing receipt file. Review the printed version, build key and planned reads and writes.
+4. Read the account-wide D1 rows read and written for the current UTC day from the Cloudflare dashboard and run `node scripts/cms-migrate-cpu.mjs --apply --remote --origin=https://omaryusuf.se --receipt="$CPU_PRIVATE_RECEIPT" --read-today="$CPU_READS_TODAY" --written-today="$CPU_WRITES_TODAY"` on the same UTC day.
+5. Confirm with `node scripts/cms-pull-release.mjs` that `studioRefreshRequired` is empty, then open the studio and check `cpu_time_ms` for `/admin/api/state` in the Worker logs.
+
+The operation writes no revision and no public row. [CMS-CPU-MIGRATION.md](CMS-CPU-MIGRATION.md) describes its guards, the rehearsal on a local copy, and abort and rollback. A successful Save also writes a copy for the running key, but that Save and the studio load before it run on the slow path themselves, so a Save is not the planned refresh.
+
 ## Production data runbook
 
 There is no staging Worker or staging config. The production D1 database keeps its historical name `omar-portfolio-cms-staging` (binding `CMS_DB`); it is the production database. Before any production data change:
