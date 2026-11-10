@@ -355,9 +355,9 @@ test('public browser phases partition exports without dropping cases or replacin
     } });
   });
   const [ordinary, exportPhase, webgl] = phases;
-  assert.deepEqual(ordinary.positionals, ['tests/public-pages.spec.mjs', 'tests/public-review.spec.mjs', 'tests/card-export.spec.mjs', 'tests/public-startup.spec.mjs']);
+  assert.deepEqual(ordinary.positionals, ['tests/public-pages.spec.mjs', 'tests/public-review.spec.mjs', 'tests/card-export.spec.mjs', 'tests/public-startup.spec.mjs', 'tests/public-a11y.spec.mjs']);
   assert.deepEqual(exportPhase.positionals, ['tests/card-export.spec.mjs']);
-  assert.deepEqual(webgl.positionals, ['tests/public-pages.spec.mjs', 'tests/skift.spec.mjs']);
+  assert.deepEqual(webgl.positionals, ['tests/public-pages.spec.mjs', 'tests/skift.spec.mjs', 'tests/public-a11y.spec.mjs']);
   assert.equal(ordinary.values['grep-invert'], 'all 240 production card exports');
   assert.equal(exportPhase.values.grep, ordinary.values['grep-invert']);
   assert.equal(ordinary.values.grep, undefined);
