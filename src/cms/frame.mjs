@@ -151,7 +151,12 @@ export function projectFrame(html, ownerDecisions = true) {
     if (ownerDecisions && hasClass(node, 'footer-signoff')) {
       const text = node.childNodes.filter(child => child.nodeName === '#text');
       if (text.length !== 1) fail('Sidramens avslutning behöver kontrolleras innan den kan konverteras.');
-      if (['Thanks for stopping by.', 'Tack för titten. På riktigt.'].includes(text[0].value.trim())) text[0].value = 'Thanks for stopping by. ';
+      if (['Thanks for stopping by.', 'Tack för titten. På riktigt.'].includes(text[0].value.trim())) {
+        text[0].value = 'Thanks for stopping by. ';
+        // The approved line is English on a Swedish page (WCAG 3.1.2). Other text keeps the owner's markup.
+        const lang = node.attrs.find(item => item.name === 'lang');
+        if (lang) lang.value = 'en'; else node.attrs.push({ name: 'lang', value: 'en' });
+      }
     }
   }
   return serialize(tree);

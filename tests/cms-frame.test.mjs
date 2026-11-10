@@ -29,7 +29,10 @@ function publicIdentity(html, ownerDecisions = false) {
     inMain ||= node.tagName === 'main';
     if (node.attrs) {
       const classes = (attribute(node, 'class') ?? '').split(/\s+/);
-      if (!inMain && ownerDecisions && classes.includes('footer-signoff')) for (const child of node.childNodes) if (child.nodeName === '#text') child.value = 'Thanks for stopping by. ';
+      if (!inMain && ownerDecisions && classes.includes('footer-signoff')) {
+        for (const child of node.childNodes) if (child.nodeName === '#text') child.value = 'Thanks for stopping by. ';
+        node.attrs = [...node.attrs.filter(item => item.name !== 'lang'), { name: 'lang', value: 'en' }];
+      }
       node.attrs = node.attrs.filter(item => item.name !== 'data-cms-node' && (inMain || item.name !== 'data-cms-frame-id') && (inMain || item.name !== 'id' || ['mobile-menu', 'privacy-title'].includes(item.value)));
       for (const item of node.attrs) if (item.name === 'class') item.value = item.value.trim().replace(/\s+/g, ' ');
       node.attrs.sort((left, right) => left.name.localeCompare(right.name));
@@ -160,6 +163,16 @@ test('B8: attribute values and text in the frame cannot spell tags on the public
   }
 });
 
+test('the approved sign-off is marked as English; other sign-off text keeps its markup', () => {
+  const footer = (text, attrs = '') => `<footer><span class="footer-signoff"${attrs}>${text}<span aria-hidden="true">✳</span></span></footer>`;
+  const approved = footer('Thanks for stopping by. ', ' lang="en"');
+  for (const text of ['Thanks for stopping by. ', 'Tack för titten. På riktigt. ']) assert.equal(frame.projectFrame(footer(text)), approved, text);
+  assert.equal(frame.projectFrame(approved), approved);
+  assert.equal(frame.projectFrame(footer('Thanks for stopping by. ', ' lang="sv" id="x"')), footer('Thanks for stopping by. ', ' lang="en" id="x"'));
+  assert.equal(frame.projectFrame(footer('En egen rad. ')), footer('En egen rad. '));
+  assert.equal(frame.projectFrame(footer('Tack för titten. På riktigt. '), false), footer('Tack för titten. På riktigt. '));
+});
+
 test('B8: v185 becomes one frame, complete mains and scoped contracts; only Q9 changes main CSS', () => {
   const before = JSON.stringify(v185);
   const project = validateProject(conversion.toFrameProject(v185, seed), seed);
@@ -167,6 +180,7 @@ test('B8: v185 becomes one frame, complete mains and scoped contracts; only Q9 c
   assert.equal(project.pages.length, 15);
   assert.equal(footerCount(project.frame.html), 1);
   assert.match(project.frame.html, /Thanks for stopping by\./);
+  assert.deepEqual(elements(parseFragment(project.frame.html)).filter(node => (attribute(node, 'class') ?? '').split(/\s+/).includes('footer-signoff')).map(node => attribute(node, 'lang')), ['en']);
   assert.doesNotMatch(project.frame.html, /Tack för titten/);
   assert.equal(project.sharedContent, undefined);
   assert.ok(seed.frame.contracts.length > 0);
