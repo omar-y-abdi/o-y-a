@@ -15,12 +15,13 @@ import { legacyFrameIdentities, footerId } from './helpers/frame-identities.mjs'
 import { rasterNoise } from './helpers/raster-noise.mjs';
 
 // Keep raster/compositing off the host GPU and pin color/text rendering.
+// Partial raster tiles can change rounded-edge pixels after a viewport capture.
 // File scope is required: launchOptions changes Playwright's worker fixture.
 test.use({ launchOptions: {
   ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   args: [
     ...(process.env.CHROMIUM_PATH ? ['--no-sandbox'] : []),
-    '--disable-gpu', '--force-color-profile=srgb', '--disable-lcd-text',
+    '--disable-gpu', '--force-color-profile=srgb', '--disable-lcd-text', '--disable-partial-raster',
   ],
 } });
 
@@ -449,6 +450,44 @@ async function capture(browser, runtime, pages, version, javascript, width, test
   }
   return result;
 }
+
+test('B8: viewport captures preserve workshop pixels without page changes', async ({ browser }, testInfo) => {
+  test.setTimeout(60_000);
+  const raw = JSON.parse(await readFile('tests/fixtures/cms-v185-project.json', 'utf8'));
+  const runtime = await cmsRuntime({ project: approvedBaseline(raw) });
+  let context;
+  try {
+    context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, colorScheme: 'light', reducedMotion: 'reduce', javaScriptEnabled: false });
+    const page = await context.newPage();
+    const response = await page.goto(runtime.url + '/verkstad/', { waitUntil: 'networkidle', timeout: 4_000 });
+    expect(response.status()).toBe(200);
+    await prepareCapture(page);
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      for (const animation of document.getAnimations()) { animation.pause(); animation.currentTime = 0; }
+    });
+    const capture = async name => {
+      const path = testInfo.outputPath(name + '.png');
+      const png = await page.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout: 5_000, path });
+      await testInfo.attach(name, { path, contentType: 'image/png' });
+      return png;
+    };
+    const before = await capture('before-viewport-capture');
+    const identity = await page.locator('body').evaluate(publicIdentity);
+    const geometry = () => page.locator('.noscript-note').evaluate(node => node.getBoundingClientRect().toJSON());
+    const originalBox = await geometry();
+    // Exercise viewport then full-page capture without changing content,
+    // layout or scroll position.
+    await page.screenshot({ animations: 'disabled', caret: 'hide', timeout: 5_000 });
+    const after = await capture('after-viewport-capture');
+    expect(await page.locator('body').evaluate(publicIdentity)).toEqual(identity);
+    expect(await geometry()).toEqual(originalBox);
+    expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scroll: scrollY }))).toEqual({ width: 390, height: 844, scroll: 0 });
+    expect(before.equals(after) || rasterNoise(before, after), 'An intervening viewport capture must not change full-page pixels').toBe(true);
+    await page.locator('.noscript-note').evaluate(node => { node.style.borderRadius = '0px'; });
+    expect(rasterNoise(before, await capture('changed-corners')), 'A real corner change must still fail the same pixel comparison').toBe(false);
+  } finally { try { await context?.close(); } finally { await runtime.close(); } }
+});
 
 test('B8: fifteen v185 pages retain exact approved screenshots and public identity at 390/1440 before and after js-ready', async ({ browser }, testInfo) => {
   // fr7 completed 174 captures in 300 s, including setup (~1.72 s/capture).
