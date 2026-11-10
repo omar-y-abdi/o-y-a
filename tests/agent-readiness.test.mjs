@@ -106,6 +106,17 @@ test('known trust pages have discoverable English redirects to real Swedish cont
   }
 });
 
+test('upper-case addresses get one production-origin redirect to the canonical page', async () => {
+  const worker = await app();
+  for (const [from, to] of [['/OM', '/om/'], ['/OM/index.html', '/om/'], ['/About', '/om/'], ['/CONTACT?x=1', '/kontakt/?x=1']]) {
+    const response = await worker.fetch(new Request(origin + from), env());
+    assert.equal(response.status, 308, from);
+    assert.equal(response.headers.get('location'), 'https://omaryusuf.se' + to, from);
+    const landed = await worker.fetch(new Request(response.headers.get('location')), env());
+    assert.equal(landed.status, 200, `${from}: the Location answers without another redirect`);
+  }
+});
+
 test('public API errors remain JSON and add machine-readable codes and actionable hints', async () => {
   const worker = await app();
   const missing = await worker.fetch(new Request(origin + '/api/does-not-exist'), env());

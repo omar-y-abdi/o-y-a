@@ -7,18 +7,26 @@ import { createHash } from 'node:crypto';
 import { parse } from 'parse5';
 import * as css from 'css-tree';
 import { routes, site } from '../src/content/site.mjs';
+import { MANIFEST_PATH } from '../src/content/manifest.mjs';
 import { CSP, SKIFT_CSP } from '../src/csp.mjs';
+
+// Linked from every page but answered by the Worker, never written to dist:
+// tests/http-checks.test.mjs proves the route. Nothing else is exempt below.
+const WORKER_SERVED = new Set([MANIFEST_PATH]);
 
 async function htmlFor(route) {
   return readFile(route.noindex ? 'dist/404.html' : `dist${route.path}index.html`, 'utf8');
 }
 
 test('every internal link and fragment resolves to a built page or asset', async () => {
+  // A static copy would add a path to the CMS seed and change the studio build key.
+  for (const path of WORKER_SERVED) await assert.rejects(stat('dist' + path), { code: 'ENOENT' }, path);
   for (const route of routes) {
     const html = await htmlFor(route);
     for (const match of html.matchAll(/(?:href|src)="([^"]+)"/g)) {
       const url = new URL(match[1].replaceAll('&amp;', '&'), site.origin + route.path);
       if (url.origin !== site.origin) continue;
+      if (WORKER_SERVED.has(url.pathname)) continue;
       let file = 'dist' + url.pathname;
       if (url.pathname.endsWith('/')) file += 'index.html';
       assert.ok((await stat(file)).isFile(), `${route.path}: missing ${file}`);
@@ -129,6 +137,18 @@ test('robots, sitemap and llms list canonical pages but not the error page', asy
   for (const [, loc] of sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)) assert.equal(new URL(loc).search, '');
   assert.ok(robots.includes('Disallow: /api/'));
   assert.ok(robots.includes(`Sitemap: ${site.origin}/sitemap.xml`));
+  assert.equal(robots, [
+    '# omaryusuf.se crawl policy',
+    '# Search engines and AI agents may read every public page. See /llms.txt.',
+    '# Private paths answer with X-Robots-Tag: noindex and are deliberately not listed here.',
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /api/',
+    'Sitemap: https://omaryusuf.se/sitemap.xml',
+  ].join('\n') + '\n');
+  // A Disallow would stop a compliant crawler from ever reading the noindex header on those paths.
+  assert.ok(!robots.includes('Disallow: /admin'));
+  assert.ok(!robots.includes('Disallow: /mail-file'));
 });
 
 test('social image has the promised PNG dimensions and icons really exist', async () => {

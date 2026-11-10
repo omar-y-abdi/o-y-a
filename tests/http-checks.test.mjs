@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { parseArgs } from 'node:util';
 import { cmsRuntime } from './helpers/cms-runtime.mjs';
+import { MANIFEST_PATH, webManifest } from '../src/content/manifest.mjs';
 
 const project = JSON.parse(await readFile(new URL('./fixtures/cms-v185-project.json', import.meta.url), 'utf8'));
 const routes = [...new Set([...project.pages.filter(page => !page.noindex).map(page => page.path), '/play/skift/'])];
@@ -91,6 +92,8 @@ test('missing paths return custom 404 HTML with noindex', async () => {
     assert.equal(response.status, 404, path);
     assert.match(response.body.toString(), /tog fikapaus/);
     assert.match(response.body.toString(), /noindex/);
+    assert.doesNotMatch(response.body.toString(), /rel="canonical"|type="text\/markdown"|og:url/, path);
+    assert.ok(!response.body.toString().includes('omaryusuf.se/404.html'), `${path}: the error page names no address of its own`);
   }
 });
 
@@ -208,6 +211,87 @@ test('private paths, traversal and source maps are never served', async () => {
     assert.ok(response.status >= 400, path);
     assert.ok(!response.body.includes('"scripts"'));
   }
+});
+
+test('security.txt is the only served dot-path and follows RFC 9116', async () => {
+  const before = Date.now();
+  const response = await fetchHttp('/.well-known/security.txt');
+  const after = Date.now();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^text\/plain; charset=utf-8/);
+  assert.equal(response.headers.get('cache-control'), 'public, max-age=86400');
+  const lines = response.body.toString().split('\n');
+  assert.equal(lines.pop(), '', 'The body ends with a newline');
+  assert.deepEqual(lines.map(line => line.split(':')[0]), ['Contact', 'Expires', 'Preferred-Languages', 'Canonical']);
+  assert.equal(lines[0], 'Contact: https://omaryusuf.se/kontakt/');
+  assert.equal(lines[3], 'Canonical: https://omaryusuf.se/.well-known/security.txt');
+  // More than 179 and at most 180 days ahead of the Worker's clock, which read the time between `before` and `after`.
+  const expires = Date.parse(lines[1].slice('Expires: '.length));
+  assert.ok(expires - before > 179 * 86_400_000 && expires - after <= 180 * 86_400_000, lines[1]);
+  const head = await fetchHttp('/.well-known/security.txt', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.body.length, 0);
+  assert.match(head.headers.get('content-type'), /^text\/plain/);
+  assert.equal(head.headers.get('cache-control'), 'public, max-age=86400');
+  const post = await fetchHttp('/.well-known/security.txt', { method: 'POST' });
+  assert.equal(post.status, 405);
+  // `/.Git/`, `/.Git/HEAD`, `/.Well-Known/` and `/.ENV/` count as page paths in both cases, so only the dot-path guard keeps them from a 308.
+  for (const path of ['/.env', '/.well-known/other', '/.well-known/security.txt.bak', '/.Git/', '/.Git/HEAD', '/.Well-Known/', '/.ENV/', '/.Well-Known/security.txt', '/.ENV']) {
+    const missing = await fetchHttp(path);
+    assert.equal(missing.status, 404, path);
+    assert.equal(missing.headers.get('location'), null, path);
+  }
+});
+
+test('the web manifest is answered by the Worker and every icon it names is served', async () => {
+  const response = await fetchHttp(MANIFEST_PATH);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'application/manifest+json; charset=utf-8');
+  assert.equal(response.headers.get('cache-control'), 'public, max-age=86400');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(response.body.toString(), webManifest());
+  const manifest = JSON.parse(response.body);
+  assert.equal(manifest.start_url, '/');
+  assert.equal(manifest.icons.length, 2);
+  for (const icon of manifest.icons) {
+    const file = await fetchHttp(icon.src);
+    assert.equal(file.status, 200, icon.src);
+    assert.ok(file.headers.get('content-type').startsWith(icon.type), `${icon.src}: ${file.headers.get('content-type')}`);
+  }
+  const head = await fetchHttp(MANIFEST_PATH, { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.body.length, 0);
+  assert.equal(head.headers.get('content-type'), 'application/manifest+json; charset=utf-8');
+  assert.equal(head.headers.get('cache-control'), 'public, max-age=86400');
+  const post = await fetchHttp(MANIFEST_PATH, { method: 'POST' });
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.get('allow'), 'GET, HEAD');
+});
+
+test('upper-case page paths redirect permanently to the lower-case page, other paths do not', async () => {
+  for (const [path, target] of [
+    ['/OM/', '/om/'], ['/Kontakt/?ref=Mail', '/kontakt/?ref=Mail'], ['/PLAY/SKIFT/', '/play/skift/'],
+    // One hop: no second redirect for the missing slash, the index file or the English alias.
+    ['/OM', '/om/'], ['/OM/index.html', '/om/'], ['/About', '/om/'], ['/CONTACT?x=1', '/kontakt/?x=1'],
+  ]) {
+    const response = await fetchHttp(path);
+    assert.equal(response.status, 308, path);
+    assert.equal(response.headers.get('location'), runtime.url + target, path);
+    const landed = await fetchHttp(response.headers.get('location'));
+    assert.equal(landed.status, 200, `${path}: the Location answers without another redirect`);
+    assert.equal(landed.headers.get('location'), null, path);
+    const head = await fetchHttp(path, { method: 'HEAD' });
+    assert.equal(head.status, 308, `HEAD ${path}`);
+    assert.equal(head.headers.get('location'), runtime.url + target, `HEAD ${path}`);
+  }
+  // `ASSETS` and `Admin` are not reserved prefixes themselves, only their lower-case forms are.
+  for (const path of ['/ASSETS/missing', '/Admin/', '/API/config', '/Favicon.SVG', '/404.HTML']) {
+    const response = await fetchHttp(path);
+    assert.notEqual(response.status, 308, path);
+    assert.equal(response.headers.get('location'), null, path);
+  }
+  const post = await fetchHttp('/OM/', { method: 'POST' });
+  assert.equal(post.status, 405);
 });
 
 test('HTTP analytics availability and consent gates match the configured binding', async () => {
