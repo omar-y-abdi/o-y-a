@@ -145,6 +145,14 @@ test('every page head links the manifest exactly once and agrees with it on them
   }
 });
 
+test('every page marks the English footer sign-off as English (WCAG 3.1.2)', () => {
+  for (const page of routes) {
+    const html = layout(page, '', { css: '/assets/site.test.css', main: '/assets/main.test.mjs' });
+    assert.equal(html.split('<span class="footer-signoff" lang="en">Thanks for stopping by. <span aria-hidden="true">✳</span></span>').length, 2, page.path);
+    assert.equal((html.match(/class="footer-signoff"/g) || []).length, 1, page.path);
+  }
+});
+
 test('project pages keep their pull quote out of a complementary landmark inside main', () => {
   const projects = routes.filter(route => ['blade', 'backhaul'].includes(route.template));
   assert.equal(projects.length, 2);
